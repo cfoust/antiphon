@@ -24,6 +24,16 @@ fn main() {
         run_parity(&asset_path);
         return;
     }
+    // `voices <wav_dir> <asset> <out_dir>`: render real voice lines placed in space.
+    if std::env::args().nth(1).as_deref() == Some("voices") {
+        let a: Vec<String> = std::env::args().collect();
+        run_voices(
+            a.get(2).map(|s| s.as_str()).unwrap_or("out/voices_src"),
+            a.get(3).map(|s| s.as_str()).unwrap_or("assets/baked/chamber-ari.chamber"),
+            a.get(4).map(|s| s.as_str()).unwrap_or("out/voices"),
+        );
+        return;
+    }
     if std::env::args().nth(1).as_deref() == Some("bench") {
         let asset = std::env::args()
             .nth(2)
@@ -138,6 +148,81 @@ fn main() {
     }
 
     println!("done. wrote demos to {}/", out_dir);
+}
+
+/// Load a mono WAV (any int/float, assumed already 48 kHz) into normalized f32.
+fn load_wav_mono(path: &str) -> Vec<f32> {
+    let mut r = hound::WavReader::open(path).unwrap_or_else(|e| panic!("open {}: {}", path, e));
+    let spec = r.spec();
+    let ch = spec.channels.max(1) as usize;
+    let raw: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => r.samples::<f32>().flatten().collect(),
+        hound::SampleFormat::Int => {
+            let s = 1.0 / (1i64 << (spec.bits_per_sample - 1)) as f32;
+            r.samples::<i32>().flatten().map(|v| v as f32 * s).collect()
+        }
+    };
+    if ch == 1 {
+        raw
+    } else {
+        raw.chunks(ch).map(|c| c.iter().sum::<f32>() / ch as f32).collect()
+    }
+}
+
+/// Render the original-project voice lines placed in 3D space, three ways.
+fn run_voices(wav_dir: &str, asset_path: &str, out_dir: &str) {
+    std::fs::create_dir_all(out_dir).unwrap();
+    let bytes = std::fs::read(asset_path).expect("asset");
+    let asset = ChamberAsset::parse(&bytes).expect("parse asset");
+    let names = ["atlas", "echo", "wren", "cass", "iris", "rook"];
+    let sigs: Vec<Vec<f32>> = names
+        .iter()
+        .map(|n| load_wav_mono(&format!("{}/{}.wav", wav_dir, n)))
+        .collect();
+    let refs: Vec<&[f32]> = sigs.iter().map(|v| v.as_slice()).collect();
+    let room = |want: &str| asset.rooms.iter().position(|r| r.name == want).unwrap_or(0);
+    println!("voices from {} through {} ({} dirs)", wav_dir, asset_path, asset.directions.len());
+
+    // 1) Six voices in a 360° ring around you; you slowly rotate to face each in turn.
+    render_multi(&asset, out_dir, "ring6", room("room"), 22.0, |_t, srcs, pose| {
+        let n = srcs.len();
+        for (i, s) in srcs.iter_mut().enumerate() {
+            let bearing = 2.0 * PI * i as f32 / n as f32; // 0,60,120,180,240,300°
+            let r = 2.0;
+            s.position = Vec3::new(r * bearing.sin(), 0.0, -r * bearing.cos());
+            s.gain = 0.55;
+        }
+        // slow full head turn over the clip
+        pose.orientation = Quat::from_yaw(2.0 * PI * (_t / 22.0));
+        pose.position = Vec3::new(0.0, 0.0, 0.0);
+    }, &refs);
+
+    // 2) A single voice (atlas) orbiting your head in a hall.
+    render_multi(&asset, out_dir, "orbit_atlas", room("hall"), 20.0, |t, srcs, pose| {
+        let ang = 2.0 * PI * (t / 12.0);
+        let r = 1.5;
+        srcs[0].position = Vec3::new(r * ang.sin(), 0.3 * (0.5 * ang).sin(), -r * ang.cos());
+        srcs[0].gain = 0.95;
+        *pose = Pose::default();
+    }, &refs[..1]);
+
+    // 3) 6DoF — the six voices stand in a room and you walk through them.
+    render_multi(&asset, out_dir, "walk_through", room("room"), 22.0, |t, srcs, pose| {
+        let layout = [
+            (-1.3, -2.0), (1.3, -3.2), (-1.1, -4.6),
+            (1.2, -6.0), (-1.0, -7.4), (1.1, -8.8),
+        ];
+        for (i, s) in srcs.iter_mut().enumerate() {
+            let (x, z) = layout[i];
+            s.position = Vec3::new(x, 0.0, z);
+            s.gain = 0.7;
+        }
+        let z = -9.5 * (t / 22.0); // walk forward past all six
+        pose.position = Vec3::new(0.4 * (2.0 * PI * t / 6.0).sin(), 0.0, z);
+        pose.orientation = Quat::from_yaw(0.3 * (2.0 * PI * t / 9.0).sin());
+    }, &refs);
+
+    println!("wrote {}/ring6.wav, orbit_atlas.wav, walk_through.wav", out_dir);
 }
 
 /// Render-time benchmark: how much faster than real time can we render N voices (with
