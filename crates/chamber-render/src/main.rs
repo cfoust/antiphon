@@ -24,6 +24,15 @@ fn main() {
         run_parity(&asset_path);
         return;
     }
+    // `suite <wav_dir> <out_dir>`: A/B test matrix for the Chamber application.
+    if std::env::args().nth(1).as_deref() == Some("suite") {
+        let a: Vec<String> = std::env::args().collect();
+        run_suite(
+            a.get(2).map(|s| s.as_str()).unwrap_or("out/voices_src"),
+            a.get(3).map(|s| s.as_str()).unwrap_or("out/suite"),
+        );
+        return;
+    }
     // `voices <wav_dir> <asset> <out_dir>`: render real voice lines placed in space.
     if std::env::args().nth(1).as_deref() == Some("voices") {
         let a: Vec<String> = std::env::args().collect();
@@ -149,6 +158,250 @@ fn main() {
 
     println!("done. wrote demos to {}/", out_dir);
 }
+
+const PING_FREQS: [f32; 6] = [523.25, 392.0, 587.33, 659.25, 783.99, 880.0];
+
+fn angdiff(a: f32, b: f32) -> f32 {
+    let mut d = (a - b) % (2.0 * PI);
+    if d > PI { d -= 2.0 * PI }
+    if d < -PI { d += 2.0 * PI }
+    d
+}
+
+/// Current earcon: a near-pure decaying sine (+ one harmonic). Few spectral cues → tends
+/// to localize poorly / collapse in-head.
+fn ping_sine(freq: f32) -> Vec<f32> {
+    let n = (0.6 * SR) as usize;
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let env = (-t * 7.0).exp();
+            (((2.0 * PI * freq * t).sin()) * 0.5 + (2.0 * PI * freq * 1.5 * t).sin() * 0.22) * env
+        })
+        .collect()
+}
+
+/// Broadband earcon: a short filtered noise transient (rich pinna cues) + an inharmonic
+/// tonal body. Externalizes far better through an HRTF.
+fn ping_rich(freq: f32, seed: u32) -> Vec<f32> {
+    let n = (0.6 * SR) as usize;
+    let mut rng = Lcg(seed);
+    let mut lp = 0.0f32;
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let env = (-t * 8.0).exp();
+            // 10 ms noise transient, gently tilted (keeps energy in the pinna 3–9 kHz band)
+            let click = if t < 0.012 {
+                let w = rng.next_f();
+                lp += 0.45 * (w - lp);
+                (0.6 * lp + 0.4 * w) * (1.0 - t / 0.012)
+            } else {
+                0.0
+            };
+            let tone = (2.0 * PI * freq * t).sin() * 0.4
+                + (2.0 * PI * freq * 2.01 * t).sin() * 0.16
+                + (2.0 * PI * freq * 3.0 * t).sin() * 0.1;
+            (0.55 * click + 0.45 * tone * env) * env.max(0.0)
+        })
+        .collect()
+}
+
+/// A/B suite for the Chamber application: full chamber scenes (HRTF × room) and isolated
+/// earcon-externalization tests (sine vs broadband, side vs front, dry vs reverberant).
+fn run_suite(wav_dir: &str, out_dir: &str) {
+    std::fs::create_dir_all(out_dir).unwrap();
+    let names = ["atlas", "echo", "wren", "cass", "iris", "rook"];
+    let voices: Vec<Vec<f32>> = names
+        .iter()
+        .map(|n| load_wav_mono(&format!("{}/{}.wav", wav_dir, n)))
+        .collect();
+
+    let load = |p: &str| -> Option<ChamberAsset> {
+        std::fs::read(p).ok().and_then(|b| ChamberAsset::parse(&b).ok())
+    };
+    let ari = load("assets/baked/chamber-ari.chamber");
+    let kemar = load("assets/baked/chamber-kemar.chamber");
+    let default = load("assets/baked/chamber-default.chamber");
+    fn pick<'a>(a: &'a Option<ChamberAsset>, d: &'a Option<ChamberAsset>) -> Option<&'a ChamberAsset> {
+        a.as_ref().or(d.as_ref())
+    }
+
+    println!("Chamber A/B suite -> {}/", out_dir);
+    println!("  assets: ari={} kemar={} default={}", ari.is_some(), kemar.is_some(), default.is_some());
+
+    // ---- full chamber scenes: 6 voices on a front arc, head pans, two agents emit pings ----
+    if let Some(a) = pick(&ari, &default) {
+        chamber_scene(a, out_dir, "scene_ari_hall", "hall", &voices, true);
+        chamber_scene(a, out_dir, "scene_ari_room", "room", &voices, true);
+        chamber_scene(a, out_dir, "scene_ari_hallconv", "hall_conv", &voices, true);
+    }
+    if let Some(a) = pick(&kemar, &default) {
+        chamber_scene(a, out_dir, "scene_kemar_hall", "hall", &voices, true);
+    }
+
+    // ---- isolated earcon externalization tests (a ping every 1.5 s) ----
+    let ping_asset = pick(&ari, &default).cloned();
+    if let Some(a) = &ping_asset {
+        // sine (current) vs broadband, at 60° right
+        ping_test(a, out_dir, "ping_A_sine_dry", "dry", false, 60.0);
+        ping_test(a, out_dir, "ping_B_sine_hall", "hall", false, 60.0);
+        ping_test(a, out_dir, "ping_C_rich_hall", "hall", true, 60.0);
+        ping_test(a, out_dir, "ping_D_rich_hallconv", "hall_conv", true, 60.0);
+        // placement: front collapses more than the side
+        ping_test(a, out_dir, "ping_E_rich_front", "hall", true, 0.0);
+        ping_test(a, out_dir, "ping_F_rich_behind", "hall", true, 150.0);
+    }
+
+    // ---- reference: the single-voice orbit you liked ----
+    if let Some(a) = pick(&ari, &default) {
+        let r = room_idx(a, "hall");
+        render_multi(a, out_dir, "ref_orbit_atlas", r, 16.0, |t, srcs, pose| {
+            let ang = 2.0 * PI * (t / 12.0);
+            srcs[0].position = Vec3::new(1.5 * ang.sin(), 0.0, -1.5 * ang.cos());
+            srcs[0].gain = 0.95;
+            *pose = Pose::default();
+        }, &[voices[0].as_slice()]);
+    }
+
+    println!("done. listen in {}/ — read out/suite/README.txt", out_dir);
+    let _ = std::fs::write(
+        format!("{}/README.txt", out_dir),
+        SUITE_README,
+    );
+}
+
+fn room_idx(a: &ChamberAsset, want: &str) -> usize {
+    a.rooms.iter().position(|r| r.name == want).unwrap_or(0)
+}
+
+/// Full chamber: 6 voices on a ±90° front arc, head pans ±70°, the faced voice opens up
+/// (others a quiet bed), and two "done" agents emit pings from their own bearings.
+fn chamber_scene(
+    asset: &ChamberAsset,
+    out_dir: &str,
+    name: &str,
+    room: &str,
+    voices: &[Vec<f32>],
+    rich_ping: bool,
+) {
+    let n = 6;
+    let mut r = Renderer::new(asset, SR, n, BLOCK);
+    r.set_room(room_idx(asset, room));
+    r.set_master_gain(0.9);
+
+    let pings: Vec<Vec<f32>> = (0..n)
+        .map(|i| if rich_ping { ping_rich(PING_FREQS[i], 0x1000 + i as u32) } else { ping_sine(PING_FREQS[i]) })
+        .collect();
+    let done = [1usize, 4usize]; // these two emit pings
+    let bearings: Vec<f32> = (0..n).map(|i| (-90.0 + 180.0 * i as f32 / 5.0).to_radians()).collect();
+
+    let dur = 26.0;
+    let total = (dur * SR) as usize;
+    let mut out_l = vec![0.0; BLOCK];
+    let mut out_r = vec![0.0; BLOCK];
+    let mut stereo = Vec::with_capacity(total * 2);
+    let mut srcs: Vec<Source> = (0..n).map(|_| Source::new(Vec3::new(0.0, 0.0, -2.4), 0.3)).collect();
+    let mut inb: Vec<Vec<f32>> = (0..n).map(|_| vec![0.0; BLOCK]).collect();
+
+    let mut pos = 0;
+    while pos < total {
+        let blk = BLOCK.min(total - pos);
+        let t = pos as f32 / SR;
+        let yaw = (2.0 * PI * t / 13.0).sin() * 70.0f32.to_radians(); // slow pan ±70°
+        let pose = Pose::from_yaw(-yaw); // forward convention; matches the app
+
+        for i in 0..n {
+            let bearing = bearings[i];
+            srcs[i].position = Vec3::new(2.4 * bearing.sin(), 0.0, -2.4 * bearing.cos());
+            // focus: the agent nearest the head yaw opens up; others are a quiet bed
+            let focus = angdiff(bearing, yaw).cos().max(0.0).powf(6.0);
+            srcs[i].gain = 0.22 + 0.78 * focus;
+            srcs[i].send = 0.3;
+            for k in 0..blk {
+                let v = voices[i][(pos + k) % voices[i].len()];
+                let mut s = v;
+                if done.contains(&i) {
+                    let ph = ((t + 0.7 * i as f32) % 3.0) * SR; // ping every 3 s
+                    let pi = ph as usize + k;
+                    if pi < pings[i].len() {
+                        s = v * 0.5 + pings[i][pi] * 0.7; // ping rides on top, same position
+                    }
+                }
+                inb[i][k] = s;
+            }
+        }
+        let refs: Vec<&[f32]> = inb.iter().map(|v| &v[..blk]).collect();
+        r.process(&pose, &srcs, &refs, &mut out_l, &mut out_r, blk);
+        for k in 0..blk {
+            stereo.push(out_l[k]);
+            stereo.push(out_r[k]);
+        }
+        pos += blk;
+    }
+    write_wav(&format!("{}/{}.wav", out_dir, name), &stereo);
+    println!("  {:<22} room={} ping={}", name, room, if rich_ping { "rich" } else { "sine" });
+}
+
+/// Isolated earcon test: a single source at `bearing_deg`, emitting a ping every 1.5 s.
+fn ping_test(asset: &ChamberAsset, out_dir: &str, name: &str, room: &str, rich: bool, bearing_deg: f32) {
+    let mut r = Renderer::new(asset, SR, 1, BLOCK);
+    r.set_room(room_idx(asset, room));
+    r.set_master_gain(0.9);
+    let ping = if rich { ping_rich(587.33, 0x55) } else { ping_sine(587.33) };
+    let bearing = bearing_deg.to_radians();
+    let src = [Source::new(Vec3::new(2.0 * bearing.sin(), 0.0, -2.0 * bearing.cos()), 0.9)];
+    let pose = Pose::default();
+
+    let dur = 10.0;
+    let total = (dur * SR) as usize;
+    let mut out_l = vec![0.0; BLOCK];
+    let mut out_r = vec![0.0; BLOCK];
+    let mut stereo = Vec::with_capacity(total * 2);
+    let mut inb = vec![0.0f32; BLOCK];
+    let mut pos = 0;
+    while pos < total {
+        let blk = BLOCK.min(total - pos);
+        let t = pos as f32 / SR;
+        for k in 0..blk {
+            let ph = (((t) % 1.5) * SR) as usize + k;
+            inb[k] = if ph < ping.len() { ping[ph] } else { 0.0 };
+        }
+        let refs: [&[f32]; 1] = [&inb[..blk]];
+        r.process(&pose, &src, &refs, &mut out_l, &mut out_r, blk);
+        for k in 0..blk {
+            stereo.push(out_l[k]);
+            stereo.push(out_r[k]);
+        }
+        pos += blk;
+    }
+    write_wav(&format!("{}/{}.wav", out_dir, name), &stereo);
+    println!("  {:<22} room={} ping={} bearing={}°", name, room, if rich { "rich" } else { "sine" }, bearing_deg);
+}
+
+const SUITE_README: &str = "\
+Chamber A/B suite — listen on headphones.
+
+FULL SCENES (6 voices on a front arc, head slowly pans ±70°, agents 'echo' and 'iris'
+emit pings from their own positions; the voice you face opens up, others stay a quiet bed):
+  scene_ari_hall      ARI HRTF + hall reverb   (likely best — most externalized)
+  scene_ari_room      ARI HRTF + smaller room  (drier, more intimate)
+  scene_ari_hallconv  ARI HRTF + measured BRIR convolution room
+  scene_kemar_hall    KEMAR (dummy head) + hall, to A/B the HRTF vs ARI
+
+EARCON EXTERNALIZATION (the 'done' beep, one every 1.5 s, at 60° right unless noted):
+  ping_A_sine_dry     pure sine, no reverb   — the in-head failure case (current app)
+  ping_B_sine_hall    pure sine + hall       — reverb alone helps a little
+  ping_C_rich_hall    broadband + hall       — should externalize clearly (recommended)
+  ping_D_rich_hallconv broadband + BRIR room
+  ping_E_rich_front   broadband, straight ahead — front collapses more than the side
+  ping_F_rich_behind  broadband, 150° behind   — does it stay behind you?
+
+REFERENCE:
+  ref_orbit_atlas     single voice orbit, ARI+hall (the one that sounded best)
+
+Tell me which scene (HRTF+room) and which earcon you prefer and I'll bake it into the app.
+";
 
 /// Load a mono WAV (any int/float, assumed already 48 kHz) into normalized f32.
 fn load_wav_mono(path: &str) -> Vec<f32> {
