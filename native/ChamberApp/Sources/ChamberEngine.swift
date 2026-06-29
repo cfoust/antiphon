@@ -100,6 +100,7 @@ final class ChamberEngine: ObservableObject {
     @Published var ready = false
     @Published var roomIndex = 1
     @Published var hrtfName = ""
+    @Published var use6DoF = false   // webcam position estimate is crude → opt-in
 
     private let engine = AVAudioEngine()
     private var srcNode: AVAudioSourceNode!
@@ -125,6 +126,7 @@ final class ChamberEngine: ObservableObject {
     private var pubCounter = 0
     private var started = false
     private var autoFinishInternal = true
+    private var use6DoFInternal = false
 
     // preallocated FFI scratch (no allocation in the render callback)
     private var inBufs: [UnsafeMutablePointer<Float>] = []
@@ -224,10 +226,13 @@ final class ChamberEngine: ObservableObject {
             }
         }
 
-        // pose: head yaw (and 6DoF position). forward = (sin orient, 0, -cos orient) =>
-        // quaternion about +y of -orient (see docs/conventions.md).
+        // pose: head yaw. forward = (sin orient, 0, -cos orient) => quaternion about +y of
+        // -orient (see docs/conventions.md). Listener stays at the origin unless 6DoF is on
+        // (the webcam position estimate is crude and otherwise mislocalizes everything).
         let h = 0.5 * orient
-        var pose = ChamberPose(px: Float(headX), py: Float(headY), pz: Float(headZ),
+        let p6 = use6DoFInternal
+        var pose = ChamberPose(px: p6 ? Float(headX) : 0, py: p6 ? Float(headY) : 0,
+                               pz: p6 ? Float(headZ) : 0,
                                qw: Float(cos(h)), qx: 0, qy: Float(-sin(h)), qz: 0)
         renderer.process(pose: &pose, sources: UnsafePointer(srcArr), n: agents.count,
                          inputs: UnsafePointer(inTable), outL: outL, outR: outR, frames: n)
@@ -258,6 +263,10 @@ final class ChamberEngine: ObservableObject {
     func setRoom(_ i: Int) {
         q.async { self.renderer?.setRoom(i) }
         DispatchQueue.main.async { self.roomIndex = i }
+    }
+    func setUse6DoF(_ on: Bool) {
+        q.async { self.use6DoFInternal = on }
+        DispatchQueue.main.async { self.use6DoF = on }
     }
 
     // MARK: the loop

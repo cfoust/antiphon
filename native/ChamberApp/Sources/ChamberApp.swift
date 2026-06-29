@@ -67,7 +67,12 @@ struct ContentView: View {
                 Button("finish one") { engine.finishOne() }
             }.font(.caption)
 
-            Toggle("invert pitch (if look-down feels backwards)", isOn: $tracker.pitchInvert).font(.caption2)
+            HStack {
+                Toggle("invert pitch", isOn: $tracker.pitchInvert)
+                Spacer()
+                Toggle("6DoF position (experimental)", isOn: Binding(
+                    get: { engine.use6DoF }, set: { engine.setUse6DoF($0) }))
+            }.font(.caption2)
 
             Text("Headphones on. Turn to face an agent to hear it open up; look down to whisper everyone. Agents finish on their own — face one and hold ~1.5s for its summary.")
                 .font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.center)
