@@ -25,7 +25,10 @@ fn main() {
         return;
     }
     if std::env::args().nth(1).as_deref() == Some("bench") {
-        run_bench();
+        let asset = std::env::args()
+            .nth(2)
+            .unwrap_or_else(|| "assets/baked/chamber-default.chamber".to_string());
+        run_bench(&asset);
         return;
     }
 
@@ -139,9 +142,10 @@ fn main() {
 
 /// Render-time benchmark: how much faster than real time can we render N voices (with
 /// order-2 reflections + reverb)? Reports the realtime multiple — the performance headroom.
-fn run_bench() {
-    let bytes = std::fs::read("assets/baked/chamber-default.chamber").expect("asset");
+fn run_bench(asset_path: &str) {
+    let bytes = std::fs::read(asset_path).expect("asset");
     let asset = ChamberAsset::parse(&bytes).unwrap();
+    println!("bench asset: {} ({} directions)", asset_path, asset.directions.len());
     for (room, n) in [("hall", 12usize), ("hall_conv", 12), ("dry", 12)] {
         let ridx = asset.rooms.iter().position(|r| r.name == room).unwrap_or(0);
         let mut r = Renderer::new(&asset, SR, n, BLOCK);

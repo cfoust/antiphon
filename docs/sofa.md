@@ -15,33 +15,39 @@ cargo run -p chamber-bake --release --features sofa -- \
 cargo run -p chamber-render --release -- assets/baked/chamber-kemar.chamber out_kemar
 ```
 
-## How it works (`bake_hrtf_from_sofa`)
+## How it works (`bake_sofa`)
 1. **Open + resample.** `sofar`'s `OpenOptions::new().sample_rate(48000.0).open(path)` reads
    the SOFA and resamples to 48 kHz on open (`sofar` 0.3 is pure Rust — no libmysofa C build,
-   no cmake). MIT KEMAR's 512-tap @44.1 k IRs come back as 558-tap @48 k.
-2. **Sample onto our grid.** For each (az, el) grid point we query the nearest measurement via
-   `sofa.filter(x, y, z, &mut filter)` with **SOFA cartesian** coords (`+x` front, `+y` left,
-   `+z` up): `x=cos(el)cos(az), y=cos(el)sin(az), z=sin(el)`. This reuses the existing grid +
-   3-nearest runtime interpolation; no coordinate enumeration or triangulation needed.
+   no cmake).
+2. **Enumerate (default).** Read the set's own measurements at **full resolution** via
+   `sofa.hrtf()` (`source_position`, `data_ir`, `m()/n()/r()`). Positions come back cartesian
+   (`+x` front, `+y` left, `+z` up) → `az=atan2(y,x), el=atan2(z,hypot(x,y))`. `--sofa-grid`
+   instead samples our fixed grid via the interpolating `sofa.filter(x,y,z,…)`.
 3. **Minimum phase.** Each ear's measured IR → FFT magnitude (`mag_of_ir`) → the shared
    real-cepstrum routine (`min_phase_from_mag`, also used by the analytic model). This strips
    the bulk delay so neighbouring directions interpolate without comb-filtering.
 4. **ITD.** Extracted from the raw IR onsets (−15 dB threshold, `onset_samples`) plus any
-   stored per-ear delay (`filter.ldelay/rdelay`), carried separately as fractional samples.
+   stored per-ear delay, carried separately as fractional samples.
 
 ## Verified
-- Coordinate mapping correct: orbit ILD sweeps front→right(+10 dB)→left(−10 dB).
-- Measured KEMAR has stronger head-shadow ILD (~10 dB vs the analytic ~5 dB) and far more
-  high-frequency detail/presence (real pinna), which is the audible win for elevation and
-  front/back.
+- Coordinate mapping correct on both datasets: orbit ILD sweeps front→right(+9 dB)→left(−9 dB).
+- **MIT KEMAR** (710 dirs, dummy head): stronger head-shadow ILD (~10 dB vs analytic ~5) and
+  far more HF detail.
+- **ARI nh2** (1550 dirs, real human, 48 k): strong elevation-dependent spectral cue (HF
+  energy up=0.62 vs down=0.40) — the real-pinna front/back & elevation win the analytic model
+  can't produce.
+- **Performance:** the dense 1550-direction set costs only ~10% over the 296-dir analytic set
+  (5.8× vs 6.5× realtime, 12 voices+order2+reverb) — the 3-nearest search is per-voice-per-
+  block, not per-sample. A kd-tree would make it O(log n) if a much larger grid is ever used.
+
+## Datasets
+`tools/fetch-sofa.sh` grabs MIT KEMAR (dummy head) and ARI nh2 (dense, real human, 48 k) from
+sofacoustics.org. Other free sets to try: **SADIE II** (KU100), **SONICOM**, FABIAN/FHK KU100.
 
 ## Notes / next
-- Currently samples the SOFA at our fixed grid (nearest measurement). To preserve a dense
-  set's full resolution, enumerate the file's own measurements instead and store them
-  directly (the runtime interpolation already handles arbitrary grids).
-- Diffuse-field equalization and per-dataset coordinate quirks (0–360 az, elevation sign) are
-  worth a per-dataset sanity check.
-- Other free 48 kHz sets to try: **SADIE II** (KU100), **SONICOM**, FABIAN/FHK KU100.
+- Diffuse-field equalization, and per-dataset coordinate quirks, are worth a per-dataset
+  sanity check (the orbit ILD sweep + elevation HF check are quick smoke tests).
+- kd-tree the runtime nearest-search if a much larger grid is ever used (currently linear).
 
 ## Measured rooms (Tier-1 BRIR)
 Drop a 48 kHz stereo `assets/brir/<room>.wav` and `chamber-bake` uses it for that room's

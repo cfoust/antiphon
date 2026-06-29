@@ -42,8 +42,9 @@ fn main() {
     let fft = planner.plan_fft_forward(FFT_N);
     let ifft = planner.plan_fft_inverse(FFT_N);
 
+    let use_grid = args.iter().any(|a| a == "--sofa-grid");
     let n_dirs = if let Some(sp) = sofa_path {
-        bake_hrtf_from_sofa(&sp, &mut b, &*fft, &*ifft)
+        bake_sofa(&sp, use_grid, &mut b, &*fft, &*ifft)
     } else {
         bake_hrtf_analytic(&mut b, &*fft, &*ifft)
     };
@@ -243,13 +244,14 @@ fn bake_hrtf_analytic(
     n
 }
 
-/// Import a measured SOFA HRTF, sampling it onto our spherical grid (each grid point filled
-/// by libmysofa's nearest-measurement lookup, resampled to 48 kHz on open). Each ear's
-/// measured magnitude is converted to minimum phase; the interaural delay is extracted from
-/// the raw IR onsets (plus any stored delay) and carried separately as the ITD.
+/// Import a measured SOFA HRTF. By default **enumerates the set's own measurements** at full
+/// resolution; `--sofa-grid` instead samples (interpolated) onto our fixed spherical grid.
+/// Each ear's measured magnitude becomes minimum-phase; ITD comes from the raw IR onsets
+/// (plus any stored delay), carried separately.
 #[cfg(feature = "sofa")]
-fn bake_hrtf_from_sofa(
+fn bake_sofa(
     path: &str,
+    use_grid: bool,
     b: &mut AssetBuilder,
     fft: &dyn rustfft::Fft<f32>,
     ifft: &dyn rustfft::Fft<f32>,
@@ -260,10 +262,54 @@ fn bake_hrtf_from_sofa(
         .sample_rate(SR)
         .open(path)
         .unwrap_or_else(|e| panic!("open SOFA {}: {:?}", path, e));
-    let flen = sofa.filter_len();
-    println!("  SOFA {}: filter_len {} @ {} Hz", path, flen, SR);
-    let mut filt = Filter::new(flen);
 
+    if !use_grid {
+        // ---- enumerate the set's own measurements (full resolution) ----
+        let h = sofa.hrtf();
+        let m = h.m() as usize;
+        let n = h.n() as usize;
+        let r = h.r() as usize;
+        let pos = &h.source_position.values;
+        let ir = &h.data_ir.values;
+        let ptype = h
+            .source_position
+            .attributes
+            .get("Type")
+            .cloned()
+            .unwrap_or_default()
+            .to_lowercase();
+        // spherical unless the file says cartesian (or values clearly aren't degrees)
+        let spherical = !ptype.contains("cartesian");
+        println!(
+            "  SOFA {}: {} measurements, {} taps @ {} Hz, pos type '{}'",
+            path, m, n, SR, ptype
+        );
+
+        for meas in 0..m.min(pos.len() / 3) {
+            let c = [pos[meas * 3], pos[meas * 3 + 1], pos[meas * 3 + 2]];
+            let (az, el) = if spherical {
+                (c[0].to_radians(), c[1].to_radians())
+            } else {
+                // SOFA cartesian: +x front, +y left, +z up
+                (c[1].atan2(c[0]), c[2].atan2((c[0] * c[0] + c[1] * c[1]).sqrt()))
+            };
+            let lbase = (meas * r) * n;
+            let rbase = (meas * r + 1.min(r - 1)) * n;
+            let lir = &ir[lbase..lbase + n];
+            let rir = &ir[rbase..rbase + n];
+
+            let hl = min_phase_from_mag(&mag_of_ir(lir, fft), fft, ifft);
+            let hr = min_phase_from_mag(&mag_of_ir(rir, fft), fft, ifft);
+            let itd = (onset_samples(rir) - onset_samples(lir)).clamp(-60.0, 60.0);
+            b.push_direction(az, el, itd, &hl, &hr);
+        }
+        return m;
+    }
+
+    // ---- sample (interpolated) onto our fixed grid ----
+    let flen = sofa.filter_len();
+    println!("  SOFA {}: grid sampling, filter_len {} @ {} Hz", path, flen, SR);
+    let mut filt = Filter::new(flen);
     let mut n = 0usize;
     let mut el_deg: f32 = -45.0;
     while el_deg <= 90.0 + 1e-3 {
@@ -272,21 +318,13 @@ fn bake_hrtf_from_sofa(
         let mut az_deg: f32 = -180.0;
         while az_deg < 180.0 - 1e-3 {
             let az = az_deg.to_radians();
-            // SOFA cartesian: +x front, +y left, +z up; az measured CCW toward +left.
             let (ce, se) = (el.cos(), el.sin());
-            let (x, y, z) = (ce * az.cos(), ce * az.sin(), se);
-            sofa.filter(x, y, z, &mut filt);
-
-            let mag_l = mag_of_ir(&filt.left, fft);
-            let mag_r = mag_of_ir(&filt.right, fft);
-            let hl = min_phase_from_mag(&mag_l, fft, ifft);
-            let hr = min_phase_from_mag(&mag_r, fft, ifft);
-
-            // ITD: onset difference (samples) plus any stored per-ear delay.
+            sofa.filter(ce * az.cos(), ce * az.sin(), se, &mut filt);
+            let hl = min_phase_from_mag(&mag_of_ir(&filt.left, fft), fft, ifft);
+            let hr = min_phase_from_mag(&mag_of_ir(&filt.right, fft), fft, ifft);
             let onset_l = onset_samples(&filt.left) + filt.ldelay * SR;
             let onset_r = onset_samples(&filt.right) + filt.rdelay * SR;
             let itd = (onset_r - onset_l).clamp(-60.0, 60.0);
-
             b.push_direction(az, el, itd, &hl, &hr);
             n += 1;
             az_deg += az_step;
@@ -297,13 +335,14 @@ fn bake_hrtf_from_sofa(
 }
 
 #[cfg(not(feature = "sofa"))]
-fn bake_hrtf_from_sofa(
+fn bake_sofa(
     _path: &str,
+    _use_grid: bool,
     _b: &mut AssetBuilder,
     _fft: &dyn rustfft::Fft<f32>,
     _ifft: &dyn rustfft::Fft<f32>,
 ) -> usize {
-    eprintln!("error: --sofa requires building with `--features sofa` (pulls in libmysofa).");
+    eprintln!("error: --sofa requires building with `--features sofa`.");
     std::process::exit(1);
 }
 
