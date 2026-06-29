@@ -24,6 +24,10 @@ fn main() {
         run_parity(&asset_path);
         return;
     }
+    if std::env::args().nth(1).as_deref() == Some("bench") {
+        run_bench();
+        return;
+    }
 
     let asset_path = std::env::args()
         .nth(1)
@@ -105,7 +109,73 @@ fn main() {
         }, &sig_refs);
     }
 
+    // --- Scene 8: orbit in the convolution (measured-BRIR-style) hall, A/B vs scene 3 ---
+    render(&asset, &out_dir, "08_orbit_hall_conv", room_of(&room_names, "hall_conv"), 10.0, |t, srcs, pose| {
+        let ang = 2.0 * PI * (t / 10.0);
+        let r = 1.8;
+        srcs[0].position = Vec3::new(r * ang.sin(), 0.0, -r * ang.cos());
+        *pose = Pose::default();
+    }, &[voice(196.0)]);
+
+    // --- Scene 9: 6DoF — listener WALKS past three fixed voices (position, not just yaw) ---
+    {
+        let sigs = vec![voice(160.0), voice(210.0), voice(280.0)];
+        let refs: Vec<&[f32]> = sigs.iter().map(|v| v.as_slice()).collect();
+        render_multi(&asset, &out_dir, "09_walk_6dof", room_of(&room_names, "room"), 10.0, |t, srcs, pose| {
+            // three voices fixed in the world, along a corridor
+            srcs[0].position = Vec3::new(-1.2, 0.0, -2.0);
+            srcs[1].position = Vec3::new(1.2, 0.0, -4.0);
+            srcs[2].position = Vec3::new(-1.0, 0.0, -6.0);
+            // listener walks forward (−z) from z=0 to z=−6, drifting side to side
+            let z = -6.0 * (t / 10.0);
+            let x = 0.5 * (2.0 * PI * t / 5.0).sin();
+            pose.position = Vec3::new(x, 0.0, z);
+            pose.orientation = Quat::from_yaw(0.0);
+        }, &refs);
+    }
+
     println!("done. wrote demos to {}/", out_dir);
+}
+
+/// Render-time benchmark: how much faster than real time can we render N voices (with
+/// order-2 reflections + reverb)? Reports the realtime multiple — the performance headroom.
+fn run_bench() {
+    let bytes = std::fs::read("assets/baked/chamber-default.chamber").expect("asset");
+    let asset = ChamberAsset::parse(&bytes).unwrap();
+    for (room, n) in [("hall", 12usize), ("hall_conv", 12), ("dry", 12)] {
+        let ridx = asset.rooms.iter().position(|r| r.name == room).unwrap_or(0);
+        let mut r = Renderer::new(&asset, SR, n, BLOCK);
+        r.set_room(ridx);
+        let sigs: Vec<Vec<f32>> = (0..n).map(|i| voice(150.0 + 13.0 * i as f32)).collect();
+        let srcs: Vec<Source> = (0..n)
+            .map(|i| {
+                let b = -PI / 2.0 + PI * i as f32 / (n as f32 - 1.0);
+                Source::new(Vec3::new(2.0 * b.sin(), 0.0, -2.0 * b.cos()), 0.7)
+            })
+            .collect();
+        let dur = 5.0;
+        let total = (dur * SR) as usize;
+        let mut ol = vec![0.0; BLOCK];
+        let mut or = vec![0.0; BLOCK];
+        let mut inb: Vec<Vec<f32>> = (0..n).map(|_| vec![0.0; BLOCK]).collect();
+        let t0 = std::time::Instant::now();
+        let mut pos = 0;
+        while pos < total {
+            for s in 0..n {
+                for i in 0..BLOCK {
+                    inb[s][i] = sigs[s][(pos + i) % sigs[s].len()];
+                }
+            }
+            let refs: Vec<&[f32]> = inb.iter().map(|v| v.as_slice()).collect();
+            r.process(&Pose::from_yaw(0.2), &srcs, &refs, &mut ol, &mut or, BLOCK);
+            pos += BLOCK;
+        }
+        let el = t0.elapsed().as_secs_f64();
+        println!(
+            "bench {:>10}: {} voices, {:.1}s audio in {:.3}s  ->  {:.1}x realtime",
+            room, n, dur, el, dur as f64 / el
+        );
+    }
 }
 
 /// Canonical, fully-deterministic scene used to verify native vs wasm parity.

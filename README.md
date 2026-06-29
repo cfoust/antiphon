@@ -11,19 +11,25 @@ per-source HRTF on the direct path, geometry-aware early reflections, and a para
 reverb — and defers personalization (hooks left in place).
 
 ## What works today
-- **Direct path**: minimum-phase HRIR FIR (128 taps) + separate fractional-delay ITD +
-  distance/air-absorption, with per-block coefficient ramping (click-free motion).
-  3-nearest inverse-angle interpolation over a spherical grid.
-- **Early reflections (Tier 2)**: first-order shoebox image sources rendered through the
-  same HRTF kernel.
-- **Late reverb**: 16-line FDN (Hadamard mixing, per-line damping, anti-denormal), RT60 from
-  room geometry. (Convolution/BRIR backend — Tier 1 — is wired in the format/trait and is the
-  next addition.)
+- **Direct path**: minimum-phase HRIR FIR (128 taps, **SIMD** via `wide` f32x8) + separate
+  fractional-delay ITD + distance/air-absorption, with per-block coefficient ramping
+  (click-free motion). 3-nearest inverse-angle interpolation over a spherical grid.
+- **6DoF**: full position + orientation pose; the engine recomputes per-source geometry from
+  head position and orientation (see the `09_walk_6dof` demo and the native app's webcam
+  position estimate).
+- **Early reflections**: shoebox image sources up to **order 2**, rendered through the same
+  HRTF kernel, capped by a **global energy-ranked budget** (48 voices) so CPU is bounded.
+- **Late reverb, two backends**: parametric **16-line FDN** (Hadamard mix, per-line damping,
+  anti-denormal) *and* **Tier-1 convolution** against a stereo BRIR (`fft-convolver`,
+  partitioned). Selectable per room preset; A/B them by ear (`hall` vs `hall_conv`).
 - **Self-contained HRTF**: an analytic *structural* model (head-shadow ILD, elevation pinna
   notch, Woodworth ITD) baked offline → compact `.chamber` blob, so there are **zero external
-  downloads** and the WASM runtime needs no SOFA/HDF5 parser. Swappable for measured SOFA.
+  downloads** and the WASM runtime needs no SOFA/HDF5 parser. Swappable for measured SOFA
+  (see `docs/sofa.md`). BRIRs can be dropped in as `assets/brir/<room>.wav`.
 - **Both hosts**: native `AVAudioSourceNode → Rust`, web `AudioWorklet → wasm`. 60 KB wasm,
   no imports, no SharedArrayBuffer.
+- **Performance**: ~6.5× realtime for 12 voices with order-2 reflections + reverb (release,
+  one core); `cargo run -p chamber-render --release -- bench`.
 
 ## Layout
 ```
@@ -49,8 +55,9 @@ bash tools/build-web.sh && python3 -m http.server -d web 8080
 See `docs/build.md`. Coordinate/ITD conventions: `docs/conventions.md`.
 
 ## Roadmap (next)
-- Tier-1 convolution reverb from measured BRIRs (partitioned, `fft-convolver`) + a measured
-  SOFA importer in `chamber-bake` (libmysofa via `sofar`, offline only).
-- SIMD (`wide` / wasm `simd128`) on the FIR + FDN inner loops.
-- Image-source order 2 with an energy-ranked global budget.
-- 6DoF position from spatial face tracking; optional HRTF selection/personalization.
+- Measured **SOFA importer** in `chamber-bake` (libmysofa via `sofar`, offline only) — see
+  `docs/sofa.md`. This is the biggest remaining *fidelity* lever (real ears/room vs analytic).
+- Measured-BRIR rooms (drop-in `assets/brir/*.wav` already works; add BRIR-SOFA + early/late
+  split for directional early reflections).
+- SIMD on the FDN inner loop + wasm `simd128` tuning; non-uniform partitioned convolution.
+- Near-field HRTF correction (<1 m); optional HRTF selection/personalization.

@@ -50,43 +50,43 @@ fn main() {
         el_deg += 15.0;
     }
 
-    // Room presets (parametric FDN). dims (w,h,d) m; rt60 low/mid/high; absorption; order; wet.
-    b.push_room(RoomPreset {
-        name: "dry".into(),
-        dims: [6.0, 3.0, 8.0],
-        rt60: [0.18, 0.15, 0.12],
-        wall_absorption: 0.9,
-        reflection_order: 0,
-        wet: 0.0,
-        backend: ReverbBackend::Fdn,
-    });
-    b.push_room(RoomPreset {
-        name: "room".into(),
-        dims: [5.5, 3.0, 6.5],
-        rt60: [0.55, 0.45, 0.30],
-        wall_absorption: 0.22,
-        reflection_order: 1,
-        wet: 0.22,
-        backend: ReverbBackend::Fdn,
-    });
-    b.push_room(RoomPreset {
-        name: "hall".into(),
-        dims: [18.0, 12.0, 28.0],
-        rt60: [2.6, 2.1, 1.4],
-        wall_absorption: 0.10,
-        reflection_order: 1,
-        wet: 0.32,
-        backend: ReverbBackend::Fdn,
-    });
-    b.push_room(RoomPreset {
-        name: "cathedral".into(),
-        dims: [24.0, 22.0, 60.0],
-        rt60: [5.5, 4.2, 2.4],
-        wall_absorption: 0.06,
-        reflection_order: 1,
-        wet: 0.40,
-        backend: ReverbBackend::Fdn,
-    });
+    // Room presets. dims (w,h,d) m; rt60 low/mid/high; absorption; reflection order; wet.
+    // FDN (parametric) rooms first, then matching convolution (BRIR) rooms so you can A/B
+    // the two backends by ear. Convolution rooms get a stereo late-BRIR — synthesized here
+    // (early reflections + decorrelated, frequency-damped diffuse tail), or loaded from
+    // assets/brir/<name>.wav if a measured 48 kHz stereo file is present.
+    let mut mk = |name: &str, dims: [f32; 3], rt60: [f32; 3], abs: f32, order: u32, wet: f32,
+                  backend: ReverbBackend| {
+        let (ir_left, ir_right) = if backend == ReverbBackend::Convolution {
+            match load_brir_wav(name) {
+                Some(ir) => {
+                    println!("  room '{}': using measured BRIR assets/brir/{}.wav", name, name);
+                    ir
+                }
+                None => synth_brir(rt60[1], rt60[2], dims, 1.2),
+            }
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        b.push_room(RoomPreset {
+            name: name.into(),
+            dims,
+            rt60,
+            wall_absorption: abs,
+            reflection_order: order,
+            wet,
+            backend,
+            ir_left,
+            ir_right,
+        });
+    };
+    use ReverbBackend::{Convolution, Fdn};
+    mk("dry", [6.0, 3.0, 8.0], [0.18, 0.15, 0.12], 0.9, 0, 0.0, Fdn);
+    mk("room", [5.5, 3.0, 6.5], [0.55, 0.45, 0.30], 0.22, 2, 0.22, Fdn);
+    mk("hall", [18.0, 12.0, 28.0], [2.6, 2.1, 1.4], 0.10, 2, 0.32, Fdn);
+    mk("cathedral", [24.0, 22.0, 60.0], [5.5, 4.2, 2.4], 0.06, 1, 0.40, Fdn);
+    mk("room_conv", [5.5, 3.0, 6.5], [0.55, 0.45, 0.30], 0.22, 2, 0.9, Convolution);
+    mk("hall_conv", [18.0, 12.0, 28.0], [2.6, 2.1, 1.4], 0.10, 2, 0.9, Convolution);
 
     let bytes = b.to_bytes();
     if let Some(dir) = std::path::Path::new(&out_path).parent() {
@@ -96,10 +96,129 @@ fn main() {
     println!(
         "baked {} directions, {} rooms -> {} ({:.1} KB)",
         n_dirs,
-        4,
+        b.rooms.len(),
         out_path,
         bytes.len() as f32 / 1024.0
     );
+}
+
+/// Deterministic LCG for synthesizing diffuse reverb noise.
+struct Lcg(u32);
+impl Lcg {
+    fn nf(&mut self) -> f32 {
+        self.0 = self.0.wrapping_mul(1664525).wrapping_add(1013904223);
+        (self.0 >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0
+    }
+}
+
+/// Synthesize a stereo late-BRIR: a few early reflections followed by a decorrelated,
+/// frequency-damped exponentially-decaying diffuse tail. A stand-in until a measured BRIR
+/// is dropped in — same runtime path, just better data.
+fn synth_brir(rt60_mid: f32, rt60_high: f32, dims: [f32; 3], max_len_s: f32) -> (Vec<f32>, Vec<f32>) {
+    let len = ((rt60_mid * 1.05).min(max_len_s) * SR) as usize;
+    let mut l = vec![0.0f32; len];
+    let mut r = vec![0.0f32; len];
+    let mut rng = Lcg(0x9E3779B1);
+
+    // Early reflections: sparse taps in the first ~60 ms, spacing scaled by room size.
+    let size = (dims[0] + dims[1] + dims[2]) / 3.0;
+    let early_n = 14;
+    for k in 0..early_n {
+        let t = 0.004 + 0.0035 * k as f32 * (size / 10.0).clamp(0.4, 2.5);
+        let i = (t * SR) as usize;
+        if i >= len {
+            break;
+        }
+        let amp = 0.5 * 0.82f32.powi(k as i32);
+        // slightly different arrival per ear -> width
+        let il = i;
+        let ir = (i as f32 + 2.0 + 6.0 * rng.nf().abs()) as usize;
+        l[il] += amp * sign(rng.nf());
+        if ir < len {
+            r[ir] += amp * sign(rng.nf());
+        }
+    }
+
+    // Diffuse tail: independent noise per ear (decorrelation), shared decay envelope, with
+    // a one-pole lowpass whose damping increases over time (HF decays faster).
+    let mut lp_l = 0.0f32;
+    let mut lp_r = 0.0f32;
+    let hf_ratio = (rt60_high / rt60_mid).clamp(0.2, 1.0);
+    for i in 0..len {
+        let t = i as f32 / SR;
+        let env = (-6.9077 * t / rt60_mid).exp(); // -60 dB at rt60_mid
+        // damping coefficient: more HF loss later in the tail
+        let a = (0.9 - 0.5 * (1.0 - hf_ratio) * (t / rt60_mid).min(1.0)).clamp(0.05, 0.95);
+        let nl = rng.nf();
+        let nr = rng.nf();
+        lp_l += a * (nl - lp_l);
+        lp_r += a * (nr - lp_r);
+        l[i] += 0.6 * env * lp_l;
+        r[i] += 0.6 * env * lp_r;
+    }
+
+    // normalize peak to ~0.5 (runtime `wet` then sets level)
+    let peak = l
+        .iter()
+        .chain(r.iter())
+        .fold(0.0f32, |m, &x| m.max(x.abs()))
+        .max(1e-6);
+    let g = 0.5 / peak;
+    for x in l.iter_mut().chain(r.iter_mut()) {
+        *x *= g;
+    }
+    (l, r)
+}
+
+/// Load a measured stereo BRIR from `assets/brir/<name>.wav` (expects 48 kHz, 2 channels).
+fn load_brir_wav(name: &str) -> Option<(Vec<f32>, Vec<f32>)> {
+    let path = format!("assets/brir/{}.wav", name);
+    let mut reader = hound::WavReader::open(&path).ok()?;
+    let spec = reader.spec();
+    if spec.channels != 2 {
+        eprintln!("  brir {}: expected 2 channels, got {}", path, spec.channels);
+        return None;
+    }
+    if spec.sample_rate != SR as u32 {
+        eprintln!(
+            "  brir {}: expected {} Hz, got {} (resample offline first)",
+            path, SR, spec.sample_rate
+        );
+        return None;
+    }
+    let mut l = Vec::new();
+    let mut r = Vec::new();
+    match spec.sample_format {
+        hound::SampleFormat::Float => {
+            for (i, s) in reader.samples::<f32>().flatten().enumerate() {
+                if i % 2 == 0 {
+                    l.push(s)
+                } else {
+                    r.push(s)
+                }
+            }
+        }
+        hound::SampleFormat::Int => {
+            let scale = 1.0 / (1i64 << (spec.bits_per_sample - 1)) as f32;
+            for (i, s) in reader.samples::<i32>().flatten().enumerate() {
+                let v = s as f32 * scale;
+                if i % 2 == 0 {
+                    l.push(v)
+                } else {
+                    r.push(v)
+                }
+            }
+        }
+    }
+    Some((l, r))
+}
+
+fn sign(x: f32) -> f32 {
+    if x >= 0.0 {
+        1.0
+    } else {
+        -1.0
+    }
 }
 
 /// Structural HRIR for one direction: returns (left[HRIR_LEN], right[HRIR_LEN], itd_samples).

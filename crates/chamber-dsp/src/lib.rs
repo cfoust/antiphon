@@ -17,12 +17,27 @@ pub use math::{Quat, Vec3};
 
 use chamber_assets::{ChamberAsset, ReverbBackend, RoomPreset};
 use hrtf::HrtfDb;
-use reverb::Fdn;
+use reverb::{ConvReverb, Fdn};
 use voice::Voice;
 
 pub const SPEED_OF_SOUND: f32 = 343.0;
 const MAX_ITD_SAMPLES: usize = 64; // ~1.3 ms @48k
-const REFLECT_PER_SOURCE: usize = 6; // first-order shoebox images
+/// Global cap on simultaneously-rendered image sources (energy-ranked). Bounds reflection
+/// CPU independent of source count or reflection order.
+const REFLECT_BUDGET: usize = 48;
+/// Image sources generated per source at order 2 (|mx|+|my|+|mz| <= 2, excluding direct).
+const MAX_IMAGES_PER_SOURCE: usize = 24;
+
+/// One candidate image source for a block (Copy so the scratch list needs no allocation).
+#[derive(Clone, Copy)]
+struct ImageCand {
+    src: usize,
+    dir: Vec3,
+    dist: f32,
+    ord: u32,
+    amp: f32,
+    energy: f32,
+}
 
 /// Listener head pose. Position in world metres; orientation maps body axes to world.
 #[derive(Clone, Copy, Debug)]
@@ -72,6 +87,8 @@ struct Room {
     wall_absorption: f32,
     wet: f32,
     backend: ReverbBackend,
+    ir_left: Vec<f32>,
+    ir_right: Vec<f32>,
 }
 
 impl Room {
@@ -82,6 +99,8 @@ impl Room {
             wall_absorption: p.wall_absorption,
             wet: p.wet,
             backend: p.backend,
+            ir_left: p.ir_left.clone(),
+            ir_right: p.ir_right.clone(),
         }
     }
     fn dry() -> Room {
@@ -91,6 +110,8 @@ impl Room {
             wall_absorption: 1.0,
             wet: 0.0,
             backend: ReverbBackend::Fdn,
+            ir_left: Vec::new(),
+            ir_right: Vec::new(),
         }
     }
 }
@@ -99,12 +120,17 @@ pub struct Renderer {
     sr: f32,
     db: HrtfDb,
     max_sources: usize,
+    max_block: usize,
 
     direct: Vec<Voice>,
-    reflect: Vec<Voice>, // max_sources * REFLECT_PER_SOURCE
+    reflect: Vec<Voice>, // REFLECT_BUDGET shared image-source voices
     reflections_enabled: bool,
+    image_cands: Vec<ImageCand>,
+    src_dist: Vec<f32>,
+    silence: Vec<f32>,
 
     fdn: Fdn,
+    conv: Option<ConvReverb>,
     rooms: Vec<Room>,
     cur_room: usize,
     room: Room,
@@ -136,8 +162,8 @@ impl Renderer {
         for _ in 0..max_sources {
             direct.push(Voice::new(hrir_len, MAX_ITD_SAMPLES, 1));
         }
-        let mut reflect = Vec::with_capacity(max_sources * REFLECT_PER_SOURCE);
-        for _ in 0..max_sources * REFLECT_PER_SOURCE {
+        let mut reflect = Vec::with_capacity(REFLECT_BUDGET);
+        for _ in 0..REFLECT_BUDGET {
             reflect.push(Voice::new(hrir_len, MAX_ITD_SAMPLES, max_predelay));
         }
 
@@ -147,22 +173,28 @@ impl Renderer {
         }
 
         let mut fdn = Fdn::new(sample_rate);
-        let room = if let Some(p) = asset.rooms.first() {
+        let (room, conv) = if let Some(p) = asset.rooms.first() {
             let r = Room::from_preset(p);
             fdn.configure(p.rt60[1], p.rt60[2], mean_dim(&p.dims), p.wet);
-            r
+            let c = build_conv(&r, max_block);
+            (r, c)
         } else {
-            Room::dry()
+            (Room::dry(), None)
         };
 
         Renderer {
             sr: sample_rate,
             db,
             max_sources,
+            max_block,
             direct,
             reflect,
             reflections_enabled: true,
+            image_cands: Vec::with_capacity(max_sources * MAX_IMAGES_PER_SOURCE),
+            src_dist: vec![1.0; max_sources],
+            silence: vec![0.0; max_block],
             fdn,
+            conv,
             rooms,
             cur_room: 0,
             room,
@@ -201,17 +233,19 @@ impl Renderer {
         }
         let idx = idx.min(self.rooms.len() - 1);
         self.cur_room = idx;
-        let p = &self.rooms[idx];
+        let src = &self.rooms[idx];
         self.room = Room {
-            dims: p.dims,
-            reflection_order: p.reflection_order,
-            wall_absorption: p.wall_absorption,
-            wet: p.wet,
-            backend: p.backend,
+            dims: src.dims,
+            reflection_order: src.reflection_order,
+            wall_absorption: src.wall_absorption,
+            wet: src.wet,
+            backend: src.backend,
+            ir_left: src.ir_left.clone(),
+            ir_right: src.ir_right.clone(),
         };
-        self.fdn
-            .configure_from(self.room.dims, self.room.wet);
+        self.fdn.configure_from(self.room.dims, self.room.wet);
         self.fdn.reset();
+        self.conv = build_conv(&self.room, self.max_block);
     }
 
     /// Render one block. `inputs[i]` is the mono signal for `sources[i]`; each must be
@@ -263,6 +297,7 @@ impl Renderer {
             let rel = inv_head.rotate(world);
             let dist = rel.len().max(1e-4);
             let dir = rel.normalized();
+            self.src_dist[i] = dist;
 
             let dgain = src.gain * distance_atten(dist);
             let lp_a = air_lp(dist);
@@ -272,29 +307,6 @@ impl Renderer {
                 &self.hrir_l, &self.hrir_r, itd, dgain, lp_a, 0.0, false,
             );
             self.direct[i].process(inp, out_l, out_r, send_slice, src.send);
-
-            // ---- image-source early reflections (first order shoebox) ----
-            if self.reflections_enabled && self.room.reflection_order >= 1 {
-                let images = first_order_images(src.position, self.room.dims);
-                let refl = (1.0 - self.room.wall_absorption).max(0.0).sqrt();
-                let refl_lp_extra = self.room.wall_absorption;
-                for (k, img) in images.iter().enumerate() {
-                    let slot = i * REFLECT_PER_SOURCE + k;
-                    let w = img.sub(self.head_pos);
-                    let r = inv_head.rotate(w);
-                    let idist = r.len().max(1e-4);
-                    let idir = r.normalized();
-                    let extra = (idist - dist).max(0.0);
-                    let predelay = extra / SPEED_OF_SOUND * self.sr;
-                    let igain = src.gain * refl * distance_atten(idist);
-                    let ilp = (air_lp(idist) * (1.0 - 0.5 * refl_lp_extra)).clamp(0.05, 1.0);
-                    let iitd = self.db.interp(idir, &mut self.hrir_l, &mut self.hrir_r);
-                    self.reflect[slot].set_target(
-                        &self.hrir_l, &self.hrir_r, iitd, igain, ilp, predelay, false,
-                    );
-                    self.reflect[slot].process(inp, out_l, out_r, send_slice, 0.0);
-                }
-            }
         }
 
         // deactivate unused voices (ramp to silence next block if reused)
@@ -307,10 +319,78 @@ impl Renderer {
             }
         }
 
-        // ---- late reverb ----
-        if self.room.wet > 0.0 && self.room.backend == ReverbBackend::Fdn {
+        // ---- image-source early reflections (order 1..2, global energy budget) ----
+        if self.reflections_enabled && self.room.reflection_order >= 1 {
+            let order = self.room.reflection_order;
+            let refl_coeff = (1.0 - self.room.wall_absorption).max(0.0); // per bounce
+            let wall_abs = self.room.wall_absorption;
+
+            // gather candidate image sources from every source
+            let head_pos = self.head_pos;
+            let dims = self.room.dims;
+            self.image_cands.clear();
+            let cands = &mut self.image_cands;
+            for i in 0..n {
+                let s = sources[i].position;
+                let gain = sources[i].gain;
+                shoebox_images(s, dims, order, |pos, ord| {
+                    let rel = inv_head.rotate(pos.sub(head_pos));
+                    let idist = rel.len().max(0.05);
+                    let amp = gain * refl_coeff.powi(ord as i32) * distance_atten(idist);
+                    cands.push(ImageCand {
+                        src: i,
+                        dir: rel.normalized(),
+                        dist: idist,
+                        ord,
+                        amp,
+                        energy: amp * amp,
+                    });
+                });
+            }
+            // keep the loudest REFLECT_BUDGET (energy-ranked; bounds CPU regardless of N)
+            self.image_cands
+                .sort_unstable_by(|a, b| b.energy.partial_cmp(&a.energy).unwrap_or(core::cmp::Ordering::Equal));
+            let k = self.image_cands.len().min(REFLECT_BUDGET);
+
+            for slot in 0..REFLECT_BUDGET {
+                if slot < k {
+                    let c = self.image_cands[slot];
+                    let extra = (c.dist - self.src_dist[c.src]).max(0.0);
+                    let predelay = extra / SPEED_OF_SOUND * self.sr;
+                    // each extra bounce adds high-frequency loss
+                    let ilp = (air_lp(c.dist) * (1.0 - 0.4 * wall_abs * c.ord as f32))
+                        .clamp(0.05, 1.0);
+                    let iitd = self.db.interp(c.dir, &mut self.hrir_l, &mut self.hrir_r);
+                    self.reflect[slot].set_target(
+                        &self.hrir_l, &self.hrir_r, iitd, c.amp, ilp, predelay, false,
+                    );
+                    let inp = &inputs[c.src][..frames];
+                    self.reflect[slot].process(inp, out_l, out_r, send_slice, 0.0);
+                } else if self.reflect[slot].active {
+                    self.reflect[slot].set_target(
+                        &self.hrir_l, &self.hrir_r, 0.0, 0.0, 1.0, 0.0, false,
+                    );
+                    self.reflect[slot].process(&self.silence[..frames], out_l, out_r, send_slice, 0.0);
+                    self.reflect[slot].active = false;
+                }
+            }
+        }
+
+        // ---- late reverb (FDN or measured-BRIR convolution, per preset) ----
+        if self.room.wet > 0.0 {
             let (rl, rr) = (&mut self.rev_l[..frames], &mut self.rev_r[..frames]);
-            self.fdn.process(send_slice, rl, rr);
+            for i in 0..frames {
+                rl[i] = 0.0;
+                rr[i] = 0.0;
+            }
+            match self.room.backend {
+                ReverbBackend::Convolution if self.conv.is_some() => {
+                    self.conv.as_mut().unwrap().process(send_slice, rl, rr);
+                }
+                _ => {
+                    self.fdn.process(send_slice, rl, rr);
+                }
+            }
             for i in 0..frames {
                 out_l[i] += rl[i];
                 out_r[i] += rr[i];
@@ -329,6 +409,21 @@ impl Renderer {
 
 fn mean_dim(d: &[f32; 3]) -> f32 {
     (d[0] + d[1] + d[2]) / 3.0
+}
+
+/// Build a convolution reverb for a room if it uses a BRIR; otherwise None.
+fn build_conv(room: &Room, max_block: usize) -> Option<ConvReverb> {
+    if room.backend == ReverbBackend::Convolution && !room.ir_left.is_empty() {
+        Some(ConvReverb::new(
+            128,
+            &room.ir_left,
+            &room.ir_right,
+            room.wet,
+            max_block,
+        ))
+    } else {
+        None
+    }
 }
 
 #[inline]
@@ -350,17 +445,28 @@ fn soft_limit(x: f32, limit: f32) -> f32 {
     limit * (x / limit).tanh()
 }
 
-/// First-order image sources for a shoebox centred at the origin with the given dims.
-fn first_order_images(s: Vec3, dims: [f32; 3]) -> [Vec3; 6] {
-    let (w, h, d) = (dims[0], dims[1], dims[2]);
-    [
-        Vec3::new(w - s.x, s.y, s.z),
-        Vec3::new(-w - s.x, s.y, s.z),
-        Vec3::new(s.x, h - s.y, s.z),
-        Vec3::new(s.x, -h - s.y, s.z),
-        Vec3::new(s.x, s.y, d - s.z),
-        Vec3::new(s.x, s.y, -d - s.z),
-    ]
+/// Enumerate shoebox image sources up to `order` for a room centred at the origin with
+/// walls at ±dim/2. For a 1-D room the image of source `s` is `m*L + (-1)^m * s`; the 3-D
+/// images are the product, with reflection order `|mx|+|my|+|mz|`. Calls `push(pos, order)`
+/// for each image (excluding the direct path, order 0).
+fn shoebox_images(s: Vec3, dims: [f32; 3], order: u32, mut push: impl FnMut(Vec3, u32)) {
+    let o = order as i32;
+    let (lx, ly, lz) = (dims[0], dims[1], dims[2]);
+    let axis = |m: i32, l: f32, c: f32| m as f32 * l + if m & 1 == 0 { c } else { -c };
+    for mx in -o..=o {
+        for my in -o..=o {
+            for mz in -o..=o {
+                let ord = mx.abs() + my.abs() + mz.abs();
+                if ord == 0 || ord > o {
+                    continue;
+                }
+                push(
+                    Vec3::new(axis(mx, lx, s.x), axis(my, ly, s.y), axis(mz, lz, s.z)),
+                    ord as u32,
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -391,6 +497,8 @@ mod tests {
             reflection_order: 1,
             wet: 0.25,
             backend: ReverbBackend::Fdn,
+            ir_left: vec![],
+            ir_right: vec![],
         });
         let bytes = b.to_bytes();
         ChamberAsset::parse(&bytes).unwrap()

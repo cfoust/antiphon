@@ -126,6 +126,49 @@ impl Fdn {
     }
 }
 
+/// Tier-1 convolution reverb: convolves the mono send against a measured/synthesized
+/// stereo late-BRIR using uniformly-partitioned FFT convolution (real-time safe, no
+/// allocation in `process`). A BRIR is captured at the eardrums, so this is binaural by
+/// construction — no extra HRTF on the tail.
+pub struct ConvReverb {
+    cl: fft_convolver::FFTConvolver<f32>,
+    cr: fft_convolver::FFTConvolver<f32>,
+    tmp_l: Vec<f32>,
+    tmp_r: Vec<f32>,
+    wet: f32,
+}
+
+impl ConvReverb {
+    /// `partition` is the FFT block size (use the audio block, e.g. 128). `max_block`
+    /// sizes the scratch so `process` never allocates.
+    pub fn new(partition: usize, ir_l: &[f32], ir_r: &[f32], wet: f32, max_block: usize) -> ConvReverb {
+        let mut cl = fft_convolver::FFTConvolver::default();
+        let mut cr = fft_convolver::FFTConvolver::default();
+        let _ = cl.init(partition, ir_l);
+        let _ = cr.init(partition, ir_r);
+        ConvReverb {
+            cl,
+            cr,
+            tmp_l: vec![0.0; max_block],
+            tmp_r: vec![0.0; max_block],
+            wet,
+        }
+    }
+
+    pub fn process(&mut self, send: &[f32], out_l: &mut [f32], out_r: &mut [f32]) {
+        let n = send.len();
+        let tl = &mut self.tmp_l[..n];
+        let tr = &mut self.tmp_r[..n];
+        let _ = self.cl.process(send, tl);
+        let _ = self.cr.process(send, tr);
+        let w = self.wet;
+        for i in 0..n {
+            out_l[i] += w * tl[i];
+            out_r[i] += w * tr[i];
+        }
+    }
+}
+
 /// In-place 16-point Walsh-Hadamard transform, scaled to be orthonormal (×1/4).
 #[inline]
 fn hadamard16(v: &mut [f32; 16]) {

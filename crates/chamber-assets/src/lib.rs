@@ -28,7 +28,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 pub const MAGIC: [u8; 4] = *b"CHMB";
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Reverb backend a room preset asks the engine to use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +78,10 @@ pub struct RoomPreset {
     /// Wet gain applied to the reverb bus for this preset.
     pub wet: f32,
     pub backend: ReverbBackend,
+    /// Stereo late-BRIR for the `Convolution` backend (empty for `Fdn`). `ir_left` and
+    /// `ir_right` have equal length; the engine convolves the mono send against both.
+    pub ir_left: Vec<f32>,
+    pub ir_right: Vec<f32>,
 }
 
 /// Parsed, owned view of a `.chamber` asset.
@@ -187,6 +191,15 @@ impl ChamberAsset {
             let reflection_order = c.u32()?;
             let wet = c.f32()?;
             let backend = ReverbBackend::from_u32(c.u32()?);
+            let ir_len = c.u32()? as usize;
+            let mut ir_left = Vec::with_capacity(ir_len);
+            for _ in 0..ir_len {
+                ir_left.push(c.f32()?);
+            }
+            let mut ir_right = Vec::with_capacity(ir_len);
+            for _ in 0..ir_len {
+                ir_right.push(c.f32()?);
+            }
             rooms.push(RoomPreset {
                 name,
                 dims,
@@ -195,6 +208,8 @@ impl ChamberAsset {
                 reflection_order,
                 wet,
                 backend,
+                ir_left,
+                ir_right,
             });
         }
 
@@ -301,6 +316,14 @@ mod build {
                 o.extend_from_slice(&r.reflection_order.to_le_bytes());
                 o.extend_from_slice(&r.wet.to_le_bytes());
                 o.extend_from_slice(&(r.backend as u32).to_le_bytes());
+                debug_assert_eq!(r.ir_left.len(), r.ir_right.len());
+                o.extend_from_slice(&(r.ir_left.len() as u32).to_le_bytes());
+                for v in &r.ir_left {
+                    o.extend_from_slice(&v.to_le_bytes());
+                }
+                for v in &r.ir_right {
+                    o.extend_from_slice(&v.to_le_bytes());
+                }
             }
             o
         }
@@ -328,15 +351,31 @@ mod tests {
             reflection_order: 2,
             wet: 0.3,
             backend: ReverbBackend::Fdn,
+            ir_left: vec![],
+            ir_right: vec![],
+        });
+        b.push_room(RoomPreset {
+            name: "plate".into(),
+            dims: [4.0, 3.0, 5.0],
+            rt60: [1.0, 0.9, 0.6],
+            wall_absorption: 0.1,
+            reflection_order: 0,
+            wet: 0.3,
+            backend: ReverbBackend::Convolution,
+            ir_left: vec![1.0, 0.5, 0.25],
+            ir_right: vec![0.9, 0.4, 0.2],
         });
         let bytes = b.to_bytes();
         let a = ChamberAsset::parse(&bytes).unwrap();
         assert_eq!(a.sample_rate, 48000.0);
         assert_eq!(a.hrir_len, 4);
         assert_eq!(a.directions.len(), 2);
-        assert_eq!(a.rooms.len(), 1);
+        assert_eq!(a.rooms.len(), 2);
         assert_eq!(a.rooms[0].name, "hall");
         assert!((a.directions[1].itd - 3.5).abs() < 1e-6);
         assert_eq!(a.hrir_right_of(1), &[0.0, 0.5, 0.5, 0.0]);
+        assert_eq!(a.rooms[1].backend, ReverbBackend::Convolution);
+        assert_eq!(a.rooms[1].ir_left, vec![1.0, 0.5, 0.25]);
+        assert_eq!(a.rooms[1].ir_right, vec![0.9, 0.4, 0.2]);
     }
 }

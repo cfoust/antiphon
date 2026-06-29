@@ -29,6 +29,11 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 
     var onOrient: ((Double) -> Void)? // degrees, -90…+90
     var onGate: ((Double) -> Void)? // 1 = forward, 0 = looking down
+    /// Approximate 6DoF head position in metres (x = right, y = up, z = back). Estimated
+    /// from the face bounding box; needs a scale prior to be truly metric (assumed face
+    /// height), so treat as relative/approximate — see docs/conventions.md.
+    var onPosition: ((Double, Double, Double) -> Void)?
+    private var sPx = 0.0, sPy = 0.0, sPz = 0.0
 
     let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "chamber.spike.face")
@@ -164,6 +169,23 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         let downDeg = deg(sPitch - neutralPitch) * (pitchInvert ? -1 : 1)
         let amt = max(0, min(1, (downDeg - DOWN_START) / (DOWN_FULL - DOWN_START)))
         onGate?(1 - amt)
+
+        // approximate 6DoF position from the face bounding box (normalized image coords)
+        let bb = face.boundingBox
+        let faceHeightM = 0.20                       // assumed real face height (scale prior)
+        let vFov = 50.0 * .pi / 180, hFov = 64.0 * .pi / 180
+        let ang = max(0.02, Double(bb.height)) * vFov
+        let dist = (faceHeightM / 2) / tan(ang / 2)  // metres from camera
+        let cx = Double(bb.midX) - 0.5, cy = Double(bb.midY) - 0.5
+        // image is leftMirrored, so +image-x is the user's left -> world −x
+        let px = -dist * tan(cx * hFov)
+        let py = dist * tan(cy * vFov)
+        let pz = dist - 0.6                          // relative to a ~0.6 m neutral
+        let pa = 0.25
+        sPx += (px - sPx) * pa
+        sPy += (py - sPy) * pa
+        sPz += (pz - sPz) * pa
+        onPosition?(sPx, sPy, sPz)
 
         DispatchQueue.main.async {
             self.faceFound = true

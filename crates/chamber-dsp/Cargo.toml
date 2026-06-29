@@ -11,5 +11,8 @@ crate-type = ["rlib"]
 
 [dependencies]
 chamber-assets = { path = "../chamber-assets" }
+fft-convolver = "0.2"
+wide = "0.7"
 
 [dev-dependencies]
+chamber-assets = { path = "../chamber-assets", features = ["write"] }

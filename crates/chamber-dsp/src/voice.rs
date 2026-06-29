@@ -41,30 +41,38 @@ impl DelayLine {
     }
 }
 
-/// FIR with per-sample coefficient ramping toward a target tap set.
+/// FIR with per-sample coefficient ramping, SIMD inner loop.
+///
+/// History is kept in a length-`2L` buffer with every sample written twice (at `wp` and
+/// `wp+L`), so the L most recent samples are always a **contiguous** slice — which lets the
+/// ramp-and-multiply-accumulate vectorize cleanly. Coefficients are stored **reversed** so
+/// the contiguous (chronological) window dots directly against them.
+use wide::f32x8;
+
 struct RampFir {
-    cur: Vec<f32>,
-    targ: Vec<f32>,
-    hist: Vec<f32>, // ring of past inputs
-    mask: usize,
-    w: usize,
+    cur: Vec<f32>,  // reversed coefficients, length L
+    targ: Vec<f32>, // reversed target coefficients, length L
+    hist: Vec<f32>, // length 2L, duplicated
+    wp: usize,      // write position in [0, L)
     len: usize,
 }
 
 impl RampFir {
     fn new(len: usize) -> RampFir {
-        let cap = len.next_power_of_two();
         RampFir {
             cur: vec![0.0; len],
             targ: vec![0.0; len],
-            hist: vec![0.0; cap],
-            mask: cap - 1,
-            w: 0,
+            hist: vec![0.0; 2 * len],
+            wp: len - 1,
             len,
         }
     }
     fn set_target(&mut self, t: &[f32]) {
-        self.targ.copy_from_slice(t);
+        // store reversed: targ[j] = t[L-1-j]
+        let l = self.len;
+        for j in 0..l {
+            self.targ[j] = t[l - 1 - j];
+        }
     }
     /// Snap current = target (used on (re)spawn to avoid a ramp from silence).
     fn snap(&mut self) {
@@ -73,24 +81,36 @@ impl RampFir {
     /// Process one sample with a coefficient ramp step `inv_n` (= 1/block_len).
     #[inline]
     fn tick(&mut self, x: f32, inv_n: f32) -> f32 {
-        // advance the newest input
-        self.hist[self.w] = x;
-        let w = self.w;
-        self.w = (self.w + 1) & self.mask;
+        let l = self.len;
+        self.wp = if self.wp + 1 == l { 0 } else { self.wp + 1 };
+        self.hist[self.wp] = x;
+        self.hist[self.wp + l] = x;
 
-        let mut acc = 0.0f32;
+        // contiguous chronological window of the L most recent samples
+        let win = &self.hist[self.wp + 1..self.wp + 1 + l];
         let cur = &mut self.cur;
         let targ = &self.targ;
-        let hist = &self.hist;
-        let mask = self.mask;
-        for k in 0..self.len {
-            // ramp this coefficient a fraction of the way to target
-            let c = cur[k] + (targ[k] - cur[k]) * inv_n;
-            cur[k] = c;
-            let h = hist[(w.wrapping_sub(k)) & mask];
-            acc += c * h;
+
+        let step = f32x8::splat(inv_n);
+        let mut acc = f32x8::splat(0.0);
+        let mut j = 0;
+        while j + 8 <= l {
+            let c = f32x8::from(&cur[j..j + 8]);
+            let t = f32x8::from(&targ[j..j + 8]);
+            let c2 = c + (t - c) * step;
+            c2.as_array_ref().iter().enumerate().for_each(|(k, &v)| cur[j + k] = v);
+            let w = f32x8::from(&win[j..j + 8]);
+            acc += c2 * w;
+            j += 8;
         }
-        acc
+        let mut sum = acc.reduce_add();
+        while j < l {
+            let c = cur[j] + (targ[j] - cur[j]) * inv_n;
+            cur[j] = c;
+            sum += c * win[j];
+            j += 1;
+        }
+        sum
     }
 }
 

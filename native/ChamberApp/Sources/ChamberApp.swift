@@ -59,9 +59,12 @@ final class ChamberAudio: ObservableObject {
     private var positions: [ChamberSource]
     private var inBufs: [[Float]]           // preallocated per-source input blocks
 
-    // head yaw (radians), written by the tracker thread, read by the audio thread.
+    // head pose written by the tracker thread, read by the audio thread.
     // Aligned Double load/store is atomic on arm64; benign for a demo.
     var yaw: Double = 0
+    var headX: Double = 0
+    var headY: Double = 0
+    var headZ: Double = 0
 
     @Published var running = false
     @Published var roomIndex = 1
@@ -135,7 +138,7 @@ final class ChamberAudio: ObservableObject {
 
     private func makePose() -> ChamberPose {
         let h = 0.5 * yaw
-        return ChamberPose(px: 0, py: 0, pz: 0,
+        return ChamberPose(px: Float(headX), py: Float(headY), pz: Float(headZ),
                            qw: Float(cos(h)), qx: 0, qy: Float(sin(h)), qz: 0)
     }
 
@@ -197,7 +200,7 @@ struct ContentView: View {
     }()
     @State private var manualYaw = 0.0
     @State private var useCamera = false
-    private let rooms = ["dry", "room", "hall", "cathedral"]
+    private let rooms = ["dry", "room", "hall", "cathedral", "room (BRIR)", "hall (BRIR)"]
 
     var body: some View {
         VStack(spacing: 14) {
@@ -229,6 +232,9 @@ struct ContentView: View {
                     .onChange(of: useCamera) { _, on in
                         if on {
                             tracker.onOrient = { deg in audio.yaw = rad(deg) }
+                            tracker.onPosition = { x, y, z in
+                                audio.headX = x; audio.headY = y; audio.headZ = z
+                            }
                             tracker.start()
                         }
                     }
