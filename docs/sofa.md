@@ -1,55 +1,48 @@
-# Baking a measured SOFA HRTF
+# Measured SOFA HRTF import — implemented
 
-Today `chamber-bake` synthesizes the HRTF from an analytic structural model. Swapping in a
-**measured** SOFA set is a baker-only change — the runtime format (per-direction minimum-phase
-HRIR + ITD) and the engine stay exactly as they are. Here's what it takes.
+`chamber-bake` can import a measured SOFA HRTF instead of the analytic model. The runtime
+format (per-direction minimum-phase HRIR + ITD) is unchanged, so the engine and both hosts
+are untouched — only the baker grows a SOFA path, behind the `sofa` cargo feature.
 
-## The shape of the work
+## Usage
+```sh
+# fetch a free dataset (MIT KEMAR dummy head)
+bash tools/fetch-sofa.sh
+# bake it (the `sofa` feature pulls in the pure-Rust `sofar` SOFA reader)
+cargo run -p chamber-bake --release --features sofa -- \
+    assets/baked/chamber-kemar.chamber --sofa assets/sofa/mit_kemar_normal.sofa
+# render demos with it
+cargo run -p chamber-render --release -- assets/baked/chamber-kemar.chamber out_kemar
+```
 
-A SOFA file (AES69) is an HDF5/NetCDF container. For a `SimpleFreeFieldHRIR` set it holds:
-- `Data.IR` — `[M measurements, R=2 receivers(ears), N taps]` raw (linear-phase) HRIRs
-- `SourcePosition` — `[M, 3]` (azimuth°, elevation°, radius m)
-- `Data.SamplingRate`
+## How it works (`bake_hrtf_from_sofa`)
+1. **Open + resample.** `sofar`'s `OpenOptions::new().sample_rate(48000.0).open(path)` reads
+   the SOFA and resamples to 48 kHz on open (`sofar` 0.3 is pure Rust — no libmysofa C build,
+   no cmake). MIT KEMAR's 512-tap @44.1 k IRs come back as 558-tap @48 k.
+2. **Sample onto our grid.** For each (az, el) grid point we query the nearest measurement via
+   `sofa.filter(x, y, z, &mut filter)` with **SOFA cartesian** coords (`+x` front, `+y` left,
+   `+z` up): `x=cos(el)cos(az), y=cos(el)sin(az), z=sin(el)`. This reuses the existing grid +
+   3-nearest runtime interpolation; no coordinate enumeration or triangulation needed.
+3. **Minimum phase.** Each ear's measured IR → FFT magnitude (`mag_of_ir`) → the shared
+   real-cepstrum routine (`min_phase_from_mag`, also used by the analytic model). This strips
+   the bulk delay so neighbouring directions interpolate without comb-filtering.
+4. **ITD.** Extracted from the raw IR onsets (−15 dB threshold, `onset_samples`) plus any
+   stored per-ear delay (`filter.ldelay/rdelay`), carried separately as fractional samples.
 
-Baking = for each measurement, turn that raw HRIR pair into our `{min-phase L, min-phase R,
-ITD}` and `push_direction(...)`. Concretely:
+## Verified
+- Coordinate mapping correct: orbit ILD sweeps front→right(+10 dB)→left(−10 dB).
+- Measured KEMAR has stronger head-shadow ILD (~10 dB vs the analytic ~5 dB) and far more
+  high-frequency detail/presence (real pinna), which is the audible win for elevation and
+  front/back.
 
-1. **Read the file (offline only).** Add the [`sofar`](https://docs.rs/sofar) crate (Rust
-   bindings to libmysofa) to `chamber-bake` behind a `--sofa <file>` flag / cargo feature.
-   libmysofa is C, so it needs `cc`/`clang` at build time — fine for the baker, and it never
-   touches the runtime or the wasm build (which only read the baked blob).
-2. **Resample to 48 kHz** if the set isn't already (SADIE II / SONICOM are 48 k; CIPIC is
-   44.1 k). Use e.g. `rubato` offline.
-3. **Map coordinates.** SOFA azimuth is CCW-from-front; ours is `az` toward +left (also CCW)
-   — usually a straight `deg→rad`, but verify per dataset (some store 0–360, some elevation
-   sign flipped). This is the single most error-prone step; sanity-check with a known
-   front/right/left direction.
-4. **Extract ITD** per direction (interaural cross-correlation of low-passed IRs, or a
-   −10 dB onset-threshold delta between ears). Store as fractional samples — our format keeps
-   ITD *separate* from the (min-phase) magnitude.
-5. **Minimum-phase conversion.** Feed each ear's measured magnitude spectrum through the
-   real-cepstrum routine **already in `chamber-bake`** (`min_phase_ear`'s cepstral block,
-   factored out to take an arbitrary magnitude). This removes the bulk delay so neighboring
-   directions interpolate without comb-filtering — which is why ITD is carried separately.
-6. **Truncate/normalize** to 128 taps; optional diffuse-field equalization.
-7. `push_direction(az, el, itd, &min_l, &min_r)` for every measurement. The runtime's
-   3-nearest interpolation already handles arbitrary measurement grids — no triangulation
-   needed (a precomputed triangulation is a later optimization for large grids).
-
-## Effort
-
-Roughly a day. The plumbing (format, min-phase, interpolation, both hosts) is done; the real
-work is steps 3–5: coordinate matching, ITD estimation quality, and diffuse-field EQ.
-
-## Free datasets to start with
-- **SADIE II** (Bernschütz KU100 dummy head, 48 kHz) — small, high quality, permissive.
-- **SONICOM** — large, modern, free for research.
-- **CIPIC**, **ARI**, **MIT KEMAR** — classic references.
+## Notes / next
+- Currently samples the SOFA at our fixed grid (nearest measurement). To preserve a dense
+  set's full resolution, enumerate the file's own measurements instead and store them
+  directly (the runtime interpolation already handles arbitrary grids).
+- Diffuse-field equalization and per-dataset coordinate quirks (0–360 az, elevation sign) are
+  worth a per-dataset sanity check.
+- Other free 48 kHz sets to try: **SADIE II** (KU100), **SONICOM**, FABIAN/FHK KU100.
 
 ## Measured rooms (Tier-1 BRIR)
-Two paths, both already wired at runtime:
-- **Stereo WAV** — drop `assets/brir/<room>.wav` (48 kHz, 2 ch) and `chamber-bake` uses it
-  (see `load_brir_wav`). Easiest for a measured binaural room IR.
-- **BRIR SOFA** (`MultiSpeakerBRIR` / `SingleRoomDRIR`) — same libmysofa reader; extract the
-  late portion for the diffuse reverb bus and (optionally) the early part for directional
-  early reflections.
+Drop a 48 kHz stereo `assets/brir/<room>.wav` and `chamber-bake` uses it for that room's
+convolution reverb (`load_brir_wav`). A BRIR-SOFA path (early/late split) is the next step.

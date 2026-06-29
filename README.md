@@ -55,8 +55,11 @@ bash tools/build-web.sh && python3 -m http.server -d web 8080
 See `docs/build.md`. Coordinate/ITD conventions: `docs/conventions.md`.
 
 ## Roadmap (next)
-- Measured **SOFA importer** in `chamber-bake` (libmysofa via `sofar`, offline only) — see
-  `docs/sofa.md`. This is the biggest remaining *fidelity* lever (real ears/room vs analytic).
+- ✅ **Measured SOFA importer** — `chamber-bake --features sofa --sofa <file>` (pure-Rust
+  `sofar` reader, resamples to 48 k, min-phase + ITD extraction). See `docs/sofa.md`. The
+  measured set (e.g. MIT KEMAR) is a strict fidelity upgrade over the analytic placeholder.
+- Enumerate a dense SOFA's own measurements (vs sampling our grid) to keep full resolution;
+  diffuse-field EQ.
 - Measured-BRIR rooms (drop-in `assets/brir/*.wav` already works; add BRIR-SOFA + early/late
   split for directional early reflections).
 - SIMD on the FDN inner loop + wasm `simd128` tuning; non-uniform partitioned convolution.

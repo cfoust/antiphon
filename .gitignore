@@ -1,8 +1,11 @@
 /scratch
 /target
 /out
+/out_kemar
 # raw upstream HRTF/BRIR downloads (fetched, not committed)
 /assets/sofa
+# measured-SOFA bake is regenerable from assets/sofa via chamber-bake --features sofa
+/assets/baked/chamber-kemar.chamber
 # staged web artifacts (produced by tools/build-web.sh)
 /web/chamber_ffi.wasm
 /web/chamber-default.chamber

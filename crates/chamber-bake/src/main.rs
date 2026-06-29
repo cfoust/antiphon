@@ -22,8 +22,18 @@ const HEAD_RADIUS: f32 = 0.0875; // m
 const SPEED: f32 = 343.0;
 
 fn main() {
-    let out_path = std::env::args()
-        .nth(1)
+    // Args: [out.chamber] [--sofa <file>]
+    let args: Vec<String> = std::env::args().collect();
+    let sofa_path = args
+        .iter()
+        .position(|a| a == "--sofa")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+    let out_path = args
+        .iter()
+        .skip(1)
+        .find(|a| !a.starts_with("--") && Some(*a) != sofa_path.as_ref())
+        .cloned()
         .unwrap_or_else(|| "assets/baked/chamber-default.chamber".to_string());
 
     let mut b = AssetBuilder::new(SR, HRIR_LEN);
@@ -32,23 +42,11 @@ fn main() {
     let fft = planner.plan_fft_forward(FFT_N);
     let ifft = planner.plan_fft_inverse(FFT_N);
 
-    // Spherical grid: azimuth every 10°, elevation every 15° from -45° to +90°.
-    let mut n_dirs = 0usize;
-    let mut el_deg: f32 = -45.0;
-    while el_deg <= 90.0 + 1e-3 {
-        let el = el_deg.to_radians();
-        // near the poles, fewer azimuths
-        let az_step: f32 = if el_deg.abs() >= 75.0 { 90.0 } else { 10.0 };
-        let mut az_deg: f32 = -180.0;
-        while az_deg < 180.0 - 1e-3 {
-            let az = az_deg.to_radians();
-            let (l, r, itd) = synth_hrir(az, el, &*fft, &*ifft);
-            b.push_direction(az, el, itd, &l, &r);
-            n_dirs += 1;
-            az_deg += az_step;
-        }
-        el_deg += 15.0;
-    }
+    let n_dirs = if let Some(sp) = sofa_path {
+        bake_hrtf_from_sofa(&sp, &mut b, &*fft, &*ifft)
+    } else {
+        bake_hrtf_analytic(&mut b, &*fft, &*ifft)
+    };
 
     // Room presets. dims (w,h,d) m; rt60 low/mid/high; absorption; reflection order; wet.
     // FDN (parametric) rooms first, then matching convolution (BRIR) rooms so you can A/B
@@ -221,6 +219,94 @@ fn sign(x: f32) -> f32 {
     }
 }
 
+/// Analytic structural HRTF over a spherical grid. Returns the number of directions.
+fn bake_hrtf_analytic(
+    b: &mut AssetBuilder,
+    fft: &dyn rustfft::Fft<f32>,
+    ifft: &dyn rustfft::Fft<f32>,
+) -> usize {
+    let mut n = 0usize;
+    let mut el_deg: f32 = -45.0;
+    while el_deg <= 90.0 + 1e-3 {
+        let el = el_deg.to_radians();
+        let az_step: f32 = if el_deg.abs() >= 75.0 { 90.0 } else { 10.0 };
+        let mut az_deg: f32 = -180.0;
+        while az_deg < 180.0 - 1e-3 {
+            let az = az_deg.to_radians();
+            let (l, r, itd) = synth_hrir(az, el, fft, ifft);
+            b.push_direction(az, el, itd, &l, &r);
+            n += 1;
+            az_deg += az_step;
+        }
+        el_deg += 15.0;
+    }
+    n
+}
+
+/// Import a measured SOFA HRTF, sampling it onto our spherical grid (each grid point filled
+/// by libmysofa's nearest-measurement lookup, resampled to 48 kHz on open). Each ear's
+/// measured magnitude is converted to minimum phase; the interaural delay is extracted from
+/// the raw IR onsets (plus any stored delay) and carried separately as the ITD.
+#[cfg(feature = "sofa")]
+fn bake_hrtf_from_sofa(
+    path: &str,
+    b: &mut AssetBuilder,
+    fft: &dyn rustfft::Fft<f32>,
+    ifft: &dyn rustfft::Fft<f32>,
+) -> usize {
+    use sofar::reader::{Filter, OpenOptions};
+
+    let sofa = OpenOptions::new()
+        .sample_rate(SR)
+        .open(path)
+        .unwrap_or_else(|e| panic!("open SOFA {}: {:?}", path, e));
+    let flen = sofa.filter_len();
+    println!("  SOFA {}: filter_len {} @ {} Hz", path, flen, SR);
+    let mut filt = Filter::new(flen);
+
+    let mut n = 0usize;
+    let mut el_deg: f32 = -45.0;
+    while el_deg <= 90.0 + 1e-3 {
+        let el = el_deg.to_radians();
+        let az_step: f32 = if el_deg.abs() >= 75.0 { 90.0 } else { 10.0 };
+        let mut az_deg: f32 = -180.0;
+        while az_deg < 180.0 - 1e-3 {
+            let az = az_deg.to_radians();
+            // SOFA cartesian: +x front, +y left, +z up; az measured CCW toward +left.
+            let (ce, se) = (el.cos(), el.sin());
+            let (x, y, z) = (ce * az.cos(), ce * az.sin(), se);
+            sofa.filter(x, y, z, &mut filt);
+
+            let mag_l = mag_of_ir(&filt.left, fft);
+            let mag_r = mag_of_ir(&filt.right, fft);
+            let hl = min_phase_from_mag(&mag_l, fft, ifft);
+            let hr = min_phase_from_mag(&mag_r, fft, ifft);
+
+            // ITD: onset difference (samples) plus any stored per-ear delay.
+            let onset_l = onset_samples(&filt.left) + filt.ldelay * SR;
+            let onset_r = onset_samples(&filt.right) + filt.rdelay * SR;
+            let itd = (onset_r - onset_l).clamp(-60.0, 60.0);
+
+            b.push_direction(az, el, itd, &hl, &hr);
+            n += 1;
+            az_deg += az_step;
+        }
+        el_deg += 15.0;
+    }
+    n
+}
+
+#[cfg(not(feature = "sofa"))]
+fn bake_hrtf_from_sofa(
+    _path: &str,
+    _b: &mut AssetBuilder,
+    _fft: &dyn rustfft::Fft<f32>,
+    _ifft: &dyn rustfft::Fft<f32>,
+) -> usize {
+    eprintln!("error: --sofa requires building with `--features sofa` (pulls in libmysofa).");
+    std::process::exit(1);
+}
+
 /// Structural HRIR for one direction: returns (left[HRIR_LEN], right[HRIR_LEN], itd_samples).
 fn synth_hrir(
     az: f32,
@@ -248,7 +334,7 @@ fn synth_hrir(
     (left, right, itd_samples)
 }
 
-/// Build one ear's magnitude response, convert to a minimum-phase HRIR.
+/// Build one ear's magnitude response (analytic model), convert to a minimum-phase HRIR.
 fn min_phase_ear(
     cos_incidence: f32,
     el: f32,
@@ -266,8 +352,18 @@ fn min_phase_ear(
             mag[FFT_N - k] = m; // mirror
         }
     }
+    min_phase_from_mag(&mag, fft, ifft)
+}
 
-    // log magnitude (real), cepstrum via inverse FFT
+/// Real-cepstrum minimum-phase reconstruction from a full-spectrum magnitude (length
+/// FFT_N, symmetric). Shared by the analytic model and the SOFA importer. Returns HRIR_LEN
+/// taps with energy front-loaded at t=0 (the bulk delay removed — carried as ITD instead).
+fn min_phase_from_mag(
+    mag: &[f32],
+    fft: &dyn rustfft::Fft<f32>,
+    ifft: &dyn rustfft::Fft<f32>,
+) -> Vec<f32> {
+    let half = FFT_N / 2;
     let mut buf: Vec<Complex<f32>> = mag
         .iter()
         .map(|&m| Complex::new(m.max(1e-7).ln(), 0.0))
@@ -277,7 +373,6 @@ fn min_phase_ear(
     for v in buf.iter_mut() {
         *v *= scale;
     }
-
     // minimum-phase cepstral window: keep causal part, double positive quefrencies
     let mut ceps = buf;
     for k in 0..FFT_N {
@@ -290,22 +385,46 @@ fn min_phase_ear(
         };
         ceps[k] = Complex::new(ceps[k].re * w, 0.0);
     }
-
-    // forward FFT -> complex log spectrum; exponentiate to get min-phase spectrum
     fft.process(&mut ceps);
     for v in ceps.iter_mut() {
         let mag = v.re.exp();
         let ph = v.im;
         *v = Complex::new(mag * ph.cos(), mag * ph.sin());
     }
-
-    // inverse FFT -> real minimum-phase impulse; take first HRIR_LEN taps
     ifft.process(&mut ceps);
     let mut h = vec![0.0f32; HRIR_LEN];
     for k in 0..HRIR_LEN {
         h[k] = ceps[k].re * scale;
     }
     h
+}
+
+/// Magnitude spectrum (length FFT_N, symmetric) of a time-domain IR, zero-padded/truncated.
+#[cfg(feature = "sofa")]
+fn mag_of_ir(ir: &[f32], fft: &dyn rustfft::Fft<f32>) -> Vec<f32> {
+    let mut buf = vec![Complex::new(0.0f32, 0.0); FFT_N];
+    for (i, &x) in ir.iter().take(FFT_N).enumerate() {
+        buf[i] = Complex::new(x, 0.0);
+    }
+    fft.process(&mut buf);
+    buf.iter().map(|c| c.norm()).collect()
+}
+
+/// Fractional onset (samples) of an IR: first crossing of −15 dB of peak, linearly
+/// interpolated. Used to estimate the per-ear arrival time for the ITD.
+#[cfg(feature = "sofa")]
+fn onset_samples(ir: &[f32]) -> f32 {
+    let peak = ir.iter().fold(0.0f32, |m, &x| m.max(x.abs())).max(1e-9);
+    let thresh = peak * 0.178; // -15 dB
+    for i in 1..ir.len() {
+        if ir[i].abs() >= thresh {
+            let a = ir[i - 1].abs();
+            let b = ir[i].abs();
+            let frac = if b > a { (thresh - a) / (b - a) } else { 0.0 };
+            return (i - 1) as f32 + frac.clamp(0.0, 1.0);
+        }
+    }
+    0.0
 }
 
 /// Frequency-dependent ear magnitude (linear). Combines a smooth head-shadow ILD that
