@@ -1,8 +1,11 @@
 /scratch
 /target
-/out
+/out*
 # raw upstream HRTF/BRIR downloads (fetched, not committed)
 /assets/sofa
+# measured-SOFA bakes are regenerable from assets/sofa; only the analytic default is committed
+/assets/baked/*
+!/assets/baked/chamber-default.chamber
 # staged web artifacts (produced by tools/build-web.sh)
 /web/chamber_ffi.wasm
 /web/chamber-default.chamber
