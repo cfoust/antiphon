@@ -1,0 +1,15 @@
+[package]
+name = "chamber-dsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Real-time binaural rendering core. Platform-agnostic; builds for native and wasm32. No I/O, no threads, no allocation on the audio thread."
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+chamber-assets = { path = "../chamber-assets" }
+
+[dev-dependencies]

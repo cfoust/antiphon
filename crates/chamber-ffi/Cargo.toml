@@ -1,0 +1,15 @@
+[package]
+name = "chamber-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "C ABI over chamber-dsp for native (Swift/CoreAudio) hosts."
+
+[lib]
+name = "chamber_ffi"
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+chamber-assets = { path = "../chamber-assets" }
+chamber-dsp = { path = "../chamber-dsp" }

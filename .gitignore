@@ -1,0 +1,11 @@
+/scratch
+/target
+/out
+# raw upstream HRTF/BRIR downloads (fetched, not committed)
+/assets/sofa
+# staged web artifacts (produced by tools/build-web.sh)
+/web/chamber_ffi.wasm
+/web/chamber-default.chamber
+# native build output
+*.app
+.DS_Store

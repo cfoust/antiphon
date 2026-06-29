@@ -1,0 +1,16 @@
+[package]
+name = "chamber-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Offline scene -> stereo WAV renderer. The audible quality-check and parity oracle."
+
+[[bin]]
+name = "chamber-render"
+path = "src/main.rs"
+
+[dependencies]
+chamber-assets = { path = "../chamber-assets" }
+chamber-dsp = { path = "../chamber-dsp" }
+hound = { workspace = true }

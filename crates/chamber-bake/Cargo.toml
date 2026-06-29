@@ -1,0 +1,15 @@
+[package]
+name = "chamber-bake"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Offline asset baker: builds .chamber blobs from an analytic HRTF model (or, later, SOFA files)."
+
+[[bin]]
+name = "chamber-bake"
+path = "src/main.rs"
+
+[dependencies]
+chamber-assets = { path = "../chamber-assets", features = ["write"] }
+rustfft = "6"

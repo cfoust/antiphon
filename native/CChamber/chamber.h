@@ -1,0 +1,45 @@
+/* Chamber binaural renderer — C ABI (see crates/chamber-ffi).
+ * Hand-written to match the #[no_mangle] exports. Keep in sync with that crate. */
+#ifndef CHAMBER_H
+#define CHAMBER_H
+
+#include <stdint.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct ChamberPose {
+    float px, py, pz;     /* listener position (world metres) */
+    float qw, qx, qy, qz; /* orientation quaternion */
+} ChamberPose;
+
+typedef struct ChamberSource {
+    float x, y, z;        /* source position (world metres) */
+    float gain;           /* linear pre-gain */
+    float send;           /* reverb send 0..1 */
+} ChamberSource;
+
+/* Opaque handle. */
+typedef void ChamberRenderer;
+
+ChamberRenderer *chamber_renderer_create(const uint8_t *blob, size_t len,
+                                         float sample_rate,
+                                         uint32_t max_sources, uint32_t max_block);
+void chamber_renderer_destroy(ChamberRenderer *h);
+void chamber_renderer_set_room(ChamberRenderer *h, uint32_t room);
+void chamber_renderer_set_reflections(ChamberRenderer *h, int32_t on);
+void chamber_renderer_set_master_gain(ChamberRenderer *h, float g);
+uint32_t chamber_renderer_num_rooms(ChamberRenderer *h);
+
+/* Render `frames` samples. `inputs` is `n` pointers to `frames` mono floats each. */
+void chamber_renderer_process(ChamberRenderer *h, const ChamberPose *pose,
+                              const ChamberSource *sources, uint32_t n,
+                              const float *const *inputs,
+                              float *out_l, float *out_r, uint32_t frames);
+
+#ifdef __cplusplus
+}
+#endif
+#endif /* CHAMBER_H */

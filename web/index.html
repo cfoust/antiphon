@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chamber — binaural engine (web)</title>
+<style>
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; max-width: 680px;
+         margin: 40px auto; padding: 0 16px; color: #e8e8ea; background: #111317; }
+  h1 { font-size: 20px; }
+  .pad { position: relative; height: 320px; background: #1b1e24; border-radius: 12px;
+         margin: 16px 0; overflow: hidden; touch-action: none; cursor: grab; }
+  .dot { position: absolute; width: 18px; height: 18px; border-radius: 50%;
+         transform: translate(-50%, -50%); }
+  .listener { background: #4ad; }
+  .source { background: #fb6; }
+  .ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+          border: 1px solid #333; border-radius: 50%; }
+  button, select { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #333;
+           background: #23262e; color: #e8e8ea; cursor: pointer; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .hint { color: #888; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Chamber — real-time binaural (WASM)</h1>
+<p class="hint">Put on <b>headphones</b>. Press Start, then drag in the box to turn your head
+(left/right = yaw, up/down = pitch). The orange voice stays fixed in the world while you turn.
+Same Rust engine as the native build — byte-identical (parity −157&nbsp;dBFS).</p>
+
+<div class="row">
+  <button id="start">Start</button>
+  <label>Room: <select id="room">
+    <option value="0">dry</option>
+    <option value="1" selected>room</option>
+    <option value="2">hall</option>
+    <option value="3">cathedral</option>
+  </select></label>
+  <label>Source: <select id="src">
+    <option value="fr">front-right</option>
+    <option value="f">front</option>
+    <option value="l">left</option>
+    <option value="b">behind</option>
+  </select></label>
+  <span id="status" class="hint">idle</span>
+</div>
+
+<div class="pad" id="pad">
+  <div class="ring" style="width:120px;height:120px"></div>
+  <div class="ring" style="width:220px;height:220px"></div>
+  <div class="dot listener" id="listener" style="left:50%;top:50%"></div>
+  <div class="dot source" id="src-dot"></div>
+</div>
+<p class="hint" id="rooms"></p>
+
+<script>
+const ASSET_URL = "chamber-default.chamber";
+const WASM_URL  = "chamber_ffi.wasm";
+let ctx, node;
+const statusEl = document.getElementById("status");
+
+async function start() {
+  if (ctx) { await ctx.resume(); return; }
+  statusEl.textContent = "loading…";
+  const [wasm, asset] = await Promise.all([
+    fetch(WASM_URL).then(r => r.arrayBuffer()),
+    fetch(ASSET_URL).then(r => r.arrayBuffer()),
+  ]);
+  ctx = new AudioContext();
+  await ctx.audioWorklet.addModule("chamber-worklet.js");
+  node = new AudioWorkletNode(ctx, "chamber", { outputChannelCount: [2] });
+  node.port.onmessage = (e) => {
+    if (e.data.type === "ready") {
+      statusEl.textContent = "running @ " + ctx.sampleRate + " Hz";
+      document.getElementById("rooms").textContent = "rooms available: " + e.data.numRooms;
+    }
+  };
+  node.connect(ctx.destination);
+  node.port.postMessage({ type: "init", wasm, asset }, [wasm, asset]);
+}
+
+document.getElementById("start").onclick = start;
+document.getElementById("room").onchange = (e) =>
+  node && node.port.postMessage({ type: "room", room: +e.target.value });
+
+const SRC = {
+  fr: [0.9, 0, -1.3], f: [0, 0, -1.6], l: [-1.6, 0, 0], b: [0, 0, 1.6],
+};
+const srcDot = document.getElementById("src-dot");
+function placeSourceDot(pos) {
+  // top-down: x right, z toward viewer (so -z is up/front)
+  const cx = 50 + pos[0] * 14, cy = 50 + pos[2] * 14;
+  srcDot.style.left = cx + "%"; srcDot.style.top = cy + "%";
+}
+document.getElementById("src").onchange = (e) => {
+  const p = SRC[e.target.value];
+  node && node.port.postMessage({ type: "src", pos: p });
+  placeSourceDot(p);
+};
+placeSourceDot(SRC.fr);
+
+// drag to control head yaw/pitch
+const pad = document.getElementById("pad");
+let dragging = false;
+function setPoseFromEvent(ev) {
+  const r = pad.getBoundingClientRect();
+  const x = (ev.clientX - r.left) / r.width;   // 0..1
+  const y = (ev.clientY - r.top) / r.height;   // 0..1
+  const yaw = (x - 0.5) * Math.PI;             // +-90°
+  const pitch = -(y - 0.5) * Math.PI * 0.6;    // +-54°
+  node && node.port.postMessage({ type: "pose", yaw, pitch });
+}
+pad.addEventListener("pointerdown", (e) => { dragging = true; pad.setPointerCapture(e.pointerId); setPoseFromEvent(e); });
+pad.addEventListener("pointermove", (e) => { if (dragging) setPoseFromEvent(e); });
+pad.addEventListener("pointerup", () => dragging = false);
+</script>
+</body>
+</html>

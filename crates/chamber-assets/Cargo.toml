@@ -1,0 +1,14 @@
+[package]
+name = "chamber-assets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Compact .chamber binary format (HRTF grid + room presets) with a zero-dependency reader."
+
+[features]
+default = []
+# `write` pulls in the serializer used by the offline baker. The runtime never needs it.
+write = []
+
+[dependencies]
