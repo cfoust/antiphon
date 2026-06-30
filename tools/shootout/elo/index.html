@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chamber Shootout — blind ELO</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; background: #0a0c10; color: #e8eaed;
+         margin: 0; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+  .wrap { width: 640px; max-width: 92vw; padding: 28px; }
+  h1 { font-size: 18px; font-weight: 700; margin: 0 0 4px; }
+  .sub { color: #8b93a1; font-size: 13px; margin-bottom: 22px; }
+  .ab { display: flex; gap: 14px; margin: 18px 0; }
+  .ab button { flex: 1; padding: 26px 0; font-size: 22px; font-weight: 700; border-radius: 14px;
+               border: 2px solid #232936; background: #11151c; color: #e8eaed; cursor: pointer; }
+  .ab button.on { border-color: #5fd0c5; background: #14201f; box-shadow: 0 0 0 3px #5fd0c522; }
+  .transport { display: flex; gap: 10px; align-items: center; margin: 10px 0 22px; }
+  .transport button { padding: 9px 16px; border-radius: 9px; border: 1px solid #232936;
+                      background: #11151c; color: #e8eaed; cursor: pointer; font-size: 14px; }
+  .vote { display: flex; gap: 12px; }
+  .vote button { flex: 1; padding: 15px 0; border-radius: 12px; border: 1px solid #2a3140;
+                 background: #161b24; color: #e8eaed; cursor: pointer; font-weight: 600; }
+  .vote button:hover { border-color: #5fd0c5; }
+  .vote .draw { flex: 0 0 130px; color: #8b93a1; }
+  .meta { color: #6f7787; font-size: 12px; margin-top: 18px; display: flex; justify-content: space-between; }
+  .meta a { color: #6f7787; cursor: pointer; text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 13px; display: none; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #1b212c; }
+  th { color: #8b93a1; font-weight: 600; }
+  .bar { height: 6px; background: #5fd0c5; border-radius: 3px; }
+  kbd { background:#1b212c; border:1px solid #2a3140; border-radius:4px; padding:0 5px; font-size:11px; }
+  .err { color:#ff9b9b; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Chamber shootout — blind A/B</h1>
+  <div class="sub" id="sub">loading…</div>
+
+  <div class="ab">
+    <button id="btnA" class="on">A</button>
+    <button id="btnB">B</button>
+  </div>
+  <div class="transport">
+    <button id="play">▶ play</button>
+    <span id="pos" style="color:#6f7787; font-size:12px;">0.0s</span>
+    <span style="flex:1"></span>
+    <span style="color:#6f7787; font-size:12px;">switch <kbd>A</kbd><kbd>B</kbd> · vote <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> · <kbd>space</kbd> play</span>
+  </div>
+
+  <div class="vote">
+    <button id="voteA">◀ A is better</button>
+    <button id="voteDraw" class="draw">too close</button>
+    <button id="voteB">B is better ▶</button>
+  </div>
+
+  <div class="meta">
+    <span id="count">0 comparisons</span>
+    <span><a id="reveal">standings</a> · <a id="exp">export</a> · <a id="reset">reset</a></span>
+  </div>
+  <table id="standings"><thead><tr><th>#</th><th>candidate</th><th>elo</th><th>games</th><th></th></tr></thead><tbody></tbody></table>
+</div>
+
+<script>
+const NORM = "/out/shootout/norm/";
+const K_BASE = 32, START = 1500;
+let cands = [], R = {}, games = {}, history = [], pair = null, sel = "A", lastPair = "";
+let audio = {}, playing = false;
+
+const $ = id => document.getElementById(id);
+const key = () => "elo:" + cands.map(c => c.name).sort().join(",");
+
+async function boot() {
+  let m;
+  try { m = await (await fetch(NORM + "manifest.json", {cache:"no-store"})).json(); }
+  catch (e) { $("sub").innerHTML = '<span class="err">no manifest — run <code>uv run tools/shootout/ingest.py</code> and serve from the repo root</span>'; return; }
+  cands = m.candidates;
+  if (cands.length < 2) { $("sub").innerHTML = '<span class="err">need ≥2 candidates</span>'; return; }
+  $("sub").textContent = `${cands.length} candidates · loudness-matched to ${m.target_lufs} LUFS · pairings are ELO-guided`;
+  load();
+  for (const c of cands) {
+    const a = new Audio(NORM + c.file); a.loop = true; a.preload = "auto"; audio[c.name] = a;
+  }
+  nextPair();
+  tick();
+}
+
+function load() {
+  const saved = JSON.parse(localStorage.getItem(key()) || "null");
+  for (const c of cands) { R[c.name] = saved?.R?.[c.name] ?? START; games[c.name] = saved?.games?.[c.name] ?? 0; }
+  history = saved?.history ?? [];
+  $("count").textContent = `${history.length} comparisons`;
+}
+function save() {
+  localStorage.setItem(key(), JSON.stringify({R, games, history}));
+  $("count").textContent = `${history.length} comparisons`;
+}
+
+// ELO-guided pairing: least-played candidate vs its nearest-rated opponent, avoid repeats.
+function nextPair() {
+  const order = [...cands].sort((a,b) => (games[a.name]-games[b.name]) || (Math.random()-0.5));
+  const x = order[0].name;
+  let best = null, bd = 1e9;
+  for (const c of cands) {
+    if (c.name === x) continue;
+    const id = [x,c.name].sort().join("|");
+    let d = Math.abs(R[x]-R[c.name]) + games[c.name]*0.5;   // prefer close + less-played
+    if (id === lastPair) d += 1e6;                            // avoid immediate repeat
+    if (d < bd) { bd = d; best = c.name; }
+  }
+  // randomize which side is A vs B (blind)
+  pair = Math.random() < 0.5 ? [x, best] : [best, x];
+  lastPair = [pair[0],pair[1]].sort().join("|");
+  sel = "A"; switchTo("A", true);
+}
+
+function switchTo(side, restart) {
+  sel = side;
+  $("btnA").classList.toggle("on", side==="A"); $("btnB").classList.toggle("on", side==="B");
+  const a = audio[pair[0]], b = audio[pair[1]];
+  const [cur, other] = side==="A" ? [a,b] : [b,a];
+  if (restart) { a.currentTime = 0; b.currentTime = 0; }
+  else { cur.currentTime = other.currentTime; }
+  other.pause();
+  if (playing) cur.play();
+}
+
+function playPause() {
+  const cur = audio[sel==="A"?pair[0]:pair[1]];
+  if (playing) { cur.pause(); playing=false; $("play").textContent="▶ play"; }
+  else { cur.play(); playing=true; $("play").textContent="⏸ pause"; }
+}
+
+function vote(result) { // 1 = A wins, 0 = B wins, 0.5 = draw
+  const A = pair[0], B = pair[1];
+  const ea = 1/(1+Math.pow(10,(R[B]-R[A])/400));
+  const k = Math.max(16, K_BASE - Math.min(games[A],games[B]));
+  R[A] += k*(result-ea); R[B] += k*((1-result)-(1-ea));
+  games[A]++; games[B]++;
+  history.push({a:A, b:B, r:result});
+  save();
+  Object.values(audio).forEach(x=>x.pause()); playing=false; $("play").textContent="▶ play";
+  nextPair();
+  if ($("standings").style.display==="table") renderStandings();
+}
+
+function renderStandings() {
+  const rows = [...cands].map(c=>({name:c.name, elo:Math.round(R[c.name]), g:games[c.name]}))
+                         .sort((a,b)=>b.elo-a.elo);
+  const max = Math.max(...rows.map(r=>r.elo)), min = Math.min(...rows.map(r=>r.elo));
+  const tb = $("standings").querySelector("tbody"); tb.innerHTML = "";
+  rows.forEach((r,i)=>{
+    const w = max>min ? 4+96*(r.elo-min)/(max-min) : 50;
+    tb.innerHTML += `<tr><td>${i+1}</td><td>${r.name}${r.name==="baseline"?" ·base":""}</td>`+
+      `<td>${r.elo}</td><td>${r.g}</td><td><div class="bar" style="width:${w}%"></div></td></tr>`;
+  });
+}
+
+function tick(){ if(playing){ const cur=audio[sel==="A"?pair[0]:pair[1]]; $("pos").textContent=cur.currentTime.toFixed(1)+"s"; } requestAnimationFrame(tick); }
+
+$("btnA").onclick=()=>switchTo("A"); $("btnB").onclick=()=>switchTo("B");
+$("play").onclick=playPause;
+$("voteA").onclick=()=>vote(1); $("voteB").onclick=()=>vote(0); $("voteDraw").onclick=()=>vote(0.5);
+$("reveal").onclick=()=>{ const t=$("standings"); t.style.display = t.style.display==="table"?"none":"table"; if(t.style.display==="table") renderStandings(); };
+$("reset").onclick=()=>{ if(confirm("Reset all ratings?")){ localStorage.removeItem(key()); load(); nextPair(); renderStandings(); } };
+$("exp").onclick=()=>{ const blob=new Blob([JSON.stringify({R,games,history},null,2)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="shootout_elo.json"; a.click(); };
+document.addEventListener("keydown",e=>{
+  if(e.key==="a"||e.key==="A")switchTo("A"); else if(e.key==="b"||e.key==="B")switchTo("B");
+  else if(e.key==="1")vote(1); else if(e.key==="2")vote(0); else if(e.key==="3")vote(0.5);
+  else if(e.key===" "){e.preventDefault();playPause();}
+});
+boot();
+</script>
+</body>
+</html>
