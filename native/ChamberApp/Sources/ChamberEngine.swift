@@ -37,6 +37,7 @@ final class ChamberRenderer {
     func setRoom(_ i: Int) { chamber_renderer_set_room(handle, UInt32(i)) }
     func setMasterGain(_ g: Float) { chamber_renderer_set_master_gain(handle, g) }
     func setReverbBlend(_ b: Float) { chamber_renderer_set_reverb_blend(handle, b) }
+    func setFreqScale(_ s: Float) { chamber_renderer_set_freq_scale(handle, s) }
 
     @inline(__always)
     func process(pose: UnsafePointer<ChamberPose>, sources: UnsafePointer<ChamberSource>, n: Int,
@@ -110,6 +111,7 @@ final class ChamberEngine: ObservableObject {
     @Published var ready = false
     @Published var roomIndex = 2 // "hall (FDN)" — parametric late tail + 6DoF ISM early reflections
     @Published var reverbBlend = 1.0 // BRIR rooms: 0 = FDN tail, 1 = measured BRIR tail
+    @Published var freqScale = 1.0   // HRTF fit: <1 / >1 warps the pinna spectral cue
     @Published var hrtfName = ""
     @Published var use6DoF = false   // webcam position estimate is crude → opt-in
     /// End-to-end motion-to-sound latency (ms): camera capture → pose → this audio block reaching
@@ -292,6 +294,11 @@ final class ChamberEngine: ObservableObject {
     func setReverbBlend(_ b: Double) {
         q.async { self.renderer?.setReverbBlend(Float(b)) }
         DispatchQueue.main.async { self.reverbBlend = b }
+    }
+    /// HRTF "fit": frequency-scale the HRTF to better match the listener's pinna (front-back cue).
+    func setFreqScale(_ s: Double) {
+        q.async { self.renderer?.setFreqScale(Float(s)) }
+        DispatchQueue.main.async { self.freqScale = s }
     }
     func setUse6DoF(_ on: Bool) {
         q.async { self.use6DoFInternal = on }

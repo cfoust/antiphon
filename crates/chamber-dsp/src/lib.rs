@@ -146,6 +146,13 @@ pub struct Renderer {
     rev_r: Vec<f32>,
     hrir_l: Vec<f32>,
     hrir_r: Vec<f32>,
+    // frequency-scaled HRIR scratch (single-parameter HRTF personalization / "fit")
+    warp_l: Vec<f32>,
+    warp_r: Vec<f32>,
+    /// Frequency-scaling factor for the direct-path HRIR (Middlebrooks). 1.0 = the baked HRTF;
+    /// >1 shifts the pinna spectral cues UP (smaller head/pinna than the dummy head), <1 down.
+    /// Tunes the median-plane / front-back cue that a non-individual HRTF gets wrong.
+    freq_scale: f32,
 
     master_gain: f32,
 }
@@ -208,6 +215,9 @@ impl Renderer {
             rev_r: vec![0.0; max_block],
             hrir_l: vec![0.0; hrir_len],
             hrir_r: vec![0.0; hrir_len],
+            warp_l: vec![0.0; hrir_len],
+            warp_r: vec![0.0; hrir_len],
+            freq_scale: 1.0,
             master_gain: 1.0,
         }
     }
@@ -230,6 +240,11 @@ impl Renderer {
     /// Late-tail blend for BRIR rooms: 0 = pure parametric FDN, 1 = pure measured BRIR.
     pub fn set_reverb_blend(&mut self, b: f32) {
         self.reverb_blend = b.clamp(0.0, 1.0);
+    }
+    /// HRTF frequency-scaling / "fit" (Middlebrooks): 1.0 = baked HRTF; >1 shifts pinna cues up
+    /// (smaller head/pinna), <1 down. Personalizes the median-plane / front-back cue by ear.
+    pub fn set_freq_scale(&mut self, s: f32) {
+        self.freq_scale = s.clamp(0.7, 1.4);
     }
 
     /// Select a room preset by index (clamped). Reconfigures the reverb.
@@ -316,9 +331,16 @@ impl Renderer {
             let lp_a = air_lp(dist);
             let itd = self.db.interp(dir, &mut self.hrir_l, &mut self.hrir_r);
 
-            self.direct[i].set_target(
-                &self.hrir_l, &self.hrir_r, itd, dgain, lp_a, 0.0, false,
-            );
+            // HRTF fit: frequency-scale the direct-path HRIR. Bypassed (bit-exact) at 1.0, so the
+            // default rendering and the parity oracle are unchanged.
+            let (hl, hr): (&[f32], &[f32]) = if (self.freq_scale - 1.0).abs() > 1.0e-4 {
+                resample_hrir(&self.hrir_l, &mut self.warp_l, self.freq_scale);
+                resample_hrir(&self.hrir_r, &mut self.warp_r, self.freq_scale);
+                (&self.warp_l, &self.warp_r)
+            } else {
+                (&self.hrir_l, &self.hrir_r)
+            };
+            self.direct[i].set_target(hl, hr, itd, dgain, lp_a, 0.0, false);
             // Near-field DVF: derive each ear's incidence angle from the SAME `dir` as the ITD
             // (cos θ_right = dir.x, cos θ_left = −dir.x — pinned to the +x-right ear axis, so it
             // can't flip L/R). rho = r / head-radius. Identity beyond ~1 m → far field unchanged.
@@ -498,6 +520,35 @@ fn build_conv(room: &Room, max_block: usize, t_mix_samp: f32) -> Option<ConvReve
         Some(ConvReverb::new(128, &irl, &irr, room.wet, max_block))
     } else {
         None
+    }
+}
+
+/// Frequency-scale a min-phase HRIR by resampling it (time scaling = linear frequency-axis
+/// scaling, which IS Middlebrooks' frequency warp). `beta > 1` compresses in time → pinna notches
+/// move UP. Energy-normalized so the level (and the separate ITD) are unchanged. Deterministic.
+fn resample_hrir(src: &[f32], dst: &mut [f32], beta: f32) {
+    let n = src.len();
+    let mut e_in = 0.0f32;
+    for &v in src {
+        e_in += v * v;
+    }
+    for (i, d) in dst.iter_mut().enumerate().take(n) {
+        let sp = i as f32 * beta;
+        let i0 = sp.floor() as isize;
+        let frac = sp - i0 as f32;
+        let a = if i0 >= 0 && (i0 as usize) < n { src[i0 as usize] } else { 0.0 };
+        let b = if i0 + 1 >= 0 && ((i0 + 1) as usize) < n { src[(i0 + 1) as usize] } else { 0.0 };
+        *d = a + (b - a) * frac;
+    }
+    let mut e_out = 0.0f32;
+    for d in dst.iter().take(n) {
+        e_out += *d * *d;
+    }
+    if e_out > 1.0e-12 {
+        let g = (e_in / e_out).sqrt();
+        for d in dst.iter_mut().take(n) {
+            *d *= g;
+        }
     }
 }
 

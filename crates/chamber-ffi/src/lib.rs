@@ -171,6 +171,15 @@ pub unsafe extern "C" fn chamber_renderer_set_reverb_blend(h: *mut c_void, b: f3
     }
 }
 
+/// HRTF frequency-scaling / "fit": 1.0 = baked HRTF; >1 shifts pinna cues up, <1 down.
+/// # Safety: `h` is a valid handle.
+#[no_mangle]
+pub unsafe extern "C" fn chamber_renderer_set_freq_scale(h: *mut c_void, s: f32) {
+    if let Some(h) = (h as *mut Handle).as_mut() {
+        h.r.set_freq_scale(s);
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn chamber_renderer_num_rooms(h: *mut c_void) -> u32 {
     match (h as *mut Handle).as_mut() {

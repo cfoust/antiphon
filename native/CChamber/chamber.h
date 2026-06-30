@@ -33,6 +33,8 @@ void chamber_renderer_set_reflections(ChamberRenderer *h, int32_t on);
 void chamber_renderer_set_master_gain(ChamberRenderer *h, float g);
 /* Late-tail blend for BRIR rooms: 0 = pure parametric FDN, 1 = pure measured BRIR. */
 void chamber_renderer_set_reverb_blend(ChamberRenderer *h, float b);
+/* HRTF frequency-scaling / "fit": 1.0 = baked HRTF; >1 shifts pinna cues up, <1 down. */
+void chamber_renderer_set_freq_scale(ChamberRenderer *h, float s);
 uint32_t chamber_renderer_num_rooms(ChamberRenderer *h);
 
 /* Render `frames` samples. `inputs` is `n` pointers to `frames` mono floats each. */

@@ -46,6 +46,15 @@ struct ContentView: View {
                             Text("BRIR").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
+                    // HRTF "fit": dial until a source straight ahead sits OUT in front at ear level.
+                    HStack(spacing: 10) {
+                        Text("Fit").font(.caption2).foregroundStyle(.secondary)
+                        Slider(value: Binding(get: { engine.freqScale },
+                                              set: { engine.setFreqScale($0) }), in: 0.78...1.28)
+                            .frame(width: 200)
+                        Text(String(format: "%.2f", engine.freqScale))
+                            .font(.caption2.monospaced()).foregroundStyle(.tertiary)
+                    }
                     Text("Turn to face an agent to hear it open up · look down to whisper all")
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
