@@ -174,7 +174,8 @@ final class ChamberEngine: ObservableObject {
                                       z: Float(-cos(a.bearing)) * radius, gain: 1.0, send: 0.3)
         }
         renderer.setRoom(roomIndex)
-        renderer.setMasterGain(0.78) // tamed: BRIR reverb adds a lot of perceived loudness
+        // close 1.3 m arc + 6 summed voices + BRIR tail is hot -> keep the master well down
+        renderer.setMasterGain(0.45)
 
         buildGraph()
         do { try engine.start() } catch { print("[chamber] engine start: \(error)"); return }

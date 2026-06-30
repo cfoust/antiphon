@@ -197,7 +197,8 @@ export class Chamber {
     // 48 kHz to match the baked HRTF asset (most browsers honor this).
     this.ctx = new Ctor({ sampleRate: 48000 });
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.62; // tamed: BRIR reverb adds a lot of perceived loudness
+    // close 1.3 m arc + 6 summed voices + BRIR tail is hot -> keep the master well down
+    this.master.gain.value = 0.42;
     // agents play through agentBus (kept silent through calibration); system
     // clips connect to master directly so they're heard while the bus is muted.
     this.agentBus = this.ctx.createGain();

@@ -95,15 +95,20 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // On macOS, setting the device's activeFormat below auto-switches the session to
         // input-priority; we must NOT (and can't) set the preset ourselves.
 
-        // pick the highest frame-rate format (resolution doesn't matter for pose)
-        if let best = device.formats.max(by: { fps($0) < fps($1) }), fps(best) > 0 {
-            try? device.lockForConfiguration()
+        // Pin to a high-frame-rate format ONLY on the built-in camera. Continuity / DAL /
+        // external cameras throw an (uncatchable) ObjC exception when you set
+        // activeVideoMinFrameDuration, which would abort the app — so for those we just use
+        // the device's default format/rate (plenty for head pose).
+        if device.deviceType == .builtInWideAngleCamera,
+           let best = device.formats.max(by: { fps($0) < fps($1) }),
+           let range = best.videoSupportedFrameRateRanges.max(by: { $0.maxFrameRate < $1.maxFrameRate }),
+           (try? device.lockForConfiguration()) != nil {
             device.activeFormat = best
-            let maxFps = fps(best)
-            let dur = CMTime(value: 1, timescale: CMTimeScale(maxFps.rounded()))
-            device.activeVideoMinFrameDuration = dur
-            device.activeVideoMaxFrameDuration = dur
+            // use the format's own advertised min duration (always a valid value)
+            device.activeVideoMinFrameDuration = range.minFrameDuration
+            device.activeVideoMaxFrameDuration = range.minFrameDuration
             device.unlockForConfiguration()
+            let maxFps = range.maxFrameRate
             DispatchQueue.main.async { self.configuredFPS = maxFps }
         }
 
