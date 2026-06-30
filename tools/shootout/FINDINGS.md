@@ -97,6 +97,31 @@ and factual; this is a lab notebook, not prose.
 - **Promoted?** none yet — `dfeq` is the leading promotion candidate but stays in the pool to be
   challenged by round 2 before any merge-to-main + parity check.
 
+### Round 2 — 2026-06-30 — room/reverb levers + bolder retests (the "make it audible" round)
+- **Pool:** baseline, **dfeq** (round-1 champion, carried as the bar), dfeq2, rev_tilt, er_pattern,
+  rev_predelay, crossfeed_strong, decorr_strong (8 total)
+- **Theme:** every candidate tuned to be unmistakably audible (round-1 lesson). All 8 clear the
+  perceptibility gate — closest is rev_predelay at −28 dB vs baseline, vs the −45 dB flag.
+- **What each candidate does (peak = raw render; Δ = loudness-matched mono RMS vs baseline):**
+  - `dfeq2` (peak 0.58, Δ −1.4 dB) — deepened dfeq: clamp ±8→±12 dB, smoothing ½→⅓-oct, +3 dB
+    presence shelf >3.5 kHz. Does the winning de-coloration harder. `hrtf.rs`.
+  - `rev_tilt` (peak 0.76, Δ −26 dB) — FDN wet ×2.8 (~+9 dB D/R toward the room) + dark output LP
+    (~2.4 kHz) + extra in-loop HF damping. Pushes voices into the room, tail warm not harsh. `reverb.rs`.
+  - `er_pattern` (peak 0.92, Δ −4.6 dB) — early-reflection gain ×2.4 (reflections now ABOVE direct)
+    + REFLECT_PER_SOURCE 8→16 (denser image cloud). Strong "in a room" early-cue. `lib.rs`.
+  - `rev_predelay` (peak 0.76, Δ −28 dB) — late-reverb onset pushed to t_mix+30 ms ≈ 50 ms, send level
+    kept hot, so the room blooms a clear beat after the voice (direct/room separation). `reverb.rs`.
+  - `crossfeed_strong` (peak 0.55, Δ −11 dB) — bold Bauer crossfeed: −4 dB cross, 0.3 ms, ~900 Hz LP.
+    L/R correlation −0.079→−0.008 (pulls together, not mono-collapsed). `lib.rs`.
+  - `decorr_strong` (peak 0.48, Δ −0.0 dB) — 3-stage Schroeder all-pass decorrelator per ear above a
+    ~700 Hz crossover (LF/ITD preserved exactly), opposite sign per ear. Wide/enveloping. `voice.rs`+`lib.rs`.
+- **Comparisons:** _pending listen_
+- **Standings (final ELO):** _pending listen_
+- **Listener notes (by ear, per candidate):** _pending listen_
+- **Outcome:** _pending listen_
+- **Deepen / revise:** _pending listen_
+- **Promoted?** _pending_
+
 <!-- Copy the template below for each real round. Fill it in AFTER the human listens. -->
 <!--
 ### Round N — YYYY-MM-DD — <theme, e.g. "timbre + externalization">
