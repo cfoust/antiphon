@@ -50,9 +50,14 @@ voice*.
 | `dfeq_erb`    | ✅ | 4 | 1516 | tie(dfeq) | regularized DFE == dfeq (cleaner, not better) → freeze the DFE per survey |
 | `revsend`     | ✅ | 4 | 1457 | loss | below baseline; decorrelated send reverb STILL lost — reverb keeps failing |
 | `hrtf_ari`    | ✅ | 4 | 1501 | tie | ARI generic set ≈ KEMAR here; inconclusive (maybe try KU100/avg) |
-| `motion_2p5`  | 🔬 | 5 | — | — | head-rotation amplification 2.5× (sweep up from motiongain 1.7×) |
-| `parallax`    | 🔬 | 5 | — | — | amplify 6DoF head-TRANSLATION parallax 2.5× (rig was orientation-only!) |
-| `interp_xfade`| 🔬 | 5 | — | — | A2: continuous (Shepard, K=4) HRTF+ITD interp — kill ear-to-ear comb on motion |
+| `motion_2p5`  | ❌ | 5 | ~1468 | loss | 2.5× rotation overshoots (≤ baseline); 1.7× (motiongain) is the sweet spot — don't push |
+| `parallax`    | ✅ | 5 | ~1500 | tie | dir-only 2.5× neutral; full-position `parallax_pos` is the better formulation |
+| `interp_xfade`| ✅ | 5 | ~1484 | tie | continuous K=4 interp didn't clearly help in the (confounded) round |
+| `timbrelock`  | 🔬 | 6 | — | — | **HEADLINE.** per-dir common-mode flattening (Merimaa 2009), stack on dfeq str 0.65; the proven TIMBRE axis; offline-rankable (−1.4 dB); parity −150 dBFS. **NOT yet genuinely judged** → clean offline A/B |
+| `frontgain`   | 🔬 | 6 | — | — | frontal-adaptive motion gain (1.3× within ±30° → 1.0 by ±60°); not yet judged |
+| `parallax_pos`| 🔬 | 6 | — | — | full-position parallax 1.8× near-gated; topped the confounded r5 export (1546) but UNCONFIRMED; folded into `champion` |
+| `champion`    | 🔬 | 6 | — | — | dfeq + parallax_pos(1.8×) + motiongain(1.7×) — bank the spatial wins in one engine |
+| `onsetkick`   | ⬜ | — | — | — | motion-onset/accel emphasis (Wallach) — transient over-rotation at head-turn onset; deferred (wobble risk) |
 | `fd_itd`      | ⬜ | — | — | — | frequency-dependent ITD (full LF, less HF) |
 | `near_pres`   | ⬜ | — | — | — | proximity/presence shaping for frontal sources |
 | `src_spread`  | ⬜ | — | — | — | decorrelated near-copies — give the voice size |
@@ -247,11 +252,50 @@ voice*.
   - `interp_xfade` — A2: modified-Shepard/Franke–Little continuous K=4 interpolation of HRIR **and** ITD
     (farthest neighbor tapers to 0 → C0-continuous as the head turns) to kill the "ear-to-ear" comb-step
     on motion, without magnitude smoothing (preserves timbre). `hrtf.rs`.
-- **Status:** all 6 engines built + smoke-tested (load + render under a leaning pose, finite, distinct).
-  Loudness-trimmed. **Awaiting the live listen** (ideally on WIRED headphones — see scratch/latency.md).
+- **Added mid-round (novel-techniques pass, `scratch/novel-techniques.md`):** 3 literature-grounded
+  candidates folded into the same pool —
+  - `timbrelock` — per-direction common-mode flattening (Merimaa 2009 AES 7912): hold the voice's
+    tone color constant across directions while preserving ILD+ITD. The principled generalization of
+    `dfeq` (global) → per-direction. STACKED on dfeq, strength 0.65. **Offline-rankable** (−1.4 dB,
+    the largest perceptibility delta of any candidate) AND live; **passed parity (−150 dBFS)** so
+    promotion-ready if it wins. `hrtf.rs` (`timbre_constancy_eq`).
+  - `frontgain` — azimuth-adaptive head-rotation gain: PEAK 1.3× within ±30° of the median plane
+    (the front dead zone where head-motion helps most; McAnally & Martin 2014), →1.0 by ±60°. Spends
+    `motiongain`/`motion_2p5`'s budget where it pays. `math.rs`(`scale_angle`)+`lib.rs`. Live-only.
+  - `parallax_pos` — a `parallax` SWEEP variant: amplifies the head POSITION 1.8× gated to near
+    sources (<1.5 m) so distance/DVF/ILD/level stay self-consistent with the exaggerated lean
+    (vs `parallax`, which amplifies the HRTF/ITD direction only). A/B the two to learn which parallax
+    formulation externalizes without "darting". `math.rs`(`Vec3::scale`)+`lib.rs`. Live-only.
+- **Status:** 9 live engines total now built + loudness-trimmed (`out/shootout/wasm/manifest.json`):
+  baseline, dfeq, motiongain, motion_2p5, parallax, parallax_pos, interp_xfade, frontgain, timbrelock.
+  Offline pool also has `timbrelock` (others are motion-null offline). **Awaiting the live listen**
+  (ideally on WIRED headphones — see scratch/latency.md). Candidate diffs on `worktree-agent-*`:
+  timbrelock=abcae1a7, frontgain=a43cd5f6, parallax_pos=a7c666e3, parallax(orig)=a401d473.
 - **Test plan:** reset the harness (prior votes confounded by lag/Bluetooth + the orientation-only bug);
   with 6DoF on and head moving, A/B the motion sweep (dfeq vs motiongain vs motion_2p5), parallax, and
   interp_xfade. Also worth toggling 6DoF off/on to feel the parallax contribution directly.
+
+### Round 5 — CORRECTION (post-hoc)
+The novel-techniques candidates (`timbrelock`, `frontgain`, `parallax_pos`) were folded into the
+manifest but were **NOT genuinely judged** — they belong to round 6. The confounded export's numbers
+for them are not real listens (esp. `timbrelock` ≈ 1484 = near-default, the listener confirmed it was
+never actually in the pool they evaluated). Treat round 5's trustworthy signal as: **`motiongain`
+(1.7×) > `motion_2p5` (2.5×)** — more rotation overshoots — and `dfeq` still strong on timbre.
+`parallax_pos`'s apparent r5 win is a preview, to be confirmed cleanly.
+
+### Round 6 — 2026-06-30 — staged (headline: timbrelock on the timbre axis)
+- **Part A — OFFLINE timbre A/B (the headline, decisive):** pool = `baseline`, `dfeq`, `timbrelock`
+  on the **offline** `/tools/shootout/elo/` harness (fixed head, source tours angles — the right venue
+  for a per-direction *timbre-constancy* change; no head-tracking/Bluetooth confounds). Question: does
+  `timbrelock` beat `dfeq` on "sounds like a real voice"? If yes → promote (parity already −150 dBFS).
+  Perceptibility: dfeq −3.3 dB, timbrelock −1.4 dB vs baseline (both clearly audible). Other WAVs parked
+  in `out/shootout/hold/`.
+- **Part B — LIVE spatial round (follow-on):** pool = `baseline`, `dfeq`, `parallax_pos`, `champion`
+  (dfeq+parallax_pos 1.8×+motiongain 1.7×) on `/tools/shootout/live/` with 6DoF ON. Confirms the spatial
+  wins banked into one engine. `champion` built + parity-safe (geometry-only). If `timbrelock` wins Part
+  A, rebuild `champion` on the `timbrelock` timbre base.
+- **Status:** Part A staged + ingested now. Part B engines built; will re-stage the live manifest after
+  the timbre verdict (kept sequential so each pool stays clean).
 
 <!-- Copy the template below for each real round. Fill it in AFTER the human listens. -->
 <!--
