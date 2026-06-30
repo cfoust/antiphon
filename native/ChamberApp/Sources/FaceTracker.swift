@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import CoreVideo
+import QuartzCore
 import Vision
 
 struct CameraDevice: Identifiable, Hashable {
@@ -25,6 +26,8 @@ final class OneEuro {
         return 1.0 / (1.0 + tau / dt)
     }
     func reset() { xPrev = nil; dxPrev = 0 }
+    /// Last smoothed derivative (units/sec) — used for constant-velocity prediction.
+    var velocity: Double { dxPrev }
     func filter(_ x: Double, _ t: Double) -> Double {
         guard let xp = xPrev else { xPrev = x; tPrev = t; return x }
         let dt = max(1e-3, t - tPrev)
@@ -62,6 +65,17 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 
     var onOrient: ((Double) -> Void)? // degrees, -90…+90
     var onGate: ((Double) -> Void)? // 1 = forward, 0 = looking down
+    /// Host-clock (CACurrentMediaTime) capture timestamp of the pose just published, so the audio
+    /// render callback can compute the true end-to-end motion-to-sound latency.
+    var onPoseStamp: ((Double) -> Void)?
+
+    // --- latency budget (plan 07) ---
+    /// camera-exposure → pose-available latency (capture + Vision + solve), milliseconds.
+    @Published var sensorLatencyMs = 0.0
+    /// Constant-velocity yaw extrapolation horizon. Cancels part of the motion-to-sound latency on
+    /// smooth turns; clamped to avoid overshoot on reversal. Set 0 to disable prediction.
+    var predictLookaheadSec = 0.045
+    private var framePTS = 0.0          // host-clock capture time of the current frame (seconds)
     /// Approximate 6DoF head position in metres (x = right, y = up, z = back). Estimated
     /// from the face bounding box; needs a scale prior to be truly metric (assumed face
     /// height), so treat as relative/approximate — see docs/conventions.md.
@@ -190,6 +204,9 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        // Frame capture time on the host clock (same base as CACurrentMediaTime), for the latency
+        // oracle. Vision runs synchronously below, so handle() can diff against this.
+        framePTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
         imageW = CVPixelBufferGetWidth(pixelBuffer)
         imageH = CVPixelBufferGetHeight(pixelBuffer)
         // .up: the buffer is already upright-landscape, so landmark coords come out in an
@@ -301,8 +318,20 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         sPitch = fPitch.filter(p, now)
         sRoll = fRoll.filter(r, now)
 
+        // Latency oracle: camera-exposure → pose-ready (capture + Vision + PnP). Smoothed for a
+        // stable readout. Hand the capture timestamp to the engine so it can finish the budget
+        // (pose-ready → audio-out) on the render thread.
+        let sm = (CACurrentMediaTime() - framePTS) * 1000
+        DispatchQueue.main.async { self.sensorLatencyMs += (sm - self.sensorLatencyMs) * 0.1 }
+        onPoseStamp?(framePTS)
+
+        // Constant-velocity yaw prediction to claw back motion-to-sound latency on smooth turns.
+        // Clamp the horizon's contribution so a fast reversal can't overshoot wildly.
+        let predDelta = max(-rad(12), min(rad(12), fYaw.velocity * predictLookaheadSec))
+        let yawArc = sYaw + predDelta
+
         // map to the front arc + whisper gate (mirrors the web HeadTracker)
-        let tt = (sYaw - yawLeft) / span
+        let tt = (yawArc - yawLeft) / span
         onOrient?(-90 + 180 * tt)
         let downDeg = deg(sPitch - neutralPitch) * (pitchInvert ? -1 : 1)
         let amt = max(0, min(1, (downDeg - DOWN_START) / (DOWN_FULL - DOWN_START)))

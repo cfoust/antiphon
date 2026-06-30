@@ -55,7 +55,7 @@ struct ContentView: View {
             }
 
             if showDebug {
-                TrackingDebugView(tracker: tracker) { showDebug = false }
+                TrackingDebugView(tracker: tracker, engine: engine) { showDebug = false }
             }
 
             // intro gate
@@ -115,6 +115,7 @@ struct ContentView: View {
         tracker.onOrient = { [weak engine] d in engine?.setOrient(deg: d) }
         tracker.onGate = { [weak engine] g in engine?.setLookGate(g) }
         tracker.onPosition = { [weak engine] x, y, z in engine?.setPosition(x, y, z) }
+        tracker.onPoseStamp = { [weak engine] t in engine?.setPoseStamp(t) }
         engine.setUse6DoF(true)
         tracker.start()
         enabled = true
@@ -145,6 +146,7 @@ struct ContentView: View {
 /// landmark detection + solver output can be validated.
 struct TrackingDebugView: View {
     @ObservedObject var tracker: FaceTracker
+    @ObservedObject var engine: ChamberEngine
     let back: () -> Void
     private let labels = ["nose", "chin", "L eye", "R eye", "mouth L", "mouth R"]
     private let colors: [Color] = [.red, .orange, .blue, .cyan, .green, .yellow]
@@ -194,6 +196,12 @@ struct TrackingDebugView: View {
             Text(String(format: "smoothed → orient %+.0f°   pitch %+.0f°   roll %+.0f°",
                         deg(tracker.yaw), deg(tracker.pitch), deg(tracker.roll)))
                 .font(.system(.callout, design: .monospaced)).foregroundStyle(.secondary)
+
+            // latency oracle (plan 07): sensor = capture+Vision+PnP; total = motion→sound.
+            Text(String(format: "latency → sensor %.0f ms   motion→sound %.0f ms  (target < 60)",
+                        tracker.sensorLatencyMs, engine.latencyMs))
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(engine.latencyMs > 0 && engine.latencyMs < 60 ? .green : .orange)
 
             Text("Record this while you: look left → look right → lean in → lean left/right.")
                 .font(.caption).foregroundStyle(.tertiary)

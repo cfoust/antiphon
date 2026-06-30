@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import Foundation
+import QuartzCore
 
 func rad(_ d: Double) -> Double { d * .pi / 180 }
 func deg(_ r: Double) -> Double { r * 180 / .pi }
@@ -104,6 +105,9 @@ final class ChamberEngine: ObservableObject {
     @Published var roomIndex = 4 // "room (BRIR)" — the measured-style convolution room
     @Published var hrtfName = ""
     @Published var use6DoF = false   // webcam position estimate is crude → opt-in
+    /// End-to-end motion-to-sound latency (ms): camera capture → pose → this audio block reaching
+    /// the output. The latency oracle for plan 07 (target < ~60 ms).
+    @Published var latencyMs = 0.0
 
     private let engine = AVAudioEngine()
     private var srcNode: AVAudioSourceNode!
@@ -123,6 +127,11 @@ final class ChamberEngine: ObservableObject {
     private var orient = 0.0
     private var headX = 0.0, headY = 0.0, headZ = 0.0
     private var lookGate = 1.0
+    // latency oracle (plan 07): capture timestamp of the latest pose + measured device output
+    // latency; the render callback closes the loop and stores the end-to-end number.
+    private var poseCaptureTime = 0.0
+    private var outputLatencyMs = 0.0
+    private var lastRenderLatencyMs = 0.0
 
     private var nextAuto = 0.0
     private var lingerIdx = -1, lingerStart = 0.0
@@ -183,6 +192,10 @@ final class ChamberEngine: ObservableObject {
         buildGraph()
         do { try engine.start() } catch { print("[chamber] engine start: \(error)"); return }
 
+        // Device output latency (render quantum + HW safety offset) — the tail of the budget.
+        outputLatencyMs = engine.outputNode.presentationLatency * 1000
+        if outputLatencyMs <= 0 { outputLatencyMs = 10 } // sane floor if the device reports 0
+
         started = true
         nextAuto = now() + 6
         startTimer()
@@ -233,6 +246,12 @@ final class ChamberEngine: ObservableObject {
         // pose: head yaw. forward = (sin orient, 0, -cos orient) => quaternion about +y of
         // -orient (see docs/conventions.md). Listener stays at the origin unless 6DoF is on
         // (the webcam position estimate is crude and otherwise mislocalizes everything).
+        // Close the latency loop: this pose was captured at poseCaptureTime; it is reaching the
+        // output now + the device output latency. (CACurrentMediaTime is mach-based, lock-free.)
+        if poseCaptureTime > 0 {
+            lastRenderLatencyMs = (CACurrentMediaTime() - poseCaptureTime) * 1000 + outputLatencyMs
+        }
+
         let h = 0.5 * orient
         let p6 = use6DoFInternal
         var pose = ChamberPose(px: p6 ? Float(headX) : 0, py: p6 ? Float(headY) : 0,
@@ -256,6 +275,8 @@ final class ChamberEngine: ObservableObject {
 
     func setOrient(deg degrees: Double) { q.async { self.orient = rad(degrees) } }
     func setLookGate(_ g: Double) { q.async { self.lookGate = max(0, min(1, g)) } }
+    /// Host-clock capture time of the most recent pose (from FaceTracker), for the latency oracle.
+    func setPoseStamp(_ t: Double) { q.async { self.poseCaptureTime = t } }
     func setPosition(_ x: Double, _ y: Double, _ z: Double) {
         q.async { self.headX = x; self.headY = y; self.headZ = z }
     }
@@ -393,9 +414,11 @@ final class ChamberEngine: ObservableObject {
         }
         let o = orient, g = lookGate
         let hp = SIMD3(headX, headY, headZ)
+        let lat = lastRenderLatencyMs
         DispatchQueue.main.async {
             self.snapshot = vms; self.orientRad = o; self.lookGatePub = g; self.facedPub = facedIdx
             self.headPos = hp
+            self.latencyMs = lat
         }
     }
 }
