@@ -31,6 +31,8 @@ void chamber_renderer_destroy(ChamberRenderer *h);
 void chamber_renderer_set_room(ChamberRenderer *h, uint32_t room);
 void chamber_renderer_set_reflections(ChamberRenderer *h, int32_t on);
 void chamber_renderer_set_master_gain(ChamberRenderer *h, float g);
+/* Late-tail blend for BRIR rooms: 0 = pure parametric FDN, 1 = pure measured BRIR. */
+void chamber_renderer_set_reverb_blend(ChamberRenderer *h, float b);
 uint32_t chamber_renderer_num_rooms(ChamberRenderer *h);
 
 /* Render `frames` samples. `inputs` is `n` pointers to `frames` mono floats each. */

@@ -36,6 +36,7 @@ final class ChamberRenderer {
 
     func setRoom(_ i: Int) { chamber_renderer_set_room(handle, UInt32(i)) }
     func setMasterGain(_ g: Float) { chamber_renderer_set_master_gain(handle, g) }
+    func setReverbBlend(_ b: Float) { chamber_renderer_set_reverb_blend(handle, b) }
 
     @inline(__always)
     func process(pose: UnsafePointer<ChamberPose>, sources: UnsafePointer<ChamberSource>, n: Int,
@@ -108,6 +109,7 @@ final class ChamberEngine: ObservableObject {
     @Published var autoFinish = true
     @Published var ready = false
     @Published var roomIndex = 2 // "hall (FDN)" — parametric late tail + 6DoF ISM early reflections
+    @Published var reverbBlend = 1.0 // BRIR rooms: 0 = FDN tail, 1 = measured BRIR tail
     @Published var hrtfName = ""
     @Published var use6DoF = false   // webcam position estimate is crude → opt-in
     /// End-to-end motion-to-sound latency (ms): camera capture → pose → this audio block reaching
@@ -285,6 +287,11 @@ final class ChamberEngine: ObservableObject {
     func setRoom(_ i: Int) {
         q.async { self.renderer?.setRoom(i) }
         DispatchQueue.main.async { self.roomIndex = i }
+    }
+    /// 0 = parametric FDN tail, 1 = measured BRIR tail (only affects rooms that have a BRIR).
+    func setReverbBlend(_ b: Double) {
+        q.async { self.renderer?.setReverbBlend(Float(b)) }
+        DispatchQueue.main.async { self.reverbBlend = b }
     }
     func setUse6DoF(_ on: Bool) {
         q.async { self.use6DoFInternal = on }

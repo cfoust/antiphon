@@ -36,6 +36,16 @@ struct ContentView: View {
                             .buttonStyle(.borderless).foregroundStyle(.secondary)
                     }
                     .font(.caption)
+                    // BRIR rooms can blend their measured tail with the parametric FDN tail.
+                    if engine.roomIndex >= 4 {
+                        HStack(spacing: 10) {
+                            Text("FDN").font(.caption2).foregroundStyle(.secondary)
+                            Slider(value: Binding(get: { engine.reverbBlend },
+                                                  set: { engine.setReverbBlend($0) }), in: 0...1)
+                                .frame(width: 170)
+                            Text("BRIR").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
                     Text("Turn to face an agent to hear it open up · look down to whisper all")
                         .font(.caption2).foregroundStyle(.tertiary)
                 }

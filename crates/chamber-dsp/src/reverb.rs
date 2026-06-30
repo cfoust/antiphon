@@ -132,8 +132,9 @@ impl Fdn {
         self.in_delay_w = 0;
     }
 
-    /// Process a mono send block, adding wet stereo into `out_l`/`out_r`.
-    pub fn process(&mut self, send: &[f32], out_l: &mut [f32], out_r: &mut [f32]) {
+    /// Process a mono send block, adding wet stereo into `out_l`/`out_r`. `gain` scales this
+    /// backend's contribution (used to blend against the convolution tail).
+    pub fn process(&mut self, send: &[f32], out_l: &mut [f32], out_r: &mut [f32], gain: f32) {
         let n = send.len();
         let in_gain = 1.0 / (LINES as f32).sqrt();
         let cap = self.in_delay.len();
@@ -158,7 +159,7 @@ impl Fdn {
                 ol += v[i] * self.out_sign_l[i];
                 or += v[i] * self.out_sign_r[i];
             }
-            let og = self.wet / (LINES as f32).sqrt();
+            let og = gain * self.wet / (LINES as f32).sqrt();
             out_l[s] += ol * og;
             out_r[s] += or * og;
 
@@ -214,13 +215,13 @@ impl ConvReverb {
         }
     }
 
-    pub fn process(&mut self, send: &[f32], out_l: &mut [f32], out_r: &mut [f32]) {
+    pub fn process(&mut self, send: &[f32], out_l: &mut [f32], out_r: &mut [f32], gain: f32) {
         let n = send.len();
         let tl = &mut self.tmp_l[..n];
         let tr = &mut self.tmp_r[..n];
         let _ = self.cl.process(send, tl);
         let _ = self.cr.process(send, tr);
-        let w = self.wet;
+        let w = gain * self.wet;
         for i in 0..n {
             out_l[i] += w * tl[i];
             out_r[i] += w * tr[i];

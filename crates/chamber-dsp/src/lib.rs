@@ -128,6 +128,9 @@ pub struct Renderer {
 
     fdn: Fdn,
     conv: Option<ConvReverb>,
+    /// Late-tail blend for rooms that have a BRIR: 0 = pure parametric FDN, 1 = pure measured
+    /// BRIR. Equal-power crossfade. No effect on rooms without an IR (always FDN).
+    reverb_blend: f32,
     rooms: Vec<Room>,
     cur_room: usize,
     room: Room,
@@ -193,6 +196,7 @@ impl Renderer {
             silence: vec![0.0; max_block],
             fdn,
             conv,
+            reverb_blend: 1.0, // default: rooms with a BRIR play the measured tail (current behaviour)
             rooms,
             cur_room: 0,
             room,
@@ -222,6 +226,10 @@ impl Renderer {
     }
     pub fn set_reflections_enabled(&mut self, on: bool) {
         self.reflections_enabled = on;
+    }
+    /// Late-tail blend for BRIR rooms: 0 = pure parametric FDN, 1 = pure measured BRIR.
+    pub fn set_reverb_blend(&mut self, b: f32) {
+        self.reverb_blend = b.clamp(0.0, 1.0);
     }
 
     /// Select a room preset by index (clamped). Reconfigures the reverb.
@@ -431,20 +439,24 @@ impl Renderer {
             }
         }
 
-        // ---- late reverb (FDN or measured-BRIR convolution, per preset) ----
+        // ---- late reverb: parametric FDN and/or measured-BRIR convolution ----
         if self.room.wet > 0.0 {
             let (rl, rr) = (&mut self.rev_l[..frames], &mut self.rev_r[..frames]);
             for i in 0..frames {
                 rl[i] = 0.0;
                 rr[i] = 0.0;
             }
-            match self.room.backend {
-                ReverbBackend::Convolution if self.conv.is_some() => {
-                    self.conv.as_mut().unwrap().process(send_slice, rl, rr);
+            // Rooms with a BRIR can blend the two late tails (FDN's smooth even density vs. the
+            // BRIR's measured character), equal-power. Rooms without an IR are always pure FDN.
+            if self.conv.is_some() {
+                let b = self.reverb_blend.clamp(0.0, 1.0);
+                let g_fdn = (1.0 - b).sqrt();
+                if g_fdn > 1.0e-4 {
+                    self.fdn.process(send_slice, rl, rr, g_fdn);
                 }
-                _ => {
-                    self.fdn.process(send_slice, rl, rr);
-                }
+                self.conv.as_mut().unwrap().process(send_slice, rl, rr, b.sqrt());
+            } else {
+                self.fdn.process(send_slice, rl, rr, 1.0);
             }
             for i in 0..frames {
                 out_l[i] += rl[i];

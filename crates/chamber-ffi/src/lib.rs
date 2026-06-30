@@ -162,6 +162,15 @@ pub unsafe extern "C" fn chamber_renderer_set_master_gain(h: *mut c_void, g: f32
     }
 }
 
+/// Late-tail blend for BRIR rooms: 0 = pure parametric FDN, 1 = pure measured BRIR.
+/// # Safety: `h` is a valid handle.
+#[no_mangle]
+pub unsafe extern "C" fn chamber_renderer_set_reverb_blend(h: *mut c_void, b: f32) {
+    if let Some(h) = (h as *mut Handle).as_mut() {
+        h.r.set_reverb_blend(b);
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn chamber_renderer_num_rooms(h: *mut c_void) -> u32 {
     match (h as *mut Handle).as_mut() {
