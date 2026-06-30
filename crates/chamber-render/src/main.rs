@@ -50,6 +50,17 @@ fn main() {
         run_bench(&asset);
         return;
     }
+    // `shootout <asset> <out.wav> [voice.wav]`: the fixed ELO-shootout scene. A single voice tours
+    // the hard cases (front arc, behind, angled+elevated) past a FIXED head, rendered through the
+    // real Renderer so a candidate's DSP changes show up. Same scene/signal/asset for everyone.
+    if std::env::args().nth(1).as_deref() == Some("shootout") {
+        let a: Vec<String> = std::env::args().collect();
+        let asset = a.get(2).cloned().unwrap_or_else(|| "assets/baked/chamber-default.chamber".into());
+        let out = a.get(3).cloned().unwrap_or_else(|| "out/shootout/candidate.wav".into());
+        let voice = a.get(4).cloned().unwrap_or_else(|| "tools/shootout/echo.wav".into());
+        run_shootout(&asset, &out, &voice);
+        return;
+    }
 
     let asset_path = std::env::args()
         .nth(1)
@@ -662,6 +673,67 @@ fn render_multi<F: FnMut(f32, &mut [Source], &mut Pose)>(
     let peak = stereo.iter().fold(0.0f32, |a, &x| a.max(x.abs()));
     println!("  {:<16} room={} {:.1}s  peak={:.3}", name, room, dur, peak);
     let _ = Quat::IDENTITY; // keep import used
+}
+
+/// The fixed ELO-shootout scene: one voice tours the perceptually hard positions past a FIXED
+/// head (so externalization/front-back isn't rescued by dynamic cues). Deterministic.
+fn run_shootout(asset_path: &str, out_path: &str, voice_path: &str) {
+    let bytes = std::fs::read(asset_path).expect("read asset");
+    let asset = ChamberAsset::parse(&bytes).expect("parse asset");
+    let room_names: Vec<String> = asset.rooms.iter().map(|r| r.name.clone()).collect();
+    let mut r = Renderer::new(&asset, SR, 1, BLOCK);
+    r.set_room(room_of(&room_names, "room")); // a modestly reverberant room (externalization)
+    r.set_master_gain(0.9);
+    // seeding hook: FREQ_SCALE lets us produce a "fit-on" candidate without code changes.
+    if let Ok(v) = std::env::var("FREQ_SCALE").map(|s| s.parse::<f32>()) {
+        if let Ok(s) = v {
+            r.set_freq_scale(s);
+        }
+    }
+
+    let sig = load_wav_mono(voice_path);
+    let dur = 12.0f32;
+    let total = (dur * SR) as usize;
+    let pos_at = |t: f32| -> Vec3 {
+        // azimuth (0 = front, + = left), elevation; r = 1.5 m
+        let (az, el) = if t < 6.0 {
+            ((70.0f32).to_radians() * (2.0 * PI * t / 3.0).sin(), 0.0) // front arc, back & forth
+        } else {
+            let u = t - 6.0;
+            (2.0 * PI * u / 6.0, (25.0f32).to_radians() * (2.0 * PI * u / 3.0).sin()) // orbit + elev
+        };
+        let rr = 1.5;
+        Vec3::new(-rr * el.cos() * az.sin(), rr * el.sin(), -rr * el.cos() * az.cos())
+    };
+
+    let mut out_l = vec![0.0f32; BLOCK];
+    let mut out_r = vec![0.0f32; BLOCK];
+    let mut stereo = Vec::with_capacity(total * 2);
+    let (mut cursor, mut pos) = (0usize, 0usize);
+    while pos < total {
+        let n = BLOCK.min(total - pos);
+        let t = pos as f32 / SR;
+        let src = [Source::new(pos_at(t), 1.0)];
+        let pose = Pose::default(); // head fixed, facing front
+        let mut inp = vec![0.0f32; n];
+        for v in inp.iter_mut() {
+            *v = sig[cursor];
+            cursor = (cursor + 1) % sig.len();
+        }
+        let inref: Vec<&[f32]> = vec![&inp];
+        r.process(&pose, &src, &inref, &mut out_l, &mut out_r, n);
+        for i in 0..n {
+            stereo.push(out_l[i]);
+            stereo.push(out_r[i]);
+        }
+        pos += n;
+    }
+    if let Some(d) = std::path::Path::new(out_path).parent() {
+        std::fs::create_dir_all(d).ok();
+    }
+    write_wav(out_path, &stereo);
+    let peak = stereo.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
+    println!("shootout: wrote {} ({:.0}s, peak {:.3})", out_path, dur, peak);
 }
 
 fn write_wav(path: &str, interleaved: &[f32]) {

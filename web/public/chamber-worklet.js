@@ -55,6 +55,10 @@ class ChamberProcessor extends AudioWorkletProcessor {
       case "master":
         if (this.ready) this.ex.chamber_renderer_set_master_gain(this.r, d.gain);
         break;
+      case "freqScale": // HRTF "fit": warps the pinna spectral cue (dsp clamps 0.5..2.2)
+        this.freqScale = d.value;
+        if (this.ready) this.ex.chamber_renderer_set_freq_scale(this.r, d.value);
+        break;
     }
   }
 
@@ -67,6 +71,7 @@ class ChamberProcessor extends AudioWorkletProcessor {
     this.r = ex.chamber_renderer_create(aptr, asset.length, sampleRate, this.maxSources, BLOCK);
     this.numRooms = ex.chamber_renderer_num_rooms(this.r);
     ex.chamber_renderer_set_master_gain(this.r, 0.9);
+    if (this.freqScale !== undefined) ex.chamber_renderer_set_freq_scale(this.r, this.freqScale);
     // preallocate wasm scratch
     this.inPtrs = [];
     for (let i = 0; i < this.maxSources; i++) this.inPtrs.push(ex.chamber_alloc(BLOCK * 4));

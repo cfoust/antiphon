@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chamber Shootout — live head-tracked A/B</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; background: #0a0c10; color: #e8eaed;
+         margin: 0; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+  .wrap { width: 660px; max-width: 92vw; padding: 28px; }
+  h1 { font-size: 18px; font-weight: 700; margin: 0 0 4px; }
+  .sub { color: #8b93a1; font-size: 13px; margin-bottom: 18px; }
+  .ab { display: flex; gap: 14px; margin: 16px 0; }
+  .ab button { flex: 1; padding: 26px 0; font-size: 22px; font-weight: 700; border-radius: 14px;
+               border: 2px solid #232936; background: #11151c; color: #e8eaed; cursor: pointer; }
+  .ab button.on { border-color: #5fd0c5; background: #14201f; box-shadow: 0 0 0 3px #5fd0c522; }
+  .vote { display: flex; gap: 12px; margin-top: 4px; }
+  .vote button { flex: 1; padding: 15px 0; border-radius: 12px; border: 1px solid #2a3140;
+                 background: #161b24; color: #e8eaed; cursor: pointer; font-weight: 600; }
+  .vote button:hover { border-color: #5fd0c5; }
+  .vote .draw { flex: 0 0 130px; color: #8b93a1; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:12px 0; }
+  .row button, .row select { padding: 8px 13px; border-radius: 9px; border: 1px solid #232936;
+        background: #11151c; color: #e8eaed; cursor: pointer; font-size: 13px; }
+  .big { padding: 13px 22px !important; font-size: 15px !important; font-weight:700; border-color:#5fd0c5 !important; }
+  .pill { font-size:12px; color:#8b93a1; background:#11151c; border:1px solid #1b212c; border-radius:20px; padding:3px 11px; }
+  .meta { color: #6f7787; font-size: 12px; margin-top: 16px; display: flex; justify-content: space-between; }
+  .meta a { color: #6f7787; cursor: pointer; text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; display: none; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #1b212c; }
+  th { color: #8b93a1; font-weight: 600; }
+  .bar { height: 6px; background: #5fd0c5; border-radius: 3px; }
+  kbd { background:#1b212c; border:1px solid #2a3140; border-radius:4px; padding:0 5px; font-size:11px; }
+  .err { color:#ff9b9b; } .ok { color:#7fe0b0; }
+  #yaw { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Chamber shootout — live, head-tracked A/B</h1>
+  <div class="sub" id="sub">loading…</div>
+
+  <div class="row">
+    <button id="start" class="big">▶ start (camera + audio)</button>
+    <span class="pill" id="track">tracking: off</span>
+    <span class="pill">head yaw <b id="yaw">0°</b></span>
+  </div>
+
+  <div class="ab">
+    <button id="btnA" class="on">A</button>
+    <button id="btnB">B</button>
+  </div>
+  <div class="vote">
+    <button id="voteA">◀ A is better</button>
+    <button id="voteDraw" class="draw">too close</button>
+    <button id="voteB">B is better ▶</button>
+  </div>
+
+  <div class="row">
+    <button id="setfwd">set “forward” (look at screen)</button>
+    <label class="pill"><input type="checkbox" id="invyaw" /> invert yaw</label>
+    <label class="pill"><input type="checkbox" id="sixdof" checked /> 6DoF (lean→parallax)</label>
+    <span class="pill">source az
+      <select id="az">
+        <option value="-30" selected>30° right</option>
+        <option value="30">30° left</option>
+        <option value="0">0° front</option>
+        <option value="-90">90° right</option>
+        <option value="90">90° left</option>
+      </select>
+    </span>
+    <span class="pill">room
+      <select id="room">
+        <option value="0">dry</option>
+        <option value="1" selected>room (FDN)</option>
+        <option value="2">hall</option>
+        <option value="3">cathedral</option>
+      </select>
+    </span>
+  </div>
+
+  <div class="meta">
+    <span id="count">0 comparisons</span>
+    <span><a id="reveal">standings</a> · <a id="exp">export</a> · <a id="reset">reset</a></span>
+  </div>
+  <table id="standings"><thead><tr><th>#</th><th>candidate</th><th>elo</th><th>games</th><th></th></tr></thead><tbody></tbody></table>
+  <div class="sub" style="margin-top:14px">
+    Move your head freely — the voice stays fixed in the world. <kbd>a</kbd>/<kbd>b</kbd> switch ·
+    <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> vote. Both engines run live on the same pose; only the
+    rendering differs (loudness-matched).
+  </div>
+</div>
+
+<script type="module">
+import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm";
+
+const WASM_DIR = "/out/shootout/wasm/";
+const ASSET_URL = "/assets/baked/chamber-kemar.chamber";
+const VOICE_URL = "/tools/shootout/echo.wav";
+const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const K_BASE = 32, START_ELO = 1500, SRC_DIST = 1.2;
+
+const $ = id => document.getElementById(id);
+let cands = [], R = {}, games = {}, history = [], pair = null, sel = "A", lastPair = "";
+let ctx = null, node = null, loaded = new Set(), wasmCache = new Map(), assetCache = new Map();
+const DEFAULT_ASSET = "chamber-kemar.chamber";
+let landmarker = null, video = null, neutral = null, curYaw = 0, curPitch = 0, curYawV = 0, curPitchV = 0, curX = 0, curY = 0, curZ = 0, live = false;
+const POS_SCALE = 0.012; // matrix translation -> world metres-ish (head lean -> source parallax)
+let predictSec = 0.045; // velocity-prediction lookahead (s); set ADAPTIVELY to the measured total latency
+
+// One Euro filter: cutoff rises with speed -> low lag while moving, smooth at rest. The old fixed
+// one-pole (alpha 0.35) settled in ~350 ms, far above the <60 ms the dynamic cue needs.
+function oeAlpha(cutoff, dt) { const tau = 1 / (2 * Math.PI * cutoff); return 1 / (1 + tau / dt); }
+class OneEuro {
+  constructor(minCutoff = 1.4, beta = 0.9, dCutoff = 1.0) { this.mc = minCutoff; this.beta = beta; this.dc = dCutoff; this.xp = null; this.dxp = 0; this.tp = null; this.v = 0; }
+  filter(x, t) {
+    if (this.tp === null) { this.tp = t; this.xp = x; return x; }
+    const dt = Math.max(1e-3, (t - this.tp) / 1000); this.tp = t;
+    const dx = (x - this.xp) / dt;
+    const ad = oeAlpha(this.dc, dt); const dxh = ad * dx + (1 - ad) * this.dxp; this.dxp = dxh; this.v = dxh;
+    const a = oeAlpha(this.mc + this.beta * Math.abs(dxh), dt);
+    const xh = a * x + (1 - a) * this.xp; this.xp = xh; return xh;
+  }
+}
+const yawF = new OneEuro(), pitchF = new OneEuro();
+const posXF = new OneEuro(0.6, 0.4), posYF = new OneEuro(0.6, 0.4), posZF = new OneEuro(0.6, 0.4); // position is noisier -> gentler
+
+const key = () => "elo-live:" + cands.map(c => c.name).sort().join(",");
+
+async function boot() {
+  let m;
+  try { m = await (await fetch(WASM_DIR + "manifest.json", { cache: "no-store" })).json(); }
+  catch (e) { $("sub").innerHTML = '<span class="err">no wasm manifest — run <code>bash tools/shootout/build-live.sh</code> and serve from the repo root</span>'; return; }
+  cands = m.candidates;
+  if (cands.length < 2) { $("sub").innerHTML = '<span class="err">need ≥2 engines</span>'; return; }
+  $("sub").innerHTML = `${cands.length} engines · loudness-matched · <span class="ok">press start</span>`;
+  loadElo();
+}
+
+// ---- ELO state (same math as the offline harness) ----
+function loadElo() {
+  const s = JSON.parse(localStorage.getItem(key()) || "null");
+  for (const c of cands) { R[c.name] = s?.R?.[c.name] ?? START_ELO; games[c.name] = s?.games?.[c.name] ?? 0; }
+  history = s?.history ?? [];
+  $("count").textContent = `${history.length} comparisons`;
+}
+function saveElo() {
+  localStorage.setItem(key(), JSON.stringify({ R, games, history }));
+  $("count").textContent = `${history.length} comparisons`;
+}
+function nextPair() {
+  const order = [...cands].sort((a, b) => (games[a.name] - games[b.name]) || (Math.random() - 0.5));
+  const x = order[0].name;
+  let best = null, bd = 1e9;
+  for (const c of cands) {
+    if (c.name === x) continue;
+    const id = [x, c.name].sort().join("|");
+    let d = Math.abs(R[x] - R[c.name]) + games[c.name] * 0.5;
+    if (id === lastPair) d += 1e6;
+    if (d < bd) { bd = d; best = c.name; }
+  }
+  pair = Math.random() < 0.5 ? [x, best] : [best, x];
+  lastPair = [pair[0], pair[1]].sort().join("|");
+  ensurePair().then(() => { sel = "A"; switchTo("A"); });
+}
+function vote(result) {
+  const A = pair[0], B = pair[1];
+  const ea = 1 / (1 + Math.pow(10, (R[B] - R[A]) / 400));
+  const k = Math.max(16, K_BASE - Math.min(games[A], games[B]));
+  R[A] += k * (result - ea); R[B] += k * ((1 - result) - (1 - ea));
+  games[A]++; games[B]++;
+  history.push({ a: A, b: B, r: result });
+  saveElo();
+  nextPair();
+  if ($("standings").style.display === "table") renderStandings();
+}
+function renderStandings() {
+  const rows = [...cands].map(c => ({ name: c.name, elo: Math.round(R[c.name]), g: games[c.name] })).sort((a, b) => b.elo - a.elo);
+  const max = Math.max(...rows.map(r => r.elo)), min = Math.min(...rows.map(r => r.elo));
+  const tb = $("standings").querySelector("tbody"); tb.innerHTML = "";
+  rows.forEach((r, i) => {
+    const w = max > min ? 4 + 96 * (r.elo - min) / (max - min) : 50;
+    tb.innerHTML += `<tr><td>${i + 1}</td><td>${r.name}${r.name === "baseline" ? " ·base" : ""}</td><td>${r.elo}</td><td>${r.g}</td><td><div class="bar" style="width:${w}%"></div></td></tr>`;
+  });
+}
+
+// ---- engines ----
+async function wasmBytes(file) {
+  if (!wasmCache.has(file)) wasmCache.set(file, await (await fetch(WASM_DIR + file)).arrayBuffer());
+  return wasmCache.get(file);
+}
+function engineReady(id) { return new Promise(res => {
+  const h = (e) => { if (e.data.type === "engineReady" && e.data.id === id) { node.port.removeEventListener("message", h); res(); } };
+  node.port.addEventListener("message", h);
+}); }
+async function assetBytes(file) {
+  if (!assetCache.has(file)) assetCache.set(file, await (await fetch("/assets/baked/" + file)).arrayBuffer());
+  return assetCache.get(file);
+}
+async function ensureEngine(name) {
+  if (loaded.has(name)) return;
+  const c = cands.find(x => x.name === name);
+  const [wasm, asset] = await Promise.all([wasmBytes(c.file), assetBytes(c.asset || DEFAULT_ASSET)]);
+  const done = engineReady(name);
+  node.port.postMessage({ type: "engine", id: name, wasm, asset: asset.slice(0), trim: c.trim ?? 1 });
+  await done; loaded.add(name);
+}
+async function ensurePair() {
+  if (!node) return;
+  await Promise.all([ensureEngine(pair[0]), ensureEngine(pair[1])]);
+  node.port.postMessage({ type: "pair", a: pair[0], b: pair[1] });
+}
+function switchTo(side) {
+  sel = side;
+  $("btnA").classList.toggle("on", side === "A");
+  $("btnB").classList.toggle("on", side === "B");
+  if (node) node.port.postMessage({ type: "select", side: side === "A" ? 0 : 1 });
+}
+
+// ---- audio + source ----
+function srcPos() {
+  const azDeg = parseFloat($("az").value), az = azDeg * Math.PI / 180, R = SRC_DIST;
+  return { x: -R * Math.sin(az), y: 0, z: -R * Math.cos(az) }; // conventions: az toward +left
+}
+async function startAll() {
+  if (ctx) return;
+  ctx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
+  if (ctx.state !== "running") await ctx.resume(); // Safari starts suspended -> silence
+  await ctx.audioWorklet.addModule("/tools/shootout/live/swap-worklet.js");
+  node = new AudioWorkletNode(ctx, "chamber-swap", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+  node.port.start(); // REQUIRED: we use addEventListener on the port, so it won't dispatch until started
+  node.connect(ctx.destination);
+  node.port.postMessage({ type: "room", index: parseInt($("room").value) });
+  // decode the voice to mono @ ctx rate
+  const vb = await ctx.decodeAudioData(await (await fetch(VOICE_URL)).arrayBuffer());
+  const mono = new Float32Array(vb.length);
+  for (let ch = 0; ch < vb.numberOfChannels; ch++) { const d = vb.getChannelData(ch); for (let i = 0; i < d.length; i++) mono[i] += d[i] / vb.numberOfChannels; }
+  const p = srcPos();
+  node.port.postMessage({ type: "source", samples: mono, x: p.x, y: p.y, z: p.z, send: 0.3, gain: 0.9, play: true }, [mono.buffer]);
+  nextPair(); // start audio immediately — don't gate it on the camera/model loading
+  startTracking(); // fire-and-forget; pose stays identity until the first face is detected
+  $("sub").innerHTML = `${cands.length} engines · live · loudness-matched`;
+}
+
+// ---- head tracking ----
+async function startTracking() {
+  try {
+    const fileset = await FilesetResolver.forVisionTasks(VISION_WASM);
+    landmarker = await FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
+      runningMode: "VIDEO", numFaces: 1, outputFacialTransformationMatrixes: true,
+    });
+    video = document.createElement("video"); video.autoplay = true; video.muted = true; video.playsInline = true;
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: "user", frameRate: { ideal: 60 } } });
+    await video.play();
+    $("track").className = "pill ok";
+    let detCount = 0, detT0 = performance.now(), inferEMA = 0, frameAgeEMA = 0, lastT = -1;
+    // one measured detection: time the inference, capture frame-age, filter, push the predicted pose.
+    const tick = (frameNow, meta) => {
+      const ts = performance.now();
+      const res = landmarker.detectForVideo(video, ts);
+      inferEMA = inferEMA ? inferEMA * 0.9 + (performance.now() - ts) * 0.1 : (performance.now() - ts);
+      if (meta && meta.captureTime) { const age = frameNow - meta.captureTime; if (age > 0 && age < 250) frameAgeEMA = frameAgeEMA ? frameAgeEMA * 0.9 + age * 0.1 : age; }
+      const mats = res.facialTransformationMatrixes;
+      if (mats && mats.length) {
+        const m = mats[0].data;
+        curYaw = yawF.filter(Math.atan2(m[8], m[10]) * 180 / Math.PI, ts); curYawV = yawF.v;
+        curPitch = pitchF.filter(Math.atan2(-m[9], m[5]) * 180 / Math.PI, ts); curPitchV = pitchF.v;
+        curX = posXF.filter(m[12], ts); curY = posYF.filter(m[13], ts); curZ = posZF.filter(m[14], ts);
+        if (!neutral) neutral = { yaw: curYaw, pitch: curPitch, x: curX, y: curY, z: curZ };
+        live = true; pushPose();
+      }
+      detCount++;
+      const nowp = performance.now();
+      if (nowp - detT0 > 500) {
+        const fps = Math.round(detCount * 1000 / (nowp - detT0));
+        const outMs = ((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000;
+        const camMs = frameAgeEMA || (1000 / Math.max(fps, 1)); // capture->callback (or ~1 frame if unknown)
+        const total = camMs + inferEMA + outMs;
+        predictSec = Math.min(0.20, total / 1000); // ADAPTIVE: predict ahead by the measured latency
+        // a high `out` is almost always Bluetooth headphones (~150-250ms codec/buffer latency) — wired fixes it
+        const warn = outMs > 60 ? "  ⚠ audio out high → use WIRED headphones" : "";
+        $("track").textContent = `${fps}fps · cam ${Math.round(camMs)} · inf ${Math.round(inferEMA)} · out ${Math.round(outMs)} · ~${Math.round(total)}ms${warn}`;
+        $("track").className = outMs > 60 ? "pill err" : "pill ok";
+        detCount = 0; detT0 = nowp;
+      }
+    };
+    // requestVideoFrameCallback delivers frames with timing metadata and lower latency than rAF polling.
+    if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
+      const onFrame = (now, meta) => { tick(now, meta); video.requestVideoFrameCallback(onFrame); };
+      video.requestVideoFrameCallback(onFrame);
+    } else {
+      const loop = () => { if (video.currentTime !== lastT && video.readyState >= 2) { lastT = video.currentTime; tick(performance.now(), null); } requestAnimationFrame(loop); };
+      requestAnimationFrame(loop);
+    }
+  } catch (e) {
+    $("track").textContent = "tracking: failed (" + e.message + ")"; $("track").className = "pill err";
+  }
+}
+function pushPose() {
+  if (!node || !live || !neutral) return;
+  const inv = $("invyaw").checked ? -1 : 1;
+  // velocity prediction (curYawV is deg/s from the One Euro filter) cancels the measured pipeline latency
+  const yaw = inv * ((curYaw - neutral.yaw) + curYawV * predictSec) * Math.PI / 180;
+  const pitch = ((curPitch - neutral.pitch) + curPitchV * predictSec) * Math.PI / 180;
+  // yaw about +y, pitch about +x  (q = qYaw ⊗ qPitch)
+  const w1 = Math.cos(yaw / 2), a = Math.sin(yaw / 2), w2 = Math.cos(pitch / 2), b = Math.sin(pitch / 2);
+  // 6DoF: feed head translation (neutral-relative) so leaning gives source parallax. +x right, +y up, front -z.
+  const s6 = $("sixdof").checked ? POS_SCALE : 0;
+  const px = -(curX - neutral.x) * s6, py = (curY - neutral.y) * s6, pz = (curZ - neutral.z) * s6;
+  const pose = { px, py, pz, qw: w1 * w2, qx: w1 * b, qy: a * w2, qz: -a * b };
+  node.port.postMessage({ type: "pose", pose });
+  $("yaw").textContent = Math.round((curYaw - neutral.yaw)) + "°";
+}
+
+// ---- wire UI ----
+$("start").onclick = () => startAll();
+$("setfwd").onclick = () => { if (live) neutral = { yaw: curYaw, pitch: curPitch, x: curX, y: curY, z: curZ }; };
+$("btnA").onclick = () => switchTo("A"); $("btnB").onclick = () => switchTo("B");
+$("voteA").onclick = () => vote(1); $("voteB").onclick = () => vote(0); $("voteDraw").onclick = () => vote(0.5);
+$("az").onchange = () => { if (node) { const p = srcPos(); node.port.postMessage({ type: "source", x: p.x, y: p.y, z: p.z }); } };
+$("room").onchange = () => { if (node) node.port.postMessage({ type: "room", index: parseInt($("room").value) }); };
+$("reveal").onclick = () => { const t = $("standings"); t.style.display = t.style.display === "table" ? "none" : "table"; if (t.style.display === "table") renderStandings(); };
+$("reset").onclick = () => { if (confirm("Reset all ratings?")) { localStorage.removeItem(key()); loadElo(); renderStandings(); } };
+$("exp").onclick = () => { const blob = new Blob([JSON.stringify({ R, games, history }, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "shootout_live_elo.json"; a.click(); };
+document.addEventListener("keydown", e => {
+  if (e.key === "a" || e.key === "A") switchTo("A"); else if (e.key === "b" || e.key === "B") switchTo("B");
+  else if (e.key === "1") vote(1); else if (e.key === "2") vote(0); else if (e.key === "3") vote(0.5);
+});
+boot();
+</script>
+</body>
+</html>

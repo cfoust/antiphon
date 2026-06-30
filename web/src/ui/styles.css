@@ -166,6 +166,37 @@ h1 {
   cursor: pointer;
 }
 
+/* ---- HRTF "fit" control (revealed once the experience is live) ---- */
+.controls {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 14px);
+  right: calc(env(safe-area-inset-right) + 16px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--card) 86%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  z-index: 5;
+}
+.ctl {
+  color: var(--dim);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ctl-range {
+  width: 130px;
+  accent-color: var(--accent);
+}
+.ctl-val {
+  color: var(--dim);
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-width: 34px;
+  text-align: right;
+}
+
 /* ---- live mode: talk back to the agent you're facing ---- */
 .say {
   position: fixed;

@@ -111,9 +111,8 @@ final class ChamberEngine: ObservableObject {
     @Published var ready = false
     @Published var roomIndex = 2 // "hall (FDN)" — parametric late tail + 6DoF ISM early reflections
     @Published var reverbBlend = 1.0 // BRIR rooms: 0 = FDN tail, 1 = measured BRIR tail
-    @Published var freqScale = 1.0   // HRTF fit: <1 / >1 warps the pinna spectral cue
+    @Published var freqScale = 2.0   // HRTF fit: <1 / >1 warps the pinna spectral cue
     @Published var hrtfName = ""
-    @Published var use6DoF = false   // webcam position estimate is crude → opt-in
     /// End-to-end motion-to-sound latency (ms): camera capture → pose → this audio block reaching
     /// the output. The latency oracle for plan 07 (target < ~60 ms).
     @Published var latencyMs = 0.0
@@ -145,7 +144,6 @@ final class ChamberEngine: ObservableObject {
     private var pubCounter = 0
     private var started = false
     private var autoFinishInternal = true
-    private var use6DoFInternal = false
 
     // preallocated FFI scratch (no allocation in the render callback)
     private var inBufs: [UnsafeMutablePointer<Float>] = []
@@ -195,6 +193,7 @@ final class ChamberEngine: ObservableObject {
         renderer.setRoom(roomIndex)
         // close 1.3 m arc + 6 summed voices + BRIR tail is hot -> keep the master well down
         renderer.setMasterGain(0.45)
+        renderer.setFreqScale(Float(freqScale)) // push the default "fit" so it's applied from the first block
 
         buildGraph()
         do { try engine.start() } catch { print("[chamber] engine start: \(error)"); return }
@@ -254,8 +253,7 @@ final class ChamberEngine: ObservableObject {
         }
 
         // pose: head yaw. forward = (sin orient, 0, -cos orient) => quaternion about +y of
-        // -orient (see docs/conventions.md). Listener stays at the origin unless 6DoF is on
-        // (the webcam position estimate is crude and otherwise mislocalizes everything).
+        // -orient (see docs/conventions.md). 6DoF head position is always fed below (true parallax).
         // Close the latency loop: this pose was captured at poseCaptureTime; it is reaching the
         // output now + the device output latency. (CACurrentMediaTime is mach-based, lock-free.)
         if poseCaptureTime > 0 {
@@ -263,9 +261,9 @@ final class ChamberEngine: ObservableObject {
         }
 
         let h = 0.5 * orient
-        let p6 = use6DoFInternal
-        var pose = ChamberPose(px: p6 ? Float(headX) : 0, py: p6 ? Float(headY) : 0,
-                               pz: p6 ? Float(headZ) : 0,
+        // 6DoF is always on: feed the (filtered, neutral-relative, ±1 m-clamped) head position so
+        // leaning/shifting gives true motion parallax — the strongest externalization cue.
+        var pose = ChamberPose(px: Float(headX), py: Float(headY), pz: Float(headZ),
                                qw: Float(cos(h)), qx: 0, qy: Float(-sin(h)), qz: 0)
         renderer.process(pose: &pose, sources: UnsafePointer(srcArr), n: agents.count,
                          inputs: UnsafePointer(inTable), outL: outL, outR: outR, frames: n)
@@ -299,10 +297,6 @@ final class ChamberEngine: ObservableObject {
     func setFreqScale(_ s: Double) {
         q.async { self.renderer?.setFreqScale(Float(s)) }
         DispatchQueue.main.async { self.freqScale = s }
-    }
-    func setUse6DoF(_ on: Bool) {
-        q.async { self.use6DoFInternal = on }
-        DispatchQueue.main.async { self.use6DoF = on }
     }
 
     // MARK: the loop

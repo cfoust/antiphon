@@ -34,11 +34,13 @@ export class Chamber {
 
   // listener / mix state
   orient = 0; // radians
+  headPos = { x: 0, y: 0, z: 0 }; // 6DoF head translation (metres, neutral-relative) → true parallax
   ringIntel = 0; // 0..1 — ambient murmur bed kept at its quietest
   arrangement: Arrangement = "arc"; // a semicircle across the front
   env: EnvName = "room"; // measured-BRIR convolution room (the default that sounded best)
   lookGate = 1; // 1 = forward, 0 = looking down (everyone whispers)
   activeCount = 5;
+  fit = 2.0; // HRTF "fit": warps the pinna spectral cue until a source ahead sits OUT in front
 
   // what drives the agents (set in start()); demo loads canned audio, live never does
   mode: ChamberMode = "demo";
@@ -82,8 +84,8 @@ export class Chamber {
   }
 
   private setListener(): void {
-    // wasm setPose(orient) reproduces the prototype's forward = (sinθ, 0, −cosθ)
-    this.wasm?.setPose(this.orient);
+    // forward = (sinθ, 0, −cosθ) about +y, plus 6DoF head translation so leaning gives true parallax
+    this.wasm?.setPose(this.orient, this.headPos);
   }
 
   private placeAgent(id: string): void {
@@ -215,6 +217,7 @@ export class Chamber {
     });
     this.wasm.connect(this.agentBus);
     this.wasm.setRoom(ENV_ROOM[this.env]);
+    this.wasm.setFreqScale(this.fit); // apply the default "fit" before any audio plays
     this.setListener();
 
     const bs = ARRANGE[this.arrangement](this.activeCount);
@@ -505,6 +508,12 @@ export class Chamber {
     this.onOrient(deg(this.orient));
   }
 
+  /** 6DoF head translation, world metres, neutral-relative (+x right, +y up, front −z). */
+  setPosition(p: { x: number; y: number; z: number }): void {
+    this.headPos = p;
+    if (this.started) this.setListener();
+  }
+
   getOrient(): number {
     return deg(this.orient);
   }
@@ -521,6 +530,16 @@ export class Chamber {
 
   setMasterVol(v: number): void {
     if (this.master) this.master.gain.value = v;
+  }
+
+  /** HRTF "fit": dial until a source straight ahead sits OUT in front at ear level. */
+  setFit(v: number): void {
+    this.fit = v;
+    this.wasm?.setFreqScale(v);
+  }
+
+  getFit(): number {
+    return this.fit;
   }
 
   setArrangement(a: Arrangement): void {
