@@ -1,0 +1,131 @@
+import type { Chamber } from "../audio/engine";
+
+/**
+ * Live mode: connect to the local chamber bridge and translate its frames into engine
+ * calls. The bridge does identity (seat per session), narration content, and TTS; the
+ * page just plays it spatially. Used only when the app is opened with `?live` against a
+ * bridge running on the same machine (see docs/cc-integration-plan.md).
+ */
+const BRIDGE_WS = "ws://127.0.0.1:8787/stream";
+
+interface Frame {
+  type: "hello" | "bind" | "task" | "progress" | "done" | "blocked" | "free";
+  seat: number;
+  color?: string;
+  headline?: string;
+  note?: string;
+  summary?: string;
+  question?: string;
+  audioB64?: string;
+}
+
+function b64ToBuffer(b64: string): ArrayBuffer {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
+export function connectLive(engine: Chamber): void {
+  engine.startLive();
+  const decode = (b64: string) => engine.decodeBytes(b64ToBuffer(b64));
+
+  let socket: WebSocket | null = null;
+  const send = (obj: unknown) => {
+    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(obj));
+  };
+  wireInput(engine, send);
+
+  let retry = 0;
+  const open = () => {
+    const ws = new WebSocket(BRIDGE_WS);
+    socket = ws;
+
+    ws.onopen = () => {
+      retry = 0;
+      console.info("[chamber] bridge connected");
+    };
+    ws.onerror = () => ws.close();
+    ws.onclose = () => {
+      retry = Math.min(retry + 1, 6);
+      setTimeout(open, 500 * retry);
+    };
+
+    ws.onmessage = async (e) => {
+      let f: Frame;
+      try {
+        f = JSON.parse(e.data as string);
+      } catch {
+        return;
+      }
+      switch (f.type) {
+        case "bind":
+          engine.bindSeat(f.seat, f.headline);
+          break;
+        case "task":
+          engine.setTask(f.seat, f.headline ?? "");
+          if (f.audioB64) engine.enqueueProgress(f.seat, await decode(f.audioB64));
+          break;
+        case "progress":
+        case "blocked":
+          if (f.audioB64) engine.enqueueProgress(f.seat, await decode(f.audioB64));
+          break;
+        case "done":
+          if (f.audioB64) engine.setSummaryClip(f.seat, await decode(f.audioB64));
+          engine.markDone(f.seat);
+          break;
+        case "free":
+          engine.unbindSeat(f.seat);
+          break;
+        // "hello" — initial seat/color list; ignored (engine owns its own roster)
+      }
+    };
+  };
+  open();
+}
+
+/**
+ * The talk-back input: face an agent, focus the field (which LOCKS onto that agent so
+ * head-drift while you dictate doesn't change the target), type or dictate, press Enter.
+ * The field tints with the target agent's color. Unfocused, it tracks whoever you face.
+ */
+function wireInput(engine: Chamber, send: (obj: unknown) => void): void {
+  const form = document.getElementById("say") as HTMLFormElement | null;
+  const input = document.getElementById("sayText") as HTMLInputElement | null;
+  if (!form || !input) return;
+  form.hidden = false;
+
+  let locked = -1; // seat captured at focus; -1 when not focused
+
+  const tint = (seat: number) => {
+    input.style.borderColor = seat >= 0 ? engine.agents[seat].color : "";
+    input.placeholder =
+      seat >= 0 ? "Type a message to this agent…" : "Face an agent, then type to send…";
+  };
+
+  // while not composing, follow whoever you're facing
+  const prev = engine.onOrient;
+  engine.onOrient = (deg) => {
+    prev(deg);
+    if (locked < 0) tint(engine.facedIndex());
+  };
+  tint(engine.facedIndex());
+
+  input.addEventListener("focus", () => {
+    locked = engine.facedIndex();
+    tint(locked);
+  });
+  input.addEventListener("blur", () => {
+    locked = -1;
+    tint(engine.facedIndex());
+  });
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    const seat = locked >= 0 ? locked : engine.facedIndex();
+    if (!text || seat < 0) return;
+    send({ type: "say", seat, text });
+    input.value = "";
+  });
+}

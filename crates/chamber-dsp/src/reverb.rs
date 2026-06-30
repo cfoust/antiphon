@@ -89,7 +89,7 @@ impl Fdn {
         let n = send.len();
         let in_gain = 1.0 / (LINES as f32).sqrt();
         for s in 0..n {
-            let x = send[s];
+            let x = if send[s].is_finite() { send[s] } else { 0.0 };
             // read taps
             let mut v = [0.0f32; LINES];
             for i in 0..LINES {
@@ -111,7 +111,11 @@ impl Fdn {
             hadamard16(&mut v);
             for i in 0..LINES {
                 // per-line one-pole lowpass (damping)
-                let damped = self.damp_state[i] + self.damp_a * (v[i] - self.damp_state[i]);
+                let mut damped = self.damp_state[i] + self.damp_a * (v[i] - self.damp_state[i]);
+                // self-heal: a stray NaN/Inf must not lock the feedback state dead forever
+                if !damped.is_finite() {
+                    damped = 0.0;
+                }
                 self.damp_state[i] = damped;
                 let fb = damped * self.fb_gain[i];
                 let write = self.read[i]; // we overwrite the slot we just read
