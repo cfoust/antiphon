@@ -9,6 +9,31 @@ import { HeadTracker } from "./tracking/headTracking";
 
 const DEFAULT_SFX = SFX.findIndex((s) => s.name.startsWith("drone")); // an audible loop
 
+// The generated agent voices (public/audio/<id>.mp3) — decoded on demand, looped.
+const VOICES = ["atlas", "echo", "wren", "cass", "iris", "rook"].map((id) => ({
+  name: id, url: `audio/${id}.mp3`,
+}));
+const voiceCache = new Map<string, Float32Array>();
+const soundLoop = (i: number) => (i < SFX.length ? SFX[i].loop : true);
+const soundName = (i: number) =>
+  i < 0 ? "file" : i < SFX.length ? SFX[i].name : VOICES[i - SFX.length].name + " (voice)";
+async function soundSamples(i: number): Promise<Float32Array> {
+  if (i < SFX.length) return SFX[i].make(ctx!.sampleRate);
+  const v = VOICES[i - SFX.length];
+  let s = voiceCache.get(v.url);
+  if (!s) {
+    const ab = await fetch(v.url).then((r) => r.arrayBuffer());
+    const ad = await ctx!.decodeAudioData(ab);
+    s = ad.getChannelData(0).slice();
+    voiceCache.set(v.url, s);
+  }
+  return s;
+}
+function fillSounds(sel: HTMLSelectElement) {
+  SFX.forEach((s, i) => sel.add(new Option(s.name + (s.loop ? " (loop)" : ""), String(i))));
+  VOICES.forEach((v, i) => sel.add(new Option(v.name + " (voice loop)", String(SFX.length + i))));
+}
+
 // Enabled by `just harness-dev` (VITE_DEV3D=1). Vite exposes VITE_-prefixed env on import.meta.
 const DEV3D = (import.meta as { env?: Record<string, string> }).env?.VITE_DEV3D === "1";
 
@@ -65,31 +90,29 @@ async function ensureStarted(): Promise<boolean> {
   }
 };
 
-// ---- sound generation -----------------------------------------------------
-function sfxSamples(i: number): Float32Array {
-  return SFX[i].make(ctx!.sampleRate);
-}
 
 async function addSourceAt(pos: Vec3) {
-  if (await ensureStarted()) addSource(pos);
+  await addSource(pos);
 }
 
-function addSource(pos: Vec3, forceSfx?: number) {
-  if (!engine) { void ensureStarted().then((ok) => ok && addSource(pos, forceSfx)); return; }
-  const sfxIndex = forceSfx ?? (document.getElementById("sfx") as HTMLSelectElement).selectedIndex;
+async function addSource(pos: Vec3, forceSfx?: number) {
+  if (!(await ensureStarted())) return;
+  const idx = forceSfx ?? +(document.getElementById("sfx") as HTMLSelectElement).value;
+  const samples = await soundSamples(idx);
   const s: Src = {
-    id: "s" + nextId++, pos, gain: 0.8, sfx: sfxIndex, loop: SFX[sfxIndex].loop,
-    color: COLORS[sources.length % COLORS.length], name: SFX[sfxIndex].name,
+    id: "s" + nextId++, pos, gain: 0.8, sfx: idx, loop: soundLoop(idx),
+    color: COLORS[sources.length % COLORS.length], name: soundName(idx),
   };
   sources.push(s);
-  engine.setSource(s.id, { samples: sfxSamples(s.sfx), gain: s.gain, pos: s.pos, loop: s.loop, play: true });
+  engine!.setSource(s.id, { samples, gain: s.gain, pos: s.pos, loop: s.loop, play: true });
   selected = sources.length - 1;
   renderSources();
 }
 
-function reload(s: Src) {
-  engine!.setSource(s.id, { samples: sfxSamples(s.sfx), gain: s.gain, pos: s.pos, loop: s.loop, play: true });
-  s.name = SFX[s.sfx].name;
+async function reload(s: Src) {
+  const samples = await soundSamples(s.sfx);
+  engine!.setSource(s.id, { samples, gain: s.gain, pos: s.pos, loop: s.loop, play: true });
+  s.name = soundName(s.sfx);
 }
 
 // ---- listener pose --------------------------------------------------------
@@ -104,8 +127,8 @@ const clampM = (v: number) => Math.max(-1.5, Math.min(1.5, v));
 // ---- controls -------------------------------------------------------------
 function initControls() {
   const sfxSel = $("sfx") as HTMLSelectElement;
-  SFX.forEach((s) => sfxSel.add(new Option(s.name + (s.loop ? " (loop)" : ""))));
-  sfxSel.selectedIndex = Math.max(0, DEFAULT_SFX); // default to an audible loop
+  fillSounds(sfxSel);
+  sfxSel.value = String(Math.max(0, DEFAULT_SFX)); // default to an audible loop
   const roomSel = $("room") as HTMLSelectElement;
   ROOMS.forEach((r, i) => roomSel.add(new Option(r, String(i))));
   roomSel.value = "2";
@@ -167,9 +190,9 @@ function renderSources() {
     swatch.onclick = name.onclick = () => { selected = i; renderSources(); };
 
     const sel = document.createElement("select");
-    SFX.forEach((x, xi) => sel.add(new Option(x.name, String(xi))));
+    fillSounds(sel);
     if (s.sfx >= 0) sel.value = String(s.sfx);
-    sel.onchange = () => { s.sfx = +sel.value; s.loop = SFX[s.sfx].loop; reload(s); name.textContent = s.name; };
+    sel.onchange = () => { s.sfx = +sel.value; s.loop = soundLoop(s.sfx); void reload(s); name.textContent = soundName(s.sfx); };
     const vol = document.createElement("input");
     vol.type = "range"; vol.min = "0"; vol.max = "1.5"; vol.step = "0.01"; vol.value = String(s.gain); vol.style.width = "70px";
     vol.oninput = () => { s.gain = +vol.value; engine!.setSource(s.id, { gain: s.gain }); };
