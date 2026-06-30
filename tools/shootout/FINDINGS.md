@@ -174,12 +174,21 @@ voice*.
     stacked conservatively. The "everything that helps" blend. `lib.rs` + `reverb.rs`.
 - **Note:** dfeq_revtilt/dfeq_predelay show the same −3.3 dB Δ as dfeq alone — the reverb refinements are
   subtle relative to dfeq's recolor (by design). The A/B will show if they're distinguishable from dfeq.
-- **Comparisons:** _pending listen_
-- **Standings (final ELO):** _pending listen_
-- **Listener notes (by ear, per candidate):** _pending listen_
-- **Outcome:** _pending listen_
-- **Deepen / revise:** _pending listen_
-- **Promoted?** _pending_
+- **Comparisons:** 12 (ELO-guided).
+- **Standings (final ELO):** dfeq 1531 · dfeq_full 1529 · dfeq_revtilt 1500 · dfeq_xfeed 1499 ·
+  dfeq_predelay 1485 · baseline 1456.
+- **Outcome:** **dfeq alone is the whole win.** `dfeq_full` (dfeq+crossfeed+subtle reverb) tied dfeq
+  exactly — the spatial levers add nothing distinguishable on top of de-coloration; the rest are
+  neutral; baseline is now clearly last (dfeq's superiority is solid). No combination beat dfeq.
+- **⚠ Methodological ceiling discovered:** the shootout scene uses a FIXED head. That deliberately
+  exposes front-collapse, but it means the test is **structurally blind to the single most powerful
+  externalization cue — dynamic head-motion parallax.** A static A/B can essentially only reward
+  *timbre*, which is exactly why a timbre fix (dfeq) dominates and every spatial lever ties. To
+  evaluate externalization innovations we need an INTERACTIVE head-motion test in the app, not the
+  offline WAV A/B. This reframes rounds 2–3: spatial levers didn't fail, they were *untestable here*.
+- **Deepen / revise:** (1) Promote `dfeq` to `main` (parity re-check) — it's the confirmed win.
+  (2) Next ideas must be audacious AND tested on the right rig — see the "Audacious frontier" backlog.
+- **Promoted?** dfeq → ready for `main` promotion (parity check pending).
 
 <!-- Copy the template below for each real round. Fill it in AFTER the human listens. -->
 <!--
