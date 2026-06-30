@@ -1,0 +1,66 @@
+# Agent Chamber — spatial voice prototype (Bun + Vite + TypeScript)
+
+# List recipes
+default:
+    @just --list
+
+# Install JS dependencies
+install:
+    bun install
+
+# Build the Rust wasm engine + stage the HRTF asset into public/ (run after engine changes)
+wasm:
+    bash ../tools/build-web.sh
+
+# Run the Vite dev server over HTTPS (exposed on LAN for on-device testing).
+# On your phone, open the https://<your-ip>:5173 URL it prints and accept the cert.
+dev: wasm
+    bun run dev
+
+# Renderer test harness — place sources in space, pick sci-fi SFX, switch rooms.
+# Open the /test.html URL Vite prints.
+harness: wasm
+    bun run dev
+
+# Same harness with the 3D dev head-view enabled (shows where we think the head is).
+harness-dev: wasm
+    CHAMBER_DEV=1 bun run dev
+
+# Type-check and build to dist/
+build:
+    bun run build
+
+# Preview the production build
+preview:
+    bun run preview
+
+# Build and deploy to Cloudflare Pages (https://agent-chamber.pages.dev)
+deploy:
+    bun run deploy
+
+# --- live mode: monitor a real local Claude Code session by ear ----------------
+# (see docs/cc-integration-plan.md). Run these three in separate terminals.
+
+# 1. The bridge: MCP server + WebSocket hub + ElevenLabs TTS. Reads .env for the key.
+bridge:
+    bun run bridge/server.ts
+
+# 2. The page in LIVE mode (plain http on localhost so camera + ws coexist).
+#    Then open http://localhost:5173/?live and run through Start + calibration.
+dev-live:
+    CHAMBER_LIVE=1 bun run dev
+
+# 3a. Fake agents — drive the whole chain without Claude (pass --fast to stress it):
+#       just chamber-demo            just chamber-demo --fast
+chamber-demo *args:
+    bun run bridge/mock.ts {{args}}
+
+# 3b. Real agent: run Claude with the chamber plugin (in whatever repo you're working in).
+#     The channel flag enables talk-back (type at an agent → into its session). See README.
+#       claude --plugin-dir {{justfile_directory()}}/cc-chamber \
+#              --dangerously-load-development-channels server:chamber
+
+# (Re)generate the agent voice files via ElevenLabs. Pass an id to do just one:
+#   just generate echo
+generate id="":
+    uv run generate.py {{id}}

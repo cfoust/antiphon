@@ -220,10 +220,12 @@ impl Voice {
         let pd_step = (self.predelay_targ - self.predelay_cur) * inv_n;
 
         for i in 0..n {
-            // distance gain ramp + air-absorption one-pole LP
+            // distance gain ramp + air-absorption one-pole LP (+ denormal flush: WASM has
+            // no flush-to-zero, so a decaying IIR tail can fall into denormals -> CPU spikes
+            // and crackle)
             self.gain += g_step;
             let pre = inp[i] * self.gain;
-            self.lp_state += self.lp_a * (pre - self.lp_state);
+            self.lp_state += self.lp_a * (pre - self.lp_state) + 1.0e-20;
             let lp = self.lp_state;
 
             // propagation pre-delay (0 for direct path, path length for reflections)

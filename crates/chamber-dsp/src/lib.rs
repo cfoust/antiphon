@@ -22,22 +22,13 @@ use voice::Voice;
 
 pub const SPEED_OF_SOUND: f32 = 343.0;
 const MAX_ITD_SAMPLES: usize = 64; // ~1.3 ms @48k
-/// Global cap on simultaneously-rendered image sources (energy-ranked). Bounds reflection
-/// CPU independent of source count or reflection order.
-const REFLECT_BUDGET: usize = 48;
-/// Image sources generated per source at order 2 (|mx|+|my|+|mz| <= 2, excluding direct).
-const MAX_IMAGES_PER_SOURCE: usize = 24;
-
-/// One candidate image source for a block (Copy so the scratch list needs no allocation).
-#[derive(Clone, Copy)]
-struct ImageCand {
-    src: usize,
-    dir: Vec3,
-    dist: f32,
-    ord: u32,
-    amp: f32,
-    energy: f32,
-}
+/// Image sources rendered per source, in a **fixed** order (lowest reflection order first).
+/// Each image keeps a stable voice slot across blocks, so head motion never reshuffles
+/// slots — which would otherwise click on every swap. 6 = the first-order shoebox walls.
+const REFLECT_PER_SOURCE: usize = 6;
+/// Reflections use a shorter HRIR than the direct path — they're spectrally less critical,
+/// and this keeps the per-image cost low enough for real time (esp. WASM).
+const REFL_TAPS: usize = 64;
 
 /// Listener head pose. Position in world metres; orientation maps body axes to world.
 #[derive(Clone, Copy, Debug)]
@@ -123,9 +114,9 @@ pub struct Renderer {
     max_block: usize,
 
     direct: Vec<Voice>,
-    reflect: Vec<Voice>, // REFLECT_BUDGET shared image-source voices
+    reflect: Vec<Voice>, // max_sources * REFLECT_PER_SOURCE (stable per-source slots)
+    refl_taps: usize,
     reflections_enabled: bool,
-    image_cands: Vec<ImageCand>,
     src_dist: Vec<f32>,
     silence: Vec<f32>,
 
@@ -162,9 +153,10 @@ impl Renderer {
         for _ in 0..max_sources {
             direct.push(Voice::new(hrir_len, MAX_ITD_SAMPLES, 1));
         }
-        let mut reflect = Vec::with_capacity(REFLECT_BUDGET);
-        for _ in 0..REFLECT_BUDGET {
-            reflect.push(Voice::new(hrir_len, MAX_ITD_SAMPLES, max_predelay));
+        let refl_taps = hrir_len.min(REFL_TAPS);
+        let mut reflect = Vec::with_capacity(max_sources * REFLECT_PER_SOURCE);
+        for _ in 0..max_sources * REFLECT_PER_SOURCE {
+            reflect.push(Voice::new(refl_taps, MAX_ITD_SAMPLES, max_predelay));
         }
 
         let mut rooms = Vec::new();
@@ -189,8 +181,8 @@ impl Renderer {
             max_block,
             direct,
             reflect,
+            refl_taps,
             reflections_enabled: true,
-            image_cands: Vec::with_capacity(max_sources * MAX_IMAGES_PER_SOURCE),
             src_dist: vec![1.0; max_sources],
             silence: vec![0.0; max_block],
             fdn,
@@ -325,53 +317,62 @@ impl Renderer {
             let refl_coeff = (1.0 - self.room.wall_absorption).max(0.0); // per bounce
             let wall_abs = self.room.wall_absorption;
 
-            // gather candidate image sources from every source
             let head_pos = self.head_pos;
             let dims = self.room.dims;
-            self.image_cands.clear();
-            let cands = &mut self.image_cands;
+            let per = REFLECT_PER_SOURCE;
+            // Each source owns a fixed slot range. Its images are enumerated in a fixed
+            // order (lowest reflection order first), so image -> slot is stable across
+            // blocks: no reshuffling, no clicks as the head moves.
             for i in 0..n {
                 let s = sources[i].position;
                 let gain = sources[i].gain;
-                shoebox_images(s, dims, order, |pos, ord| {
-                    let rel = inv_head.rotate(pos.sub(head_pos));
-                    let idist = rel.len().max(0.05);
-                    let amp = gain * refl_coeff.powi(ord as i32) * distance_atten(idist);
-                    cands.push(ImageCand {
-                        src: i,
-                        dir: rel.normalized(),
-                        dist: idist,
-                        ord,
-                        amp,
-                        energy: amp * amp,
-                    });
-                });
-            }
-            // keep the loudest REFLECT_BUDGET (energy-ranked; bounds CPU regardless of N)
-            self.image_cands
-                .sort_unstable_by(|a, b| b.energy.partial_cmp(&a.energy).unwrap_or(core::cmp::Ordering::Equal));
-            let k = self.image_cands.len().min(REFLECT_BUDGET);
+                let direct_dist = self.src_dist[i];
 
-            for slot in 0..REFLECT_BUDGET {
-                if slot < k {
-                    let c = self.image_cands[slot];
-                    let extra = (c.dist - self.src_dist[c.src]).max(0.0);
-                    let predelay = extra / SPEED_OF_SOUND * self.sr;
-                    // each extra bounce adds high-frequency loss
-                    let ilp = (air_lp(c.dist) * (1.0 - 0.4 * wall_abs * c.ord as f32))
-                        .clamp(0.05, 1.0);
-                    let iitd = self.db.interp(c.dir, &mut self.hrir_l, &mut self.hrir_r);
-                    self.reflect[slot].set_target(
-                        &self.hrir_l, &self.hrir_r, iitd, c.amp, ilp, predelay, false,
-                    );
-                    let inp = &inputs[c.src][..frames];
-                    self.reflect[slot].process(inp, out_l, out_r, send_slice, 0.0);
-                } else if self.reflect[slot].active {
-                    self.reflect[slot].set_target(
-                        &self.hrir_l, &self.hrir_r, 0.0, 0.0, 1.0, 0.0, false,
-                    );
-                    self.reflect[slot].process(&self.silence[..frames], out_l, out_r, send_slice, 0.0);
-                    self.reflect[slot].active = false;
+                // collect up to `per` images in stable order (no alloc)
+                let mut imgs = [(Vec3::new(0.0, 0.0, 0.0), 0u32); REFLECT_PER_SOURCE];
+                let mut count = 0usize;
+                shoebox_images(s, dims, order, |pos, ord| {
+                    if count < per {
+                        imgs[count] = (pos, ord);
+                        count += 1;
+                    }
+                });
+
+                for k in 0..per {
+                    let slot = i * per + k;
+                    if k < count {
+                        let (pos, ord) = imgs[k];
+                        let rel = inv_head.rotate(pos.sub(head_pos));
+                        let idist = rel.len().max(0.05);
+                        let idir = rel.normalized();
+                        let predelay = (idist - direct_dist).max(0.0) / SPEED_OF_SOUND * self.sr;
+                        let igain = gain * refl_coeff.powi(ord as i32) * distance_atten(idist);
+                        let ilp = (air_lp(idist) * (1.0 - 0.4 * wall_abs * ord as f32)).clamp(0.05, 1.0);
+                        let rt = self.refl_taps;
+                        let iitd = self.db.interp(idir, &mut self.hrir_l, &mut self.hrir_r);
+                        self.reflect[slot].set_target(
+                            &self.hrir_l[..rt], &self.hrir_r[..rt], iitd, igain, ilp, predelay, false,
+                        );
+                        let inp = &inputs[i][..frames];
+                        self.reflect[slot].process(inp, out_l, out_r, send_slice, 0.0);
+                    } else if self.reflect[slot].active {
+                        let rt = self.refl_taps;
+                        self.reflect[slot].set_target(&self.hrir_l[..rt], &self.hrir_r[..rt], 0.0, 0.0, 1.0, 0.0, false);
+                        self.reflect[slot].process(&self.silence[..frames], out_l, out_r, send_slice, 0.0);
+                        self.reflect[slot].active = false;
+                    }
+                }
+            }
+            // silence reflection slots belonging to now-inactive sources
+            let rt = self.refl_taps;
+            for i in n..self.max_sources {
+                for k in 0..per {
+                    let slot = i * per + k;
+                    if self.reflect[slot].active {
+                        self.reflect[slot].set_target(&self.hrir_l[..rt], &self.hrir_r[..rt], 0.0, 0.0, 1.0, 0.0, false);
+                        self.reflect[slot].process(&self.silence[..frames], out_l, out_r, send_slice, 0.0);
+                        self.reflect[slot].active = false;
+                    }
                 }
             }
         }
@@ -453,17 +454,19 @@ fn shoebox_images(s: Vec3, dims: [f32; 3], order: u32, mut push: impl FnMut(Vec3
     let o = order as i32;
     let (lx, ly, lz) = (dims[0], dims[1], dims[2]);
     let axis = |m: i32, l: f32, c: f32| m as f32 * l + if m & 1 == 0 { c } else { -c };
-    for mx in -o..=o {
-        for my in -o..=o {
-            for mz in -o..=o {
-                let ord = mx.abs() + my.abs() + mz.abs();
-                if ord == 0 || ord > o {
-                    continue;
+    // emit lowest reflection order first so a fixed-size take keeps the loudest images
+    for target in 1..=o {
+        for mx in -o..=o {
+            for my in -o..=o {
+                for mz in -o..=o {
+                    if mx.abs() + my.abs() + mz.abs() != target {
+                        continue;
+                    }
+                    push(
+                        Vec3::new(axis(mx, lx, s.x), axis(my, ly, s.y), axis(mz, lz, s.z)),
+                        target as u32,
+                    );
                 }
-                push(
-                    Vec3::new(axis(mx, lx, s.x), axis(my, ly, s.y), axis(mz, lz, s.z)),
-                    ord as u32,
-                );
             }
         }
     }
