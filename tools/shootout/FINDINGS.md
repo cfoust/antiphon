@@ -57,7 +57,7 @@ voice*.
 | `frontgain`   | 🔬 | 6 | — | — | frontal-adaptive motion gain (1.3× within ±30° → 1.0 by ±60°); not yet judged |
 | `parallax_pos`| 🔬 | 6 | — | — | full-position parallax 1.8× near-gated; topped the confounded r5 export (1546) but UNCONFIRMED; folded into `champion` |
 | `champion`    | 🔬 | 6 | — | — | dfeq + parallax_pos(1.8×) + motiongain(1.7×) — bank the spatial wins in one engine |
-| `onsetkick`   | ⬜ | — | — | — | motion-onset/accel emphasis (Wallach) — transient over-rotation at head-turn onset; deferred (wobble risk) |
+| `onsetkick`   | 🔬 | 6 | — | — | motion-onset/accel emphasis (Wallach 1940): leaky world-lock, ≤1.18× kick, τ=150 ms, IDENTITY at rest. Built; wobble risk → A/B vs flat 1.0× and motiongain |
 | `fd_itd`      | ⬜ | — | — | — | frequency-dependent ITD (full LF, less HF) |
 | `near_pres`   | ⬜ | — | — | — | proximity/presence shaping for frontal sources |
 | `src_spread`  | ⬜ | — | — | — | decorrelated near-copies — give the voice size |
@@ -290,12 +290,17 @@ never actually in the pool they evaluated). Treat round 5's trustworthy signal a
   `timbrelock` beat `dfeq` on "sounds like a real voice"? If yes → promote (parity already −150 dBFS).
   Perceptibility: dfeq −3.3 dB, timbrelock −1.4 dB vs baseline (both clearly audible). Other WAVs parked
   in `out/shootout/hold/`.
-- **Part B — LIVE spatial round (follow-on):** pool = `baseline`, `dfeq`, `parallax_pos`, `champion`
-  (dfeq+parallax_pos 1.8×+motiongain 1.7×) on `/tools/shootout/live/` with 6DoF ON. Confirms the spatial
-  wins banked into one engine. `champion` built + parity-safe (geometry-only). If `timbrelock` wins Part
-  A, rebuild `champion` on the `timbrelock` timbre base.
-- **Status:** Part A staged + ingested now. Part B engines built; will re-stage the live manifest after
-  the timbre verdict (kept sequential so each pool stays clean).
+- **Part B — LIVE dynamic/spatial round (follow-on):** the full motion family + parallax + the bank, on
+  `/tools/shootout/live/` with 6DoF ON. Pool (7): `baseline`, `dfeq`, plus
+  - rotation strategies: `motiongain` (flat 1.7×), `frontgain` (frontal-adaptive 1.3×→1.0), `onsetkick`
+    (transient onset kick ≤1.18×, IDENTITY at rest) — A/B which motion model externalizes without swimming;
+  - `parallax_pos` (full-position translation parallax 1.8× near-gated);
+  - `champion` (dfeq + parallax_pos + motiongain) — the bank.
+  All 7 engines built + parity-safe (geometry-only, except dfeq). If `timbrelock` wins Part A, rebuild
+  `champion` on the `timbrelock` timbre base.
+- **Status:** Part A staged + ingested now (offline 3-way). Part B's 7 engines all built; the live manifest
+  will be re-staged after the timbre verdict (kept sequential so each pool stays clean). Non-timbre WAVs
+  parked in `out/shootout/hold/`.
 
 <!-- Copy the template below for each real round. Fill it in AFTER the human listens. -->
 <!--
