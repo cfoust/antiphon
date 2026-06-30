@@ -46,6 +46,10 @@ voice*.
 | `dfeq_revtilt`  | 🔬 | 3 | — | — | dfeq + SUBTLE warm deep reverb (the room the listener liked) |
 | `dfeq_predelay` | 🔬 | 3 | — | — | dfeq + subtle reverb bloom-after-voice |
 | `dfeq_full`     | 🔬 | 3 | — | — | dfeq + crossfeed + subtle warm reverb (everything-that-helps blend) |
+| `dfeq_erb`    | 🔬 | 4 | — | — | A1: regularized ERB/⅓-oct diffuse-field EQ (dfeq done right) |
+| `revsend`     | 🔬 | 4 | — | — | B1: decorrelated binaural late reverb on a send, high DRR, dry untouched |
+| `motiongain`  | 🔬 | 4 | — | — | B2 (audacious): amplify head-rotation effect 1.7× — supercharge dynamic cue |
+| `hrtf_ari`    | 🔬 | 4 | — | — | C1: swap KEMAR→ARI generic set (KEMAR a documented weak default) |
 | `fd_itd`      | ⬜ | — | — | — | frequency-dependent ITD (full LF, less HF) |
 | `near_pres`   | ⬜ | — | — | — | proximity/presence shaping for frontal sources |
 | `src_spread`  | ⬜ | — | — | — | decorrelated near-copies — give the voice size |
@@ -189,6 +193,28 @@ voice*.
 - **Deepen / revise:** (1) Promote `dfeq` to `main` (parity re-check) — it's the confirmed win.
   (2) Next ideas must be audacious AND tested on the right rig — see the "Audacious frontier" backlog.
 - **Promoted?** dfeq → ready for `main` promotion (parity check pending).
+
+### Round 4 — 2026-06-30 — FIRST LIVE (head-tracked) round; literature-grounded
+- **Rig:** the realtime head-tracked rig (`tools/shootout/live/`), NOT the offline WAV A/B. One voice
+  fixed ~30° off-forward; you turn your head. This round can finally reward dynamic externalization.
+- **Informed by** `scratch/research.md` (decision-ready survey). It validated timbre/de-coloration as
+  the primary axis, named the failure mode (touching the direct sound), and reshaped the candidates:
+- **Pool (engines):** baseline, dfeq (champion), + 4 new:
+  - `dfeq_erb` — A1 (survey #1): power-avg DFE, Tylka log-symmetric **⅓-oct** smoothing, **Tikhonov
+    β=0.2·peak** inverse (no notch-ringing), asymmetric **+8/−12 dB** clamp. dfeq done right. `hrtf.rs`.
+  - `revsend` — B1: **interaurally decorrelated** late reverb (L/R read the 16 FDN lines at different
+    delays → low IACC) on the SEND only, **T60 0.45 s, pre-delay ~10 ms, high DRR**, dry voice byte-
+    identical. The survey: only *decorrelated* reverb externalizes; diotic does nothing. `reverb.rs`.
+  - `motiongain` — B2 (audacious): amplify head-orientation **1.7×** about its own axis (`Quat::
+    scale_angle`), so a small real head turn renders as a larger world-locked sweep. Timbre untouched.
+    Offline WAV ≈ baseline by design (fixed head) — effect is head-motion-only. `math.rs`+`lib.rs`.
+  - `hrtf_ari` — C1: same dfeq engine but the **ARI** generic HRTF set instead of KEMAR (Romigh &
+    Simpson 2014: raw KEMAR is a weak default). Wired via a per-engine asset sidecar; no code change.
+- **Status:** all 6 engines built + smoke-tested (load + render the 30° scene, finite, distinct;
+  hrtf_ari format-compatible; motiongain == dfeq at rest as expected). Loudness-trimmed. **Awaiting
+  the live listen** — standings/notes/outcome to fill after.
+- **Dropped this round (per survey):** headphone-comp (A4 — only worth it after a better DFE) and DDSP
+  (cheaper concrete wins exist first). `er_pattern`/discrete reflections stay retired (slap-back).
 
 <!-- Copy the template below for each real round. Fill it in AFTER the human listens. -->
 <!--

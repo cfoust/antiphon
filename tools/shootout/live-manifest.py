@@ -30,9 +30,16 @@ for fn in sorted(os.listdir(WASM)):
         continue
     name = fn[:-5]
     trim = trims.get(name, 1.0)
-    cands.append({"name": name, "file": fn, "trim": trim})
+    entry = {"name": name, "file": fn, "trim": trim}
+    # optional per-engine HRTF asset: a sidecar "<id>.asset" naming a file under assets/baked/
+    # (used by HRTF-set candidates, e.g. hrtf_ari -> chamber-ari.chamber). Default is KEMAR.
+    sidecar = os.path.join(WASM, name + ".asset")
+    if os.path.exists(sidecar):
+        entry["asset"] = open(sidecar).read().strip()
+    cands.append(entry)
     flag = "" if name in trims else "  (no offline trim — render its WAV + ingest for loudness match)"
-    print(f"  {name:<18} trim {trim:.3f}{flag}")
+    asset = f"  asset={entry['asset']}" if "asset" in entry else ""
+    print(f"  {name:<18} trim {trim:.3f}{asset}{flag}")
 
 cands.sort(key=lambda c: (c["name"] != "baseline", c["name"]))  # baseline first
 out = os.path.join(WASM, "manifest.json")

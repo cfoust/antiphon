@@ -103,7 +103,8 @@ const K_BASE = 32, START_ELO = 1500, SRC_DIST = 1.2;
 
 const $ = id => document.getElementById(id);
 let cands = [], R = {}, games = {}, history = [], pair = null, sel = "A", lastPair = "";
-let ctx = null, node = null, assetBuf = null, loaded = new Set(), wasmCache = new Map();
+let ctx = null, node = null, loaded = new Set(), wasmCache = new Map(), assetCache = new Map();
+const DEFAULT_ASSET = "chamber-kemar.chamber";
 let landmarker = null, video = null, neutral = null, curYaw = 0, curPitch = 0, live = false;
 
 const key = () => "elo-live:" + cands.map(c => c.name).sort().join(",");
@@ -174,12 +175,16 @@ function engineReady(id) { return new Promise(res => {
   const h = (e) => { if (e.data.type === "engineReady" && e.data.id === id) { node.port.removeEventListener("message", h); res(); } };
   node.port.addEventListener("message", h);
 }); }
+async function assetBytes(file) {
+  if (!assetCache.has(file)) assetCache.set(file, await (await fetch("/assets/baked/" + file)).arrayBuffer());
+  return assetCache.get(file);
+}
 async function ensureEngine(name) {
   if (loaded.has(name)) return;
   const c = cands.find(x => x.name === name);
-  const wasm = await wasmBytes(c.file);
+  const [wasm, asset] = await Promise.all([wasmBytes(c.file), assetBytes(c.asset || DEFAULT_ASSET)]);
   const done = engineReady(name);
-  node.port.postMessage({ type: "engine", id: name, wasm, asset: assetBuf.slice(0), trim: c.trim ?? 1 });
+  node.port.postMessage({ type: "engine", id: name, wasm, asset: asset.slice(0), trim: c.trim ?? 1 });
   await done; loaded.add(name);
 }
 async function ensurePair() {
@@ -202,19 +207,20 @@ function srcPos() {
 async function startAll() {
   if (ctx) return;
   ctx = new AudioContext({ sampleRate: 48000 });
+  if (ctx.state !== "running") await ctx.resume(); // Safari starts suspended -> silence
   await ctx.audioWorklet.addModule("/tools/shootout/live/swap-worklet.js");
   node = new AudioWorkletNode(ctx, "chamber-swap", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+  node.port.start(); // REQUIRED: we use addEventListener on the port, so it won't dispatch until started
   node.connect(ctx.destination);
   node.port.postMessage({ type: "room", index: parseInt($("room").value) });
-  assetBuf = await (await fetch(ASSET_URL)).arrayBuffer();
   // decode the voice to mono @ ctx rate
   const vb = await ctx.decodeAudioData(await (await fetch(VOICE_URL)).arrayBuffer());
   const mono = new Float32Array(vb.length);
   for (let ch = 0; ch < vb.numberOfChannels; ch++) { const d = vb.getChannelData(ch); for (let i = 0; i < d.length; i++) mono[i] += d[i] / vb.numberOfChannels; }
   const p = srcPos();
   node.port.postMessage({ type: "source", samples: mono, x: p.x, y: p.y, z: p.z, send: 0.3, gain: 0.9, play: true }, [mono.buffer]);
-  await startTracking();
-  nextPair();
+  nextPair(); // start audio immediately — don't gate it on the camera/model loading
+  startTracking(); // fire-and-forget; pose stays identity until the first face is detected
   $("sub").innerHTML = `${cands.length} engines · live · loudness-matched`;
 }
 
