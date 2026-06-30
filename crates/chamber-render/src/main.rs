@@ -158,6 +158,22 @@ fn main() {
         }, &refs);
     }
 
+    // --- Scene 10: same walk, but the measured-BRIR room (B0) — the diffuse tail is the BRIR,
+    // the EARLY reflections are the translating ISM, so the room now moves with the listener. ---
+    {
+        let sigs = vec![voice(160.0), voice(210.0), voice(280.0)];
+        let refs: Vec<&[f32]> = sigs.iter().map(|v| v.as_slice()).collect();
+        render_multi(&asset, &out_dir, "10_walk_room_brir", room_of(&room_names, "room_conv"), 10.0, |t, srcs, pose| {
+            srcs[0].position = Vec3::new(-1.2, 0.0, -2.0);
+            srcs[1].position = Vec3::new(1.2, 0.0, -4.0);
+            srcs[2].position = Vec3::new(-1.0, 0.0, -6.0);
+            let z = -6.0 * (t / 10.0);
+            let x = 0.5 * (2.0 * PI * t / 5.0).sin();
+            pose.position = Vec3::new(x, 0.0, z);
+            pose.orientation = Quat::from_yaw(0.0);
+        }, &refs);
+    }
+
     println!("done. wrote demos to {}/", out_dir);
 }
 
