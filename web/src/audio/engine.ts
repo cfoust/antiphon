@@ -12,9 +12,10 @@ import type { AgentDef, AgentNode, Arrangement, ChamberMode, EnvName } from "../
 import { makeNoise } from "./impulse";
 import { WasmEngine, ENGINE_URLS } from "./wasmEngine";
 
-/** Map the prototype's env names to wasm room-preset indices (dry/room/hall/cathedral). */
-const ENV_ROOM: Record<EnvName, number> = { dry: 0, room: 1, chamber: 3, hall: 2 };
-const SOURCE_RADIUS = 3;
+/** Map the prototype's env names to wasm room-preset indices. `room`/`hall` use the
+ *  measured-style convolution-BRIR presets (4 = room_conv, 5 = hall_conv). */
+const ENV_ROOM: Record<EnvName, number> = { dry: 0, room: 4, chamber: 3, hall: 5 };
+const SOURCE_RADIUS = 1.3; // ~the first range ring — the distance that sounded best
 
 /**
  * Owns the Web Audio graph and all runtime state for the chamber. UI modules
@@ -35,7 +36,7 @@ export class Chamber {
   orient = 0; // radians
   ringIntel = 0; // 0..1 — ambient murmur bed kept at its quietest
   arrangement: Arrangement = "arc"; // a semicircle across the front
-  env: EnvName = "hall"; // immersive reverb
+  env: EnvName = "room"; // measured-BRIR convolution room (the default that sounded best)
   lookGate = 1; // 1 = forward, 0 = looking down (everyone whispers)
   activeCount = 5;
 
@@ -196,7 +197,7 @@ export class Chamber {
     // 48 kHz to match the baked HRTF asset (most browsers honor this).
     this.ctx = new Ctor({ sampleRate: 48000 });
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.75;
+    this.master.gain.value = 0.62; // tamed: BRIR reverb adds a lot of perceived loudness
     // agents play through agentBus (kept silent through calibration); system
     // clips connect to master directly so they're heard while the bus is muted.
     this.agentBus = this.ctx.createGain();

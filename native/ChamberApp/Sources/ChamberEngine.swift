@@ -98,14 +98,14 @@ final class ChamberEngine: ObservableObject {
     @Published var facedPub = -1
     @Published var autoFinish = true
     @Published var ready = false
-    @Published var roomIndex = 1
+    @Published var roomIndex = 4 // "room (BRIR)" — the measured-style convolution room
     @Published var hrtfName = ""
     @Published var use6DoF = false   // webcam position estimate is crude → opt-in
 
     private let engine = AVAudioEngine()
     private var srcNode: AVAudioSourceNode!
     private var renderer: ChamberRenderer!
-    private let radius: Float = 3.0
+    private let radius: Float = 1.3 // ~the first range ring — the distance that sounded best
     private let maxBlock = 4096
 
     private var agents: [AgentRuntime] = []
@@ -174,7 +174,7 @@ final class ChamberEngine: ObservableObject {
                                       z: Float(-cos(a.bearing)) * radius, gain: 1.0, send: 0.3)
         }
         renderer.setRoom(roomIndex)
-        renderer.setMasterGain(0.92)
+        renderer.setMasterGain(0.78) // tamed: BRIR reverb adds a lot of perceived loudness
 
         buildGraph()
         do { try engine.start() } catch { print("[chamber] engine start: \(error)"); return }

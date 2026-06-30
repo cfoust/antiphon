@@ -100,7 +100,7 @@ async function addSource(pos: Vec3, forceSfx?: number) {
   const idx = forceSfx ?? +(document.getElementById("sfx") as HTMLSelectElement).value;
   const samples = await soundSamples(idx);
   const s: Src = {
-    id: "s" + nextId++, pos, gain: 0.8, sfx: idx, loop: soundLoop(idx),
+    id: "s" + nextId++, pos, gain: 0.6, sfx: idx, loop: soundLoop(idx),
     color: COLORS[sources.length % COLORS.length], name: soundName(idx),
   };
   sources.push(s);
@@ -131,7 +131,7 @@ function initControls() {
   sfxSel.value = String(Math.max(0, DEFAULT_SFX)); // default to an audible loop
   const roomSel = $("room") as HTMLSelectElement;
   ROOMS.forEach((r, i) => roomSel.add(new Option(r, String(i))));
-  roomSel.value = "2";
+  roomSel.value = "4"; // room (BRIR) — the default that sounded best
   roomSel.onchange = () => engine?.setRoom(+roomSel.value);
   ($("refl") as HTMLInputElement).onchange = (e) => engine?.setReflections((e.target as HTMLInputElement).checked);
   ($("master") as HTMLInputElement).oninput = (e) => engine?.setMaster(+(e.target as HTMLInputElement).value);

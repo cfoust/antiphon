@@ -84,8 +84,9 @@ fn main() {
     mk("room", [5.5, 3.0, 6.5], [0.55, 0.45, 0.30], 0.22, 2, 0.22, Fdn);
     mk("hall", [18.0, 12.0, 28.0], [2.6, 2.1, 1.4], 0.10, 2, 0.32, Fdn);
     mk("cathedral", [24.0, 22.0, 60.0], [5.5, 4.2, 2.4], 0.06, 1, 0.40, Fdn);
-    mk("room_conv", [5.5, 3.0, 6.5], [0.55, 0.45, 0.30], 0.22, 2, 0.9, Convolution);
-    mk("hall_conv", [18.0, 12.0, 28.0], [2.6, 2.1, 1.4], 0.10, 2, 0.9, Convolution);
+    // wet kept modest: the convolution tail adds a lot of perceived loudness on its own
+    mk("room_conv", [5.5, 3.0, 6.5], [0.55, 0.45, 0.30], 0.22, 2, 0.5, Convolution);
+    mk("hall_conv", [18.0, 12.0, 28.0], [2.6, 2.1, 1.4], 0.10, 2, 0.45, Convolution);
 
     let bytes = b.to_bytes();
     if let Some(dir) = std::path::Path::new(&out_path).parent() {
