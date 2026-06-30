@@ -284,12 +284,13 @@ never actually in the pool they evaluated). Treat round 5's trustworthy signal a
 `parallax_pos`'s apparent r5 win is a preview, to be confirmed cleanly.
 
 ### Round 6 — 2026-06-30 — staged (headline: timbrelock on the timbre axis)
-- **Part A — OFFLINE timbre A/B (the headline, decisive):** pool = `baseline`, `dfeq`, `timbrelock`
-  on the **offline** `/tools/shootout/elo/` harness (fixed head, source tours angles — the right venue
-  for a per-direction *timbre-constancy* change; no head-tracking/Bluetooth confounds). Question: does
-  `timbrelock` beat `dfeq` on "sounds like a real voice"? If yes → promote (parity already −150 dBFS).
-  Perceptibility: dfeq −3.3 dB, timbrelock −1.4 dB vs baseline (both clearly audible). Other WAVs parked
-  in `out/shootout/hold/`.
+- **Part A — timbre 3-way, ON THE LIVE RIG (the headline, decisive):** pool = `baseline`, `dfeq`,
+  `timbrelock` in the LIVE manifest (`/tools/shootout/live/` — same rig as everything else; do NOT use
+  the deprecated offline `/elo/` page). It's a focused 3-engine pool so the timbre candidate isn't buried
+  in a spatial pool again. Judge timbre by ear: hold still OR sweep your head across the fixed source and
+  listen for which sounds most like a real, consistent voice. Question: does `timbrelock` beat `dfeq`?
+  If yes → promote (parity already −150 dBFS). Perceptibility: dfeq −3.3 dB, timbrelock −1.4 dB vs
+  baseline. Non-timbre engines parked in `out/shootout/hold/wasm/`.
 - **Part B — LIVE dynamic/spatial round (follow-on):** the full motion family + parallax + the bank, on
   `/tools/shootout/live/` with 6DoF ON. Pool (7): `baseline`, `dfeq`, plus
   - rotation strategies: `motiongain` (flat 1.7×), `frontgain` (frontal-adaptive 1.3×→1.0), `onsetkick`
