@@ -80,10 +80,19 @@ struct ContentView: View {
             if !enabled {
                 Button("Enable camera & continue") { enable() }.buttonStyle(.borderedProminent)
             } else {
-                Button("Start") { runCalibration() }.buttonStyle(.borderedProminent)
-                    .disabled(!tracker.faceFound)
-                Text(tracker.faceFound ? "Head tracking ready" : "Looking for your face…")
+                // Skip the two-point flow if a calibration was restored from a previous session.
+                Button(tracker.hasSavedCalibration ? "Start" : "Calibrate & start") {
+                    if tracker.hasSavedCalibration { live = true } else { runCalibration() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!tracker.faceFound)
+                Text(tracker.faceFound ? (tracker.hasSavedCalibration ? "Calibration restored" : "Head tracking ready")
+                                       : "Looking for your face…")
                     .font(.caption).foregroundStyle(tracker.faceFound ? .green : .secondary)
+                if tracker.hasSavedCalibration {
+                    Button("Recalibrate") { runCalibration() }
+                        .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
+                }
                 Button("Debug tracking →") { showDebug = true }
                     .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
             }
@@ -134,6 +143,7 @@ struct ContentView: View {
             let yr = tracker.yaw, pr = tracker.pitch
             tracker.calibrate(yawLeftRad: yl, yawRightRad: yr, neutralPitchRad: (pl + pr) / 2)
             tracker.resetNeutral() // capture the 6DoF neutral at a comfortable resting pose
+            tracker.persistCalibration() // remember it so we don't recalibrate next launch
             calArrow = "✓"; calText = "Calibrated"
             try? await Task.sleep(nanoseconds: 900_000_000)
             calText = ""; calArrow = ""

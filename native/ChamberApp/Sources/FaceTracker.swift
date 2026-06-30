@@ -86,6 +86,33 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     /// Capture the current head position as the neutral/origin (call after calibration).
     func resetNeutral() { nPx = sPx; nPy = sPy; nPz = sPz; posInit = true }
 
+    /// True if a saved calibration was restored, so the app can skip the two-point flow.
+    @Published var hasSavedCalibration = false
+
+    /// Persist the current calibration (yaw arc, neutral pitch, 6DoF neutral) so the user does
+    /// not have to recalibrate every launch.
+    func persistCalibration() {
+        let d = UserDefaults.standard
+        d.set(yawLeft, forKey: "cal.yawLeft")
+        d.set(span, forKey: "cal.span")
+        d.set(neutralPitch, forKey: "cal.neutralPitch")
+        d.set(nPx, forKey: "cal.nPx"); d.set(nPy, forKey: "cal.nPy"); d.set(nPz, forKey: "cal.nPz")
+        d.set(true, forKey: "cal.present")
+        DispatchQueue.main.async { self.hasSavedCalibration = true }
+    }
+
+    /// Restore a previously saved calibration if present (called once at startup).
+    func loadCalibration() {
+        let d = UserDefaults.standard
+        guard d.bool(forKey: "cal.present") else { return }
+        yawLeft = d.double(forKey: "cal.yawLeft")
+        span = d.double(forKey: "cal.span")
+        neutralPitch = d.double(forKey: "cal.neutralPitch")
+        nPx = d.double(forKey: "cal.nPx"); nPy = d.double(forKey: "cal.nPy"); nPz = d.double(forKey: "cal.nPz")
+        posInit = true
+        hasSavedCalibration = true
+    }
+
     /// Use the PnP solver (landmarks -> 6DoF). On while we validate the coordinate
     /// conventions on-device (see `debug` for the live solver output).
     var usePnP = true
@@ -111,6 +138,7 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 
     override init() {
         super.init()
+        loadCalibration()
         if usePnP {
             let req = VNDetectFaceLandmarksRequest(completionHandler: { [weak self] r, _ in self?.handle(r) })
             if #available(macOS 12.0, *) { req.revision = VNDetectFaceLandmarksRequestRevision3 }
