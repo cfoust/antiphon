@@ -27,7 +27,7 @@ harness-dev: wasm
     CHAMBER_DEV=1 bun run dev
 
 # Type-check and build to dist/
-build:
+build: wasm
     bun run build
 
 # Preview the production build

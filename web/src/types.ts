@@ -28,10 +28,9 @@ export interface AgentDef {
 export interface AgentNode {
   idx: number;
   bearing: number; // radians, 0 = front, clockwise
-  // node graph
-  panner: PannerNode;
-  dry: GainNode;
-  wet: GainNode;
+  // node graph: all of the agent's sounds sum into `sum`, which feeds the wasm engine's
+  // live-input slot `idx`. The wasm engine does HRTF + room reverb (no PannerNode).
+  sum: GainNode;
   src: AudioBufferSourceNode | null; // demo: looping canned work-stream. null in live.
   gain: GainNode; // the agent's voice level — demo loop or live narration feeds in here
   hp: BiquadFilterNode; // high-pass: strips the voiced low end for a breathy whisper

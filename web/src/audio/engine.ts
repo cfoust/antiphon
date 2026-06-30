@@ -9,7 +9,12 @@ import {
 } from "../agents";
 import { ARRANGE, angdiff, deg, rad, TAU } from "../math";
 import type { AgentDef, AgentNode, Arrangement, ChamberMode, EnvName } from "../types";
-import { ENVS, makeNoise, wetLevel } from "./impulse";
+import { makeNoise } from "./impulse";
+import { WasmEngine, ENGINE_URLS } from "./wasmEngine";
+
+/** Map the prototype's env names to wasm room-preset indices (dry/room/hall/cathedral). */
+const ENV_ROOM: Record<EnvName, number> = { dry: 0, room: 1, chamber: 3, hall: 2 };
+const SOURCE_RADIUS = 3;
 
 /**
  * Owns the Web Audio graph and all runtime state for the chamber. UI modules
@@ -21,7 +26,7 @@ export class Chamber {
   ctx!: AudioContext;
   master!: GainNode;
   agentBus!: GainNode; // all agent audio; muted until the experience begins
-  convolver!: ConvolverNode;
+  wasm!: WasmEngine; // the Rust binaural engine (HRTF + room reverb), via AudioWorklet
   noiseBuf!: AudioBuffer;
   started = false;
   readonly nodes: Record<string, AgentNode> = {};
@@ -33,7 +38,6 @@ export class Chamber {
   env: EnvName = "hall"; // immersive reverb
   lookGate = 1; // 1 = forward, 0 = looking down (everyone whispers)
   activeCount = 5;
-  private curEnvWet = wetLevel.hall;
 
   // what drives the agents (set in start()); demo loads canned audio, live never does
   mode: ChamberMode = "demo";
@@ -77,23 +81,18 @@ export class Chamber {
   }
 
   private setListener(): void {
-    const fx = Math.sin(this.orient),
-      fz = -Math.cos(this.orient);
-    const L = this.ctx.listener;
-    L.forwardX.value = fx;
-    L.forwardY.value = 0;
-    L.forwardZ.value = fz;
-    L.upX.value = 0;
-    L.upY.value = 1;
-    L.upZ.value = 0;
+    // wasm setPose(orient) reproduces the prototype's forward = (sinθ, 0, −cosθ)
+    this.wasm?.setPose(this.orient);
   }
 
   private placeAgent(id: string): void {
     const N = this.nodes[id];
-    const R = 4;
-    N.panner.positionX.value = Math.sin(N.bearing) * R;
-    N.panner.positionY.value = 0;
-    N.panner.positionZ.value = -Math.cos(N.bearing) * R;
+    const R = SOURCE_RADIUS;
+    this.wasm?.setInputCfg(N.idx, {
+      pos: { x: Math.sin(N.bearing) * R, y: 0, z: -Math.cos(N.bearing) * R },
+      gain: 1,
+      send: 0.3,
+    });
   }
 
   // ---- loading ------------------------------------------------------------
@@ -105,17 +104,9 @@ export class Chamber {
   private async loadAgent(a: AgentDef, idx: number, bearing: number): Promise<void> {
     const ctx = this.ctx;
 
-    // --- shared spatial graph (identical in both modes) ---
-    const panner = ctx.createPanner();
-    panner.panningModel = "HRTF";
-    panner.distanceModel = "inverse";
-    panner.refDistance = 1;
-    panner.maxDistance = 20;
-    panner.rolloffFactor = 1;
-    const dry = ctx.createGain();
-    const wet = ctx.createGain();
-    panner.connect(dry).connect(this.agentBus);
-    panner.connect(wet).connect(this.convolver);
+    // --- per-agent pre-spatial sum -> wasm engine input slot `idx` (HRTF + reverb there) ---
+    const sum = ctx.createGain();
+    this.wasm.connectInput(sum, idx);
 
     // the agent's voice path: whatever sounds (demo's loop or live's narration lines)
     // feeds `gain`, which the mix opens from breathy whisper to clear voice as you turn.
@@ -127,16 +118,16 @@ export class Chamber {
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
     lp.frequency.value = 5000;
-    gain.connect(hp).connect(lp).connect(panner);
+    gain.connect(hp).connect(lp).connect(sum);
 
-    // ping bus (volume per-frame; oscillators ride on top) -> panner
+    // ping bus (volume per-frame; oscillators ride on top) -> sum
     const pingBus = ctx.createGain();
     pingBus.gain.value = 0;
-    pingBus.connect(panner);
-    // spoken summary -> panner
+    pingBus.connect(sum);
+    // spoken summary -> sum
     const summaryGain = ctx.createGain();
     summaryGain.gain.value = 0;
-    summaryGain.connect(panner);
+    summaryGain.connect(sum);
     // radio static (heard, when faced): noise -> tight bandpass -> gate -> drift -> panner
     // A narrow band reads as a weak tuned signal rather than broadband hiss;
     // the drift gain flutters in tick() so you only catch fragments of it.
@@ -151,7 +142,7 @@ export class Chamber {
     stGain.gain.value = 0;
     const stMod = ctx.createGain();
     stMod.gain.value = 0;
-    stSrc.connect(stBP).connect(stGain).connect(stMod).connect(panner);
+    stSrc.connect(stBP).connect(stGain).connect(stMod).connect(sum);
 
     // --- content: demo loads the canned (fake) voices; live stays empty until the
     // bridge feeds it real narration + summary. ---
@@ -172,9 +163,7 @@ export class Chamber {
     this.nodes[a.id] = {
       idx,
       bearing,
-      panner,
-      dry,
-      wet,
+      sum,
       src,
       gain,
       hp,
@@ -204,7 +193,8 @@ export class Chamber {
   async start(mode: ChamberMode = "demo"): Promise<void> {
     this.mode = mode;
     const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    this.ctx = new Ctor();
+    // 48 kHz to match the baked HRTF asset (most browsers honor this).
+    this.ctx = new Ctor({ sampleRate: 48000 });
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.75;
     // agents play through agentBus (kept silent through calibration); system
@@ -212,12 +202,17 @@ export class Chamber {
     this.agentBus = this.ctx.createGain();
     this.agentBus.gain.value = 0;
     this.agentBus.connect(this.master);
-    this.convolver = this.ctx.createConvolver();
-    this.convolver.buffer = ENVS[this.env](this.ctx);
-    this.curEnvWet = wetLevel[this.env];
-    this.convolver.connect(this.agentBus);
     this.master.connect(this.ctx.destination);
     this.noiseBuf = makeNoise(this.ctx, 2.0);
+
+    // the wasm binaural engine: one live input per agent, output through the agentBus
+    this.wasm = await WasmEngine.create(this.ctx, {
+      ...ENGINE_URLS,
+      numInputs: this.agents.length,
+      maxSources: this.agents.length,
+    });
+    this.wasm.connect(this.agentBus);
+    this.wasm.setRoom(ENV_ROOM[this.env]);
     this.setListener();
 
     const bs = ARRANGE[this.arrangement](this.activeCount);
@@ -306,7 +301,7 @@ export class Chamber {
       e.gain.setValueAtTime(0.0001, at + dt);
       e.gain.linearRampToValueAtTime(0.34, at + dt + 0.02);
       e.gain.exponentialRampToValueAtTime(0.0006, at + dt + 0.24);
-      o.connect(e).connect(N.panner); // direct to panner: always clear (faced-only)
+      o.connect(e).connect(N.sum); // direct to the agent sum: always clear (faced-only)
       o.start(at + dt);
       o.stop(at + dt + 0.3);
     }
@@ -412,7 +407,6 @@ export class Chamber {
       let whisper = 0,
         hpF = 900, // high-pass: high = breathy whisper, low = full voice
         lpF = 5000,
-        wetAmt = this.curEnvWet,
         ping = 0,
         stat = 0;
       if (active) {
@@ -424,14 +418,12 @@ export class Chamber {
             whisper = murmur + (1 - murmur) * g;
             hpF = 900 + (90 - 900) * g;
             lpF = 5000 + (16000 - 5000) * g;
-            wetAmt = this.curEnvWet * (0.5 + 0.7 * (1 - g));
           } else {
             // the ambient bed: breathy, high-passed, pitch-weak — an actual whisper
             const bias = 0.82 + 0.18 * front;
             whisper = murmur * bias;
             hpF = 900;
             lpF = 5000;
-            wetAmt = this.curEnvWet * (1.2 + (1 - front) * 0.6);
           }
         } else if (N.state === "done") {
           ping = (faced ? 0.9 : winnerDone ? 0.12 : 0.4) * (0.5 + 0.5 * this.lookGate);
@@ -440,11 +432,10 @@ export class Chamber {
         }
         // 'summarizing' → all stay 0; summaryGain is driven by startSummary
       }
+      // reverb is now the wasm room (per-source send), so no per-agent wet/dry here
       N.gain.gain.setTargetAtTime(whisper, t, k);
       N.hp.frequency.setTargetAtTime(hpF, t, k);
       N.lp.frequency.setTargetAtTime(lpF, t, k);
-      N.wet.gain.setTargetAtTime(wetAmt, t, k);
-      N.dry.gain.setTargetAtTime(1, t, k);
       N.pingBus.gain.setTargetAtTime(ping, t, 0.08);
       N.stGain.gain.setTargetAtTime(stat, t, 0.15);
     });
@@ -538,10 +529,8 @@ export class Chamber {
 
   setEnv(name: EnvName): void {
     this.env = name;
-    if (!this.ctx) return;
-    this.convolver.buffer = ENVS[name](this.ctx);
-    this.curEnvWet = wetLevel[name];
-    this.updateMix();
+    this.wasm?.setRoom(ENV_ROOM[name]);
+    if (this.started) this.updateMix();
   }
 
   setActiveCount(n: number): void {

@@ -28,7 +28,7 @@ export class WasmEngine {
   /** Build the engine: fetch wasm + asset, add the worklet module, wire it to the output. */
   static async create(
     ctx: AudioContext,
-    opts: { wasmUrl: string; assetUrl: string; maxSources?: number; workletUrl?: string } ,
+    opts: { wasmUrl: string; assetUrl: string; maxSources?: number; workletUrl?: string; numInputs?: number },
   ): Promise<WasmEngine> {
     const e = new WasmEngine(ctx);
     const [wasm, asset] = await Promise.all([
@@ -37,7 +37,7 @@ export class WasmEngine {
     ]);
     await ctx.audioWorklet.addModule(opts.workletUrl ?? "/chamber-worklet.js");
     e.node = new AudioWorkletNode(ctx, "chamber", {
-      numberOfInputs: 0,
+      numberOfInputs: opts.numInputs ?? 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],
       processorOptions: { maxSources: opts.maxSources ?? 16 },
@@ -56,6 +56,19 @@ export class WasmEngine {
   /** Connect the engine output (e.g. to ctx.destination or a master gain). */
   connect(dst: AudioNode): void {
     this.node.connect(dst);
+  }
+
+  /** Connect a WebAudio node to live-input source slot `i` (Chamber: one per agent). */
+  connectInput(src: AudioNode, i: number): void {
+    src.connect(this.node, 0, i);
+  }
+
+  /** Position/gain/send for a live-input source slot. */
+  setInputCfg(i: number, cfg: { pos: Vec3; gain?: number; send?: number }): void {
+    this.node.port.postMessage({
+      type: "inputCfg", index: i,
+      x: cfg.pos.x, y: cfg.pos.y, z: cfg.pos.z, gain: cfg.gain ?? 1, send: cfg.send ?? 0.3,
+    });
   }
 
   /** Add or update a source. `samples` (transferable) replaces its buffer. */

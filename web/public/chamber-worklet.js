@@ -12,6 +12,7 @@ class ChamberProcessor extends AudioWorkletProcessor {
     this.ex = null;
     this.maxSources = (options.processorOptions && options.processorOptions.maxSources) || 16;
     this.sources = new Map(); // id -> {buf, cursor, gain, x,y,z, loop, playing}
+    this.inputCfg = []; // per live audio-input source: {x,y,z,gain,send}
     this.pose = { qw: 1, qx: 0, qy: 0, qz: 0, px: 0, py: 0, pz: 0 };
     this.port.onmessage = (e) => this.onMsg(e.data);
   }
@@ -38,6 +39,9 @@ class ChamberProcessor extends AudioWorkletProcessor {
       }
       case "remove":
         this.sources.delete(d.id);
+        break;
+      case "inputCfg":
+        this.inputCfg[d.index] = { x: d.x, y: d.y, z: d.z, gain: d.gain ?? 1, send: d.send ?? 0.3 };
         break;
       case "pose":
         this.pose = d;
@@ -75,7 +79,7 @@ class ChamberProcessor extends AudioWorkletProcessor {
     this.port.postMessage({ type: "ready", numRooms: this.numRooms });
   }
 
-  process(_inputs, outputs) {
+  process(inputs, outputs) {
     const out = outputs[0];
     if (!this.ready) return true;
     const n = out[0].length;
@@ -83,8 +87,26 @@ class ChamberProcessor extends AudioWorkletProcessor {
     const heap = new Float32Array(ex.memory.buffer);
     const dv = new DataView(ex.memory.buffer);
 
-    // collect active sources (with a buffer), up to maxSources
     let idx = 0;
+    // live audio inputs become sources (used by the Chamber app: one mono input per agent)
+    for (let i = 0; i < inputs.length && idx < this.maxSources; i++) {
+      const ch = inputs[i][0];
+      if (!ch) continue; // input not connected
+      const cfg = this.inputCfg[i] || { x: 0, y: 0, z: -1, gain: 1, send: 0.3 };
+      const inBase = this.inPtrs[idx] / 4;
+      const g = cfg.gain;
+      for (let k = 0; k < n; k++) heap[inBase + k] = ch[k] * g;
+      const so = this.srcArr + idx * 5 * 4;
+      dv.setFloat32(so, cfg.x, true);
+      dv.setFloat32(so + 4, cfg.y, true);
+      dv.setFloat32(so + 8, cfg.z, true);
+      dv.setFloat32(so + 12, 1.0, true);
+      dv.setFloat32(so + 16, cfg.send, true);
+      dv.setUint32(this.inTab + idx * 4, this.inPtrs[idx], true);
+      idx++;
+    }
+
+    // collect active buffer sources (harness), up to maxSources
     for (const s of this.sources.values()) {
       if (idx >= this.maxSources || !s.buf || !s.playing) continue;
       const inBase = this.inPtrs[idx] / 4;
