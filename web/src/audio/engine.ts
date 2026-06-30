@@ -34,6 +34,7 @@ export class Chamber {
 
   // listener / mix state
   orient = 0; // radians
+  headPos = { x: 0, y: 0, z: 0 }; // 6DoF head translation (metres, neutral-relative) → true parallax
   ringIntel = 0; // 0..1 — ambient murmur bed kept at its quietest
   arrangement: Arrangement = "arc"; // a semicircle across the front
   env: EnvName = "room"; // measured-BRIR convolution room (the default that sounded best)
@@ -82,8 +83,8 @@ export class Chamber {
   }
 
   private setListener(): void {
-    // wasm setPose(orient) reproduces the prototype's forward = (sinθ, 0, −cosθ)
-    this.wasm?.setPose(this.orient);
+    // forward = (sinθ, 0, −cosθ) about +y, plus 6DoF head translation so leaning gives true parallax
+    this.wasm?.setPose(this.orient, this.headPos);
   }
 
   private placeAgent(id: string): void {
@@ -503,6 +504,12 @@ export class Chamber {
       this.updateMix();
     }
     this.onOrient(deg(this.orient));
+  }
+
+  /** 6DoF head translation, world metres, neutral-relative (+x right, +y up, front −z). */
+  setPosition(p: { x: number; y: number; z: number }): void {
+    this.headPos = p;
+    if (this.started) this.setListener();
   }
 
   getOrient(): number {

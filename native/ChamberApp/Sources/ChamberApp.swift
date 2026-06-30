@@ -144,7 +144,6 @@ struct ContentView: View {
         tracker.onGate = { [weak engine] g in engine?.setLookGate(g) }
         tracker.onPosition = { [weak engine] x, y, z in engine?.setPosition(x, y, z) }
         tracker.onPoseStamp = { [weak engine] t in engine?.setPoseStamp(t) }
-        engine.setUse6DoF(true)
         tracker.start()
         enabled = true
     }
