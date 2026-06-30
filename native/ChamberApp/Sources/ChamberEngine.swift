@@ -107,7 +107,7 @@ final class ChamberEngine: ObservableObject {
     @Published var headPos = SIMD3<Double>(0, 0, 0)
     @Published var autoFinish = true
     @Published var ready = false
-    @Published var roomIndex = 4 // "room (BRIR)" — the measured-style convolution room
+    @Published var roomIndex = 2 // "hall (FDN)" — parametric late tail + 6DoF ISM early reflections
     @Published var hrtfName = ""
     @Published var use6DoF = false   // webcam position estimate is crude → opt-in
     /// End-to-end motion-to-sound latency (ms): camera capture → pose → this audio block reaching
