@@ -275,8 +275,11 @@ async function startTracking() {
         const outMs = ((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000;
         const camMs = frameAgeEMA || (1000 / Math.max(fps, 1)); // capture->callback (or ~1 frame if unknown)
         const total = camMs + inferEMA + outMs;
-        predictSec = Math.min(0.12, total / 1000); // ADAPTIVE: predict ahead by the measured latency
-        $("track").textContent = `${fps}fps · cam ${Math.round(camMs)} · inf ${Math.round(inferEMA)} · out ${Math.round(outMs)} · ~${Math.round(total)}ms`;
+        predictSec = Math.min(0.20, total / 1000); // ADAPTIVE: predict ahead by the measured latency
+        // a high `out` is almost always Bluetooth headphones (~150-250ms codec/buffer latency) — wired fixes it
+        const warn = outMs > 60 ? "  ⚠ audio out high → use WIRED headphones" : "";
+        $("track").textContent = `${fps}fps · cam ${Math.round(camMs)} · inf ${Math.round(inferEMA)} · out ${Math.round(outMs)} · ~${Math.round(total)}ms${warn}`;
+        $("track").className = outMs > 60 ? "pill err" : "pill ok";
         detCount = 0; detT0 = nowp;
       }
     };
