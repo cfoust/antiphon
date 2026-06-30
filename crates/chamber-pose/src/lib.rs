@@ -12,15 +12,19 @@
 type V3 = [f64; 3];
 type M3 = [[f64; 3]; 3];
 
-/// Canonical face model points (metres), head-centred. Order is fixed; the host must supply
-/// the matching image points in the same order. (Classic generic head-pose model, /1000.)
+/// Canonical face model points (metres), in the **camera's view convention** so that a head
+/// facing the camera solves to ~identity (no 180° flip): +x = camera-right, +y = camera-down,
+/// +z = away from camera (toward the back of the head). The subject's LEFT eye is therefore
+/// at +x (it appears on the right of a non-mirrored image). Order is fixed; the host supplies
+/// matching image points in the same order:
+/// [nose, chin, subject-left-eye, subject-right-eye, subject-left-mouth, subject-right-mouth].
 pub const MODEL: [V3; 6] = [
-    [0.0, 0.0, 0.0],            // 0 nose tip
-    [0.0, -0.330, -0.065],      // 1 chin
-    [-0.225, 0.170, -0.135],    // 2 left eye, outer corner
-    [0.225, 0.170, -0.135],     // 3 right eye, outer corner
-    [-0.150, -0.150, -0.125],   // 4 left mouth corner
-    [0.150, -0.150, -0.125],    // 5 right mouth corner
+    [0.0, 0.0, 0.0],            // 0 nose tip (frontmost)
+    [0.0, 0.075, 0.02],         // 1 chin (down, slightly back)
+    [0.046, -0.034, 0.03],      // 2 subject-left eye (camera-right, up, back)
+    [-0.046, -0.034, 0.03],     // 3 subject-right eye (camera-left)
+    [0.026, 0.043, 0.02],       // 4 subject-left mouth corner
+    [-0.026, 0.043, 0.02],      // 5 subject-right mouth corner
 ];
 
 /// Recovered head pose.

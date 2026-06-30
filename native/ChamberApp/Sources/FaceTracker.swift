@@ -183,13 +183,19 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             DispatchQueue.main.async { self.debug = "missing landmark region(s)" }
             return nil
         }
-        let noseTip = nose.min(by: { $0.y < $1.y })!     // bottom-most nose point
-        let chin = contour.min(by: { $0.y < $1.y })!     // bottom-most contour point
-        let leOuter = le.min(by: { $0.x < $1.x })!
-        let reOuter = re.max(by: { $0.x < $1.x })!
-        let mouthL = lips.min(by: { $0.x < $1.x })!
-        let mouthR = lips.max(by: { $0.x < $1.x })!
-        let imgPts = [noseTip, chin, leOuter, reOuter, mouthL, mouthR]
+        func centroid(_ pts: [CGPoint]) -> CGPoint {
+            let n = CGFloat(pts.count)
+            return CGPoint(x: pts.reduce(0) { $0 + $1.x } / n, y: pts.reduce(0) { $0 + $1.y } / n)
+        }
+        // model order: [nose, chin, subject-left eye, subject-right eye, subj-left mouth, subj-right mouth].
+        // In the non-mirrored .up frame the subject's LEFT appears on the image RIGHT (large x).
+        let noseC = centroid(nose)
+        let chin = contour.min(by: { $0.y < $1.y })!     // lowest contour point (Vision y-up)
+        let leftEye = centroid(le)                       // subject-left eye  (image-right)
+        let rightEye = centroid(re)                      // subject-right eye (image-left)
+        let mouthLeft = lips.max(by: { $0.x < $1.x })!   // subject-left mouth corner = image-right
+        let mouthRight = lips.min(by: { $0.x < $1.x })!  // subject-right mouth corner = image-left
+        let imgPts = [noseC, chin, leftEye, rightEye, mouthLeft, mouthRight]
         let norm = imgPts.map { CGPoint(x: $0.x / Double(w), y: $0.y / Double(h)) }
 
         // PnP input: Vision pixels are y-up; flip to y-down. No mirror (kept consistent with
