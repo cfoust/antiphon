@@ -16,3 +16,4 @@
 # native build output
 *.app
 .DS_Store
+input.mov
