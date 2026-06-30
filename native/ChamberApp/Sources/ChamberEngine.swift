@@ -5,7 +5,7 @@ import QuartzCore
 
 /// Level of the accept chime when mixed into an agent's spatialized voice. Higher than the old
 /// centred level (~0.6) to offset the distance attenuation + HRTF the spatial path applies.
-let CHIME_GAIN: Float = 0.85
+let CHIME_GAIN: Float = 1.3
 
 func rad(_ d: Double) -> Double { d * .pi / 180 }
 func deg(_ r: Double) -> Double { r * 180 / .pi }

@@ -59,9 +59,9 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     var yawLeft = rad(-22.5)
     var span = rad(45)
     var neutralPitch = 0.0
-    // PnP pitch decreases as you look down (up → +, down → −), but the whisper gate wants a
-    // POSITIVE downward tilt, so invert: downDeg = -(pitch - neutralPitch).
-    var pitchInvert = true
+    // Sign that maps PnP pitch onto "downward tilt" for the whisper gate. Resolved on-device:
+    // looking down must raise downDeg. (false = use (pitch - neutralPitch) directly.)
+    var pitchInvert = false
 
     var onOrient: ((Double) -> Void)? // degrees, -90…+90
     var onGate: ((Double) -> Void)? // 1 = forward, 0 = looking down
