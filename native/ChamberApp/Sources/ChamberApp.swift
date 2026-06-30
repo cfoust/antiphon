@@ -18,7 +18,7 @@ struct ContentView: View {
     @State private var showDebug = false
     @State private var calArrow = ""
     @State private var calText = ""
-    private let rooms = ["dry", "room", "hall", "cathedral", "room (BRIR)", "hall (BRIR)"]
+    private let rooms = ["dry", "room (FDN)", "hall (FDN)", "cathedral (FDN)", "room (BRIR)", "hall (BRIR)"]
 
     var body: some View {
         ZStack {
