@@ -154,7 +154,10 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         imageW = CVPixelBufferGetWidth(pixelBuffer)
         imageH = CVPixelBufferGetHeight(pixelBuffer)
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .leftMirrored, options: [:])
+        // .up: the buffer is already upright-landscape, so landmark coords come out in an
+        // upright frame (nose above mouth) — .leftMirrored rotated them into a portrait frame,
+        // which scrambled the min/max landmark picks and the PnP solve.
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
         try? handler.perform([request])
     }
 
@@ -189,9 +192,10 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         let imgPts = [noseTip, chin, leOuter, reOuter, mouthL, mouthR]
         let norm = imgPts.map { CGPoint(x: $0.x / Double(w), y: $0.y / Double(h)) }
 
-        // PnP input: y-down + un-mirrored x (current best guess; being validated).
+        // PnP input: Vision pixels are y-up; flip to y-down. No mirror (kept consistent with
+        // the schematic) — true geometry, so the solve stays a proper rotation.
         var flat = [Float]()
-        for pt in imgPts { flat.append(Float(Double(w) - pt.x)); flat.append(Float(Double(h) - pt.y)) }
+        for pt in imgPts { flat.append(Float(pt.x)); flat.append(Float(Double(h) - pt.y)) }
         var ypr = [Float](repeating: 0, count: 3)
         var pos = [Float](repeating: 0, count: 3)
         var err: Float = 0
