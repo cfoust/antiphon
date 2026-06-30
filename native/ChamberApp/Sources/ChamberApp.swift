@@ -4,109 +4,130 @@ import SwiftUI
 struct ChamberAppMain: App {
     var body: some Scene {
         WindowGroup("Chamber") { ContentView() }
-            .defaultSize(width: 400, height: 600)
+            .defaultSize(width: 480, height: 660)
     }
 }
 
+/// Mirrors the web experience: an intro gate, a voice-guided two-point calibration, then a
+/// full radar. (The web app and this share the same flow + radar so they feel identical.)
 struct ContentView: View {
     @StateObject private var tracker = FaceTracker()
     @StateObject private var engine = ChamberEngine()
-    @State private var calStatus = ""
+    @State private var enabled = false
+    @State private var live = false
+    @State private var calArrow = ""
+    @State private var calText = ""
     private let rooms = ["dry", "room", "hall", "cathedral", "room (BRIR)", "hall (BRIR)"]
 
     var body: some View {
-        VStack(spacing: 12) {
-            Text("Chamber").font(.headline)
-            if !engine.hrtfName.isEmpty {
-                Text(engine.hrtfName).font(.caption2).foregroundStyle(.secondary)
-            }
+        ZStack {
+            Color(red: 0.04, green: 0.047, blue: 0.063).ignoresSafeArea()
 
-            HStack(alignment: .top, spacing: 12) {
-                ZStack(alignment: .topLeading) {
-                    CameraPreview(session: tracker.session)
-                        .frame(width: 180, height: 135)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    Circle().fill(tracker.faceFound ? .green : .red).frame(width: 9, height: 9).padding(6)
+            if live {
+                VStack(spacing: 14) {
+                    Radar(engine: engine)
+                    HStack(spacing: 16) {
+                        Picker("", selection: Binding(get: { engine.roomIndex }, set: { engine.setRoom($0) })) {
+                            ForEach(rooms.indices, id: \.self) { Text(rooms[$0]).tag($0) }
+                        }
+                        .labelsHidden().frame(width: 160)
+                        Button("Recalibrate") { runCalibration() }
+                            .buttonStyle(.borderless).foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                    Text("Turn to face an agent to hear it open up · look down to whisper all")
+                        .font(.caption2).foregroundStyle(.tertiary)
                 }
-                Radar(engine: engine).frame(width: 150, height: 150)
+                .padding(20)
             }
 
-            if tracker.devices.count > 1 {
-                Picker("Camera", selection: $tracker.selectedID) {
-                    ForEach(tracker.devices) { d in Text(d.name).tag(d.id) }
+            // calibration overlay
+            if !calText.isEmpty {
+                VStack(spacing: 10) {
+                    Text(calArrow).font(.system(size: 76, weight: .thin))
+                    Text(calText).font(.title3)
                 }
-                .onChange(of: tracker.selectedID) { id in tracker.switchTo(id) }
-                .font(.caption)
+                .foregroundStyle(.white)
+                .padding(40)
+                .background(.black.opacity(0.55))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
             }
 
-            HStack(spacing: 14) {
-                pose("yaw", tracker.yaw); pose("pitch", tracker.pitch); pose("roll", tracker.roll)
+            // intro gate
+            if !live && calText.isEmpty {
+                introCard
             }
-            HStack {
-                Text(tracker.status).foregroundStyle(.secondary)
-                Spacer()
-                Text(String(format: "vision %.0f Hz · cam %.0f fps", tracker.hz, tracker.configuredFPS))
-                    .monospacedDigit().foregroundStyle(.secondary)
-            }.font(.caption)
-
-            Divider()
-
-            HStack {
-                Button(calStatus.isEmpty ? "Calibrate" : calStatus) { calibrate() }
-                    .disabled(!calStatus.isEmpty)
-                Spacer()
-                Picker("Room", selection: Binding(get: { engine.roomIndex }, set: { engine.setRoom($0) })) {
-                    ForEach(rooms.indices, id: \.self) { Text(rooms[$0]).tag($0) }
-                }.frame(width: 130).font(.caption)
-            }.font(.caption)
-
-            HStack {
-                Toggle("auto-finish", isOn: Binding(get: { engine.autoFinish }, set: { engine.setAutoFinish($0) }))
-                    .toggleStyle(.switch)
-                Spacer()
-                Button("finish one") { engine.finishOne() }
-            }.font(.caption)
-
-            HStack {
-                Toggle("invert pitch", isOn: $tracker.pitchInvert)
-                Spacer()
-                Toggle("6DoF position (experimental)", isOn: Binding(
-                    get: { engine.use6DoF }, set: { engine.setUse6DoF($0) }))
-            }.font(.caption2)
-
-            Text("Headphones on. Turn to face an agent to hear it open up; look down to whisper everyone. Agents finish on their own — face one and hold ~1.5s for its summary.")
-                .font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.center)
         }
-        .padding(16)
-        .frame(width: 400)
-        .onAppear {
-            engine.setup()
-            tracker.onOrient = { [weak engine] d in engine?.setOrient(deg: d) }
-            tracker.onGate = { [weak engine] g in engine?.setLookGate(g) }
-            tracker.onPosition = { [weak engine] x, y, z in engine?.setPosition(x, y, z) }
-            tracker.start()
+        .frame(minWidth: 460, minHeight: 600)
+        .preferredColorScheme(.dark)
+    }
+
+    private var introCard: some View {
+        VStack(spacing: 18) {
+            Text("Agent Chamber").font(.system(size: 28, weight: .bold))
+            Text("A team of agents, working around you in space. You hear them murmur as they work, and chime when they finish — turn to face one to listen.")
+                .font(.callout).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 12) {
+                req("🎧", "Headphones required", "The audio is positioned in 3D — it only works over headphones.")
+                req("📷", "Camera access", "Turn your head to face agents. Video never leaves your device.")
+            }
+            if !enabled {
+                Button("Enable camera & continue") { enable() }.buttonStyle(.borderedProminent)
+            } else {
+                Button("Start") { runCalibration() }.buttonStyle(.borderedProminent)
+                    .disabled(!tracker.faceFound)
+                Text(tracker.faceFound ? "Head tracking ready" : "Looking for your face…")
+                    .font(.caption).foregroundStyle(tracker.faceFound ? .green : .secondary)
+            }
+            if !engine.hrtfName.isEmpty {
+                Text(engine.hrtfName).font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(28).frame(width: 400)
+        .background(Color.white.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.08)))
+    }
+
+    private func req(_ icon: String, _ title: String, _ desc: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(icon).font(.title3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(desc).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
         }
     }
 
-    private func calibrate() {
+    private func enable() {
+        engine.setup()
+        // No sign flip: the two-point calibration below resolves the camera's yaw direction
+        // (the uncalibrated default is what was inverted). 6DoF position from the bbox estimate.
+        tracker.onOrient = { [weak engine] d in engine?.setOrient(deg: d) }
+        tracker.onGate = { [weak engine] g in engine?.setLookGate(g) }
+        tracker.onPosition = { [weak engine] x, y, z in engine?.setPosition(x, y, z) }
+        engine.setUse6DoF(true)
+        tracker.start()
+        enabled = true
+    }
+
+    /// Voice-less two-point calibration: look fully left, then fully right.
+    private func runCalibration() {
         Task { @MainActor in
-            calStatus = "Look left…"
-            try? await Task.sleep(nanoseconds: 2_400_000_000)
+            calArrow = "←"; calText = "Look all the way left… and hold"
+            try? await Task.sleep(nanoseconds: 2_600_000_000)
             let yl = tracker.yaw, pl = tracker.pitch
-            calStatus = "Now look right…"
-            try? await Task.sleep(nanoseconds: 2_400_000_000)
+            calArrow = "→"; calText = "Now all the way right… and hold"
+            try? await Task.sleep(nanoseconds: 2_600_000_000)
             let yr = tracker.yaw, pr = tracker.pitch
             tracker.calibrate(yawLeftRad: yl, yawRightRad: yr, neutralPitchRad: (pl + pr) / 2)
-            calStatus = "Calibrated ✓"
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            calStatus = ""
+            tracker.resetNeutral() // capture the 6DoF neutral at a comfortable resting pose
+            calArrow = "✓"; calText = "Calibrated"
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            calText = ""; calArrow = ""
+            live = true
         }
-    }
-
-    private func pose(_ label: String, _ radians: Double) -> some View {
-        VStack(spacing: 1) {
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-            Text(String(format: "%+.0f°", deg(radians))).font(.body).monospacedDigit()
-        }.frame(width: 70)
     }
 }

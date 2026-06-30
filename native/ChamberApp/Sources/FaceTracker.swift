@@ -34,6 +34,10 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     /// height), so treat as relative/approximate — see docs/conventions.md.
     var onPosition: ((Double, Double, Double) -> Void)?
     private var sPx = 0.0, sPy = 0.0, sPz = 0.0
+    private var nPx = 0.0, nPy = 0.0, nPz = 0.0, posInit = false
+
+    /// Capture the current head position as the neutral/origin (call after calibration).
+    func resetNeutral() { nPx = sPx; nPy = sPy; nPz = sPz; posInit = true }
 
     let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "chamber.spike.face")
@@ -185,12 +189,15 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // image is leftMirrored, so +image-x is the user's left -> world −x
         let px = -dist * tan(cx * hFov)
         let py = dist * tan(cy * vFov)
-        let pz = dist - 0.6                          // relative to a ~0.6 m neutral
         let pa = 0.25
         sPx += (px - sPx) * pa
         sPy += (py - sPy) * pa
-        sPz += (pz - sPz) * pa
-        onPosition?(sPx, sPy, sPz)
+        sPz += (dist - sPz) * pa
+        if !posInit { nPx = sPx; nPy = sPy; nPz = sPz; posInit = true }
+        // emit position relative to the captured neutral (resting pose = origin), clamped
+        // so a face-detection glitch can't fling the listener across the room
+        let cl = { (v: Double) in max(-1.0, min(1.0, v)) }
+        onPosition?(cl(sPx - nPx), cl(sPy - nPy), cl(sPz - nPz))
 
         DispatchQueue.main.async {
             self.faceFound = true

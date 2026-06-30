@@ -69,7 +69,9 @@ struct Radar: View {
                 }
             }
         }
-        .frame(width: 300, height: 300)
+        .aspectRatio(1, contentMode: .fit)
+        .frame(maxWidth: 460, maxHeight: 460)
+        .padding(16)
         .background(Color.black.opacity(0.25))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
