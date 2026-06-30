@@ -17,7 +17,9 @@ export interface Calibration {
   neutralPitch: number;
 }
 
-/** m = column-major 4x4 facial transform; element(row,col) = m[col*4+row]. */
+/** m = column-major 4x4 facial transform; element(row,col) = m[col*4+row].
+ *  Rotation gives yaw/pitch; the translation column (m[12..14]) gives head position
+ *  in the camera frame — that's the 6DoF the original app ignored. */
 const decodeYawDeg = (m: number[]) => (Math.atan2(m[8], m[10]) * 180) / Math.PI;
 const decodePitchDeg = (m: number[]) => (Math.atan2(-m[9], m[5]) * 180) / Math.PI;
 
@@ -37,6 +39,10 @@ export class HeadTracker {
   private lastVideoTime = -1;
   private smoothYaw = 0;
   private smoothPitch = 0;
+  // 6DoF head position from the matrix translation (camera frame), neutral-relative
+  private rawPos = { x: 0, y: 0, z: 0 };
+  private neutralPos = { x: 0, y: 0, z: 0 };
+  private posInit = false;
 
   // calibration: head yaw at the left extreme maps to −90°, +span maps to +90°.
   yawLeft = -22.5;
@@ -85,6 +91,23 @@ export class HeadTracker {
     return this.smoothPitch;
   }
 
+  /** Head position (metres-ish) relative to the captured neutral pose. Right-handed,
+   *  un-mirrored: +x = head moved to your right, +y = up, +z = toward the camera. */
+  get pos(): { x: number; y: number; z: number } {
+    const k = 0.01; // matrix translation is ~cm; scale to metres
+    return {
+      x: -(this.rawPos.x - this.neutralPos.x) * k, // un-mirror (camera is mirrored)
+      y: (this.rawPos.y - this.neutralPos.y) * k,
+      z: (this.rawPos.z - this.neutralPos.z) * k,
+    };
+  }
+
+  /** Capture the current head position as the neutral/origin. */
+  setNeutral(): void {
+    this.neutralPos = { ...this.rawPos };
+    this.posInit = true;
+  }
+
   /** Set calibration from the two measured extremes (left, right) + neutral pitch. */
   calibrate(yawLeft: number, yawRight: number, neutralPitch: number): void {
     let span = yawRight - yawLeft;
@@ -118,6 +141,11 @@ export class HeadTracker {
         const m = mats[0].data as unknown as number[];
         this.smoothYaw += (decodeYawDeg(m) - this.smoothYaw) * 0.35;
         this.smoothPitch += (decodePitchDeg(m) - this.smoothPitch) * 0.35;
+        // 6DoF: smooth the translation column; snap neutral on first sight
+        this.rawPos.x += (m[12] - this.rawPos.x) * 0.3;
+        this.rawPos.y += (m[13] - this.rawPos.y) * 0.3;
+        this.rawPos.z += (m[14] - this.rawPos.z) * 0.3;
+        if (!this.posInit) this.setNeutral();
         if (!this.sawFace) {
           this.sawFace = true;
           this.onFace?.();

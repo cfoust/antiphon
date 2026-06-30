@@ -79,9 +79,13 @@ function reload(s: Src) {
 }
 
 // ---- listener pose --------------------------------------------------------
+let headPos: Vec3 = { x: 0, y: 0, z: 0 }; // listener position (tracked or manual height)
 function applyPose() {
-  engine?.setPose((orientDeg * Math.PI) / 180, { x: 0, y: listenerY, z: 0 });
+  headPos = tracking ? trackedPos : { x: 0, y: listenerY, z: 0 };
+  engine?.setPose((orientDeg * Math.PI) / 180, headPos);
 }
+let trackedPos: Vec3 = { x: 0, y: 0, z: 0 };
+const clampM = (v: number) => Math.max(-1.5, Math.min(1.5, v));
 
 // ---- controls -------------------------------------------------------------
 function initControls() {
@@ -136,12 +140,19 @@ function renderSources() {
   sources.forEach((s, i) => {
     const row = document.createElement("div");
     row.className = "src-row";
-    row.innerHTML = `<span class="swatch" style="background:${s.color}"></span>
-      <span style="flex:1;${i === selected ? "font-weight:600" : ""}">${s.name}</span>`;
+    // swatch + name select this source (clicking the controls below must NOT re-render,
+    // or native <select> dropdowns close before they can open)
+    const swatch = document.createElement("span");
+    swatch.className = "swatch"; swatch.style.background = s.color; swatch.style.cursor = "pointer";
+    const name = document.createElement("span");
+    name.textContent = s.name; name.style.flex = "1"; name.style.cursor = "pointer";
+    if (i === selected) name.style.fontWeight = "600";
+    swatch.onclick = name.onclick = () => { selected = i; renderSources(); };
+
     const sel = document.createElement("select");
     SFX.forEach((x, xi) => sel.add(new Option(x.name, String(xi))));
     if (s.sfx >= 0) sel.value = String(s.sfx);
-    sel.onchange = () => { s.sfx = +sel.value; s.loop = SFX[s.sfx].loop; reload(s); renderSources(); };
+    sel.onchange = () => { s.sfx = +sel.value; s.loop = SFX[s.sfx].loop; reload(s); name.textContent = s.name; };
     const vol = document.createElement("input");
     vol.type = "range"; vol.min = "0"; vol.max = "1.5"; vol.step = "0.01"; vol.value = String(s.gain); vol.style.width = "70px";
     vol.oninput = () => { s.gain = +vol.value; engine!.setSource(s.id, { gain: s.gain }); };
@@ -149,8 +160,7 @@ function renderSources() {
     trig.onclick = () => engine!.trigger(s.id);
     const del = document.createElement("button"); del.textContent = "✕";
     del.onclick = () => { engine!.removeSource(s.id); sources.splice(i, 1); selected = -1; renderSources(); };
-    row.append(sel, vol, trig, del);
-    row.onclick = () => { selected = i; renderSources(); };
+    row.append(swatch, name, sel, vol, trig, del);
     host.append(row);
   });
 }
@@ -195,12 +205,13 @@ function drawMap() {
   c.strokeStyle = "#161b27"; c.beginPath(); c.moveTo(cx, 0); c.lineTo(cx, H); c.moveTo(0, cy); c.lineTo(W, cy); c.stroke();
   c.fillStyle = "#5a6678"; c.font = "11px sans-serif";
   c.fillText("front (−z)", cx + 6, 14); c.fillText("right (+x)", W - 64, cy - 6);
-  // listener + facing
+  // listener (at its tracked position) + facing
   const o = (orientDeg * Math.PI) / 180;
   const fx = Math.sin(o), fz = -Math.cos(o);
+  const [lx, ly] = worldToMap(headPos);
   c.strokeStyle = "#5fd0c5"; c.fillStyle = "#5fd0c5"; c.lineWidth = 2;
-  c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + fx * 46, cy + fz * 46); c.stroke();
-  c.beginPath(); c.arc(cx, cy, 6, 0, 7); c.fill();
+  c.beginPath(); c.moveTo(lx, ly); c.lineTo(lx + fx * 46, ly + fz * 46); c.stroke();
+  c.beginPath(); c.arc(lx, ly, 6, 0, 7); c.fill();
   // sources
   c.lineWidth = 1;
   sources.forEach((s, i) => {
@@ -235,8 +246,8 @@ function drawDev3D() {
   const o = (orientDeg * Math.PI) / 180;
   type Item = { sx: number; sy: number; z: number; r: number; col: string; head?: boolean };
   const items: Item[] = [];
-  const hp = project3({ x: 0, y: listenerY, z: 0 });
-  items.push({ sx: hp[0], sy: hp[1], z: 0, r: 9, col: "#5fd0c5", head: true });
+  const hp = project3(headPos);
+  items.push({ sx: hp[0], sy: hp[1], z: headPos.z, r: 9, col: "#5fd0c5", head: true });
   for (const s of sources) {
     const p = project3(s.pos);
     items.push({ sx: p[0], sy: p[1], z: s.pos.z, r: Math.max(4, Math.min(16, 9 + s.pos.z * 1.5)), col: s.color });
@@ -246,7 +257,7 @@ function drawDev3D() {
     c.fillStyle = it.col; c.globalAlpha = 0.9;
     c.beginPath(); c.arc(it.sx, it.sy, it.r, 0, 7); c.fill(); c.globalAlpha = 1;
     if (it.head) {
-      const tip = project3({ x: Math.sin(o) * 1.4, y: listenerY, z: -Math.cos(o) * 1.4 });
+      const tip = project3({ x: headPos.x + Math.sin(o) * 1.4, y: headPos.y, z: headPos.z - Math.cos(o) * 1.4 });
       c.strokeStyle = "#5fd0c5"; c.lineWidth = 2;
       c.beginPath(); c.moveTo(it.sx, it.sy); c.lineTo(tip[0], tip[1]); c.stroke();
     }
@@ -257,8 +268,10 @@ function drawDev3D() {
 
 function frame() {
   if (tracking && tracker) {
-    // raw head-yaw (degrees) drives orientation; mirror it onto the slider
-    orientDeg = Math.max(-180, Math.min(180, tracker.yaw));
+    // camera is mirrored → negate yaw so turning right faces right; position is 6DoF
+    orientDeg = Math.max(-180, Math.min(180, -tracker.yaw));
+    const p = tracker.pos;
+    trackedPos = { x: clampM(p.x), y: clampM(p.y), z: clampM(-p.z) }; // +z(toward cam)→front(−z)
     ($("orient") as HTMLInputElement).value = String(Math.round(orientDeg));
     $("orientVal").textContent = Math.round(orientDeg) + "°";
     applyPose();
