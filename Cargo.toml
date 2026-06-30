@@ -6,6 +6,7 @@ members = [
     "crates/chamber-bake",
     "crates/chamber-render",
     "crates/chamber-ffi",
+    "crates/chamber-pose",
 ]
 # chamber-ffi is the single C-ABI surface used by BOTH hosts:
 #   native: built as a staticlib and linked into the Swift app

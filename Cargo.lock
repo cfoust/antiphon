@@ -99,7 +99,12 @@ version = "0.1.0"
 dependencies = [
  "chamber-assets",
  "chamber-dsp",
+ "chamber-pose",
 ]
+
+[[package]]
+name = "chamber-pose"
+version = "0.1.0"
 
 [[package]]
 name = "chamber-render"

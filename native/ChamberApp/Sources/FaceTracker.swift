@@ -39,18 +39,24 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     /// Capture the current head position as the neutral/origin (call after calibration).
     func resetNeutral() { nPx = sPx; nPy = sPy; nPz = sPz; posInit = true }
 
+    /// Use the PnP solver (landmarks -> 6DoF) when landmarks are available; falls back to
+    /// Vision's yaw + the bbox position estimate otherwise.
+    var usePnP = true
+
     let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "chamber.spike.face")
-    private var request: VNDetectFaceRectanglesRequest!
+    private var request: VNDetectFaceLandmarksRequest!
     private var currentInput: AVCaptureDeviceInput?
     private var frameCount = 0
     private var lastTick = CFAbsoluteTimeGetCurrent()
     private var sYaw = 0.0, sPitch = 0.0, sRoll = 0.0
+    private var imageW = 0, imageH = 0
 
     override init() {
         super.init()
-        request = VNDetectFaceRectanglesRequest(completionHandler: { [weak self] req, _ in self?.handle(req) })
-        if #available(macOS 12.0, *) { request.revision = VNDetectFaceRectanglesRequestRevision3 }
+        // Landmarks request gives yaw/pitch AND the 2D landmarks the PnP solver needs.
+        request = VNDetectFaceLandmarksRequest(completionHandler: { [weak self] req, _ in self?.handle(req) })
+        if #available(macOS 12.0, *) { request.revision = VNDetectFaceLandmarksRequestRevision3 }
     }
 
     private func discover() -> [AVCaptureDevice] {
@@ -135,8 +141,44 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        imageW = CVPixelBufferGetWidth(pixelBuffer)
+        imageH = CVPixelBufferGetHeight(pixelBuffer)
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .leftMirrored, options: [:])
         try? handler.perform([request])
+    }
+
+    /// Extract the 6 PnP model landmarks (pixels, model order) and solve head pose.
+    /// Returns yaw in radians + camera-frame position (metres). Best-effort; needs
+    /// per-device validation (Vision landmark conventions + camera mirroring).
+    private func solvePose(_ face: VNFaceObservation) -> (yaw: Double, pos: (Double, Double, Double))? {
+        guard imageW > 0, imageH > 0, let lm = face.landmarks else { return nil }
+        let w = imageW, h = imageH
+        func pix(_ region: VNFaceLandmarkRegion2D?) -> [CGPoint] {
+            region?.pointsInImage(imageSize: CGSize(width: w, height: h)) ?? []
+        }
+        let nose = pix(lm.nose), contour = pix(lm.faceContour)
+        let le = pix(lm.leftEye), re = pix(lm.rightEye), lips = pix(lm.outerLips)
+        guard !nose.isEmpty, !contour.isEmpty, !le.isEmpty, !re.isEmpty, !lips.isEmpty else { return nil }
+        // Vision pixel coords are y-up, origin bottom-left; PnP wants y-down + un-mirrored x.
+        func conv(_ p: CGPoint) -> (Float, Float) { (Float(Double(w) - Double(p.x)), Float(Double(h) - Double(p.y))) }
+        let noseTip = nose.min(by: { $0.y < $1.y })!     // bottom-most nose point
+        let chin = contour.min(by: { $0.y < $1.y })!     // bottom-most contour point
+        let leOuter = le.min(by: { $0.x < $1.x })!
+        let reOuter = re.max(by: { $0.x < $1.x })!
+        let mouthL = lips.min(by: { $0.x < $1.x })!
+        let mouthR = lips.max(by: { $0.x < $1.x })!
+        var flat = [Float]()
+        for pt in [noseTip, chin, leOuter, reOuter, mouthL, mouthR] {
+            let c = conv(pt); flat.append(c.0); flat.append(c.1)
+        }
+        var ypr = [Float](repeating: 0, count: 3)
+        var pos = [Float](repeating: 0, count: 3)
+        var err: Float = 0
+        let ok = flat.withUnsafeBufferPointer {
+            chamber_solve_head_pose($0.baseAddress, 6, Float(w), Float(w) / 2, Float(h) / 2, &ypr, &pos, &err)
+        }
+        guard ok == 1, err < 25 else { return nil }
+        return (yaw: rad(Double(ypr[0])), pos: (Double(pos[0]), Double(pos[1]), Double(pos[2])))
     }
 
     /// Map measured extremes onto the front arc. yaws in radians.
@@ -162,13 +204,16 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             DispatchQueue.main.async { self.faceFound = false }
             return
         }
-        let y = face.yaw?.doubleValue ?? 0
         let r = face.roll?.doubleValue ?? 0
         var p = 0.0
         if #available(macOS 12.0, *) { p = face.pitch?.doubleValue ?? 0 }
 
+        // PnP head pose (preferred) — landmarks -> 6DoF; else fall back to Vision yaw.
+        let solved = usePnP ? solvePose(face) : nil
+        let yawIn = solved?.yaw ?? (face.yaw?.doubleValue ?? 0)
+
         let a = 0.35
-        sYaw += (y - sYaw) * a
+        sYaw += (yawIn - sYaw) * a
         sPitch += (p - sPitch) * a
         sRoll += (r - sRoll) * a
 
@@ -179,24 +224,26 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         let amt = max(0, min(1, (downDeg - DOWN_START) / (DOWN_FULL - DOWN_START)))
         onGate?(1 - amt)
 
-        // approximate 6DoF position from the face bounding box (normalized image coords)
-        let bb = face.boundingBox
-        let faceHeightM = 0.20                       // assumed real face height (scale prior)
-        let vFov = 50.0 * .pi / 180, hFov = 64.0 * .pi / 180
-        let ang = max(0.02, Double(bb.height)) * vFov
-        let dist = (faceHeightM / 2) / tan(ang / 2)  // metres from camera
-        let cx = Double(bb.midX) - 0.5, cy = Double(bb.midY) - 0.5
-        // image is leftMirrored, so +image-x is the user's left -> world −x
-        let px = -dist * tan(cx * hFov)
-        let py = dist * tan(cy * vFov)
-        let pa = 0.25
-        sPx += (px - sPx) * pa
-        sPy += (py - sPy) * pa
-        sPz += (dist - sPz) * pa
-        if !posInit { nPx = sPx; nPy = sPy; nPz = sPz; posInit = true }
-        // emit position relative to the captured neutral (resting pose = origin), clamped
-        // so a face-detection glitch can't fling the listener across the room
+        // ---- 6DoF position ----
         let cl = { (v: Double) in max(-1.0, min(1.0, v)) }
+        if let sp = solved {
+            // camera frame (+x right, +y down, +z forward) -> world (+x right, +y up, +z back)
+            let wx = sp.pos.0, wy = -sp.pos.1, wz = sp.pos.2
+            sPx += (wx - sPx) * 0.3
+            sPy += (wy - sPy) * 0.3
+            sPz += (wz - sPz) * 0.3
+        } else {
+            // fallback: approximate 6DoF from the face bounding box
+            let bb = face.boundingBox
+            let faceHeightM = 0.20, vFov = 50.0 * .pi / 180, hFov = 64.0 * .pi / 180
+            let ang = max(0.02, Double(bb.height)) * vFov
+            let dist = (faceHeightM / 2) / tan(ang / 2)
+            let cx = Double(bb.midX) - 0.5, cy = Double(bb.midY) - 0.5
+            sPx += (-dist * tan(cx * hFov) - sPx) * 0.25
+            sPy += (dist * tan(cy * vFov) - sPy) * 0.25
+            sPz += (dist - sPz) * 0.25
+        }
+        if !posInit { nPx = sPx; nPy = sPy; nPz = sPz; posInit = true }
         onPosition?(cl(sPx - nPx), cl(sPy - nPy), cl(sPz - nPz))
 
         DispatchQueue.main.async {

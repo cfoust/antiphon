@@ -11,6 +11,49 @@ use chamber_assets::ChamberAsset;
 use chamber_dsp::{Pose, Quat, Renderer, Source, Vec3};
 use std::os::raw::c_void;
 
+/// Solve 6DoF head pose from facial landmarks (PnP) — native 6DoF without MediaPipe.
+///
+/// `image_pts` is `2*n` floats `(x, y)` in PIXELS, in `chamber_pose::MODEL` order
+/// (nose tip, chin, left-eye outer, right-eye outer, left-mouth, right-mouth). `focal`
+/// is in pixels (≈ image width if unknown). Writes yaw/pitch/roll (degrees) to `out_ypr[3]`,
+/// camera-frame position (metres, +x right/+y down/+z forward) to `out_pos[3]`, and the mean
+/// reprojection error (px) to `out_err[1]`. Returns 1 on success, 0 on failure.
+///
+/// # Safety: pointers must be valid for the indicated lengths.
+#[no_mangle]
+pub unsafe extern "C" fn chamber_solve_head_pose(
+    image_pts: *const f32,
+    n: u32,
+    focal: f32,
+    cx: f32,
+    cy: f32,
+    out_ypr: *mut f32,
+    out_pos: *mut f32,
+    out_err: *mut f32,
+) -> i32 {
+    if image_pts.is_null() || out_ypr.is_null() || out_pos.is_null() {
+        return 0;
+    }
+    let n = n as usize;
+    let raw = std::slice::from_raw_parts(image_pts, n * 2);
+    let pts: Vec<[f64; 2]> = (0..n).map(|i| [raw[i * 2] as f64, raw[i * 2 + 1] as f64]).collect();
+    match chamber_pose::solve(&pts, focal as f64, cx as f64, cy as f64) {
+        Some(p) => {
+            let ypr = std::slice::from_raw_parts_mut(out_ypr, 3);
+            ypr[0] = p.yaw_deg;
+            ypr[1] = p.pitch_deg;
+            ypr[2] = p.roll_deg;
+            let pos = std::slice::from_raw_parts_mut(out_pos, 3);
+            pos.copy_from_slice(&p.pos);
+            if !out_err.is_null() {
+                *out_err = p.reproj_err;
+            }
+            1
+        }
+        None => 0,
+    }
+}
+
 /// Allocate `size` bytes inside the module's address space and return a pointer.
 /// Used by the web host (AudioWorklet) to stage the asset blob and audio buffers into
 /// wasm linear memory. On native it's a plain heap allocation.

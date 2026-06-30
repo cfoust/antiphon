@@ -39,6 +39,14 @@ void chamber_renderer_process(ChamberRenderer *h, const ChamberPose *pose,
                               const float *const *inputs,
                               float *out_l, float *out_r, uint32_t frames);
 
+/* 6DoF head pose from facial landmarks (PnP). image_pts = 2*n pixel coords (x,y) in the
+ * model order: nose tip, chin, left-eye outer, right-eye outer, left-mouth, right-mouth.
+ * Writes yaw/pitch/roll (deg) to out_ypr[3], camera-frame position (m) to out_pos[3],
+ * mean reprojection error (px) to out_err[1]. Returns 1 on success, 0 on failure. */
+int32_t chamber_solve_head_pose(const float *image_pts, uint32_t n,
+                                float focal, float cx, float cy,
+                                float *out_ypr, float *out_pos, float *out_err);
+
 #ifdef __cplusplus
 }
 #endif

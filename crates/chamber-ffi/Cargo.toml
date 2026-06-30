@@ -13,3 +13,4 @@ crate-type = ["staticlib", "cdylib"]
 [dependencies]
 chamber-assets = { path = "../chamber-assets" }
 chamber-dsp = { path = "../chamber-dsp" }
+chamber-pose = { path = "../chamber-pose" }
