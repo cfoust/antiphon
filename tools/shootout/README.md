@@ -22,6 +22,25 @@ In the harness: switch **A/B** (keys `a`/`b`), vote `1`/`2`/`3` (A / B / too-clo
 Pairings are **ELO-guided** (least-played vs nearest-rated), so you don't do O(N²). Click
 **standings** to peek at ratings, **export** to download the results JSON.
 
+## Live, head-tracked A/B (`tools/shootout/live/`)
+
+The offline A/B uses a fixed head, so it can only reward *timbre* — it's blind to dynamic
+head-motion externalization. The live rig fixes that: each candidate also builds a wasm engine, and
+the page hot-swaps between two engines in one AudioWorklet, both driven by your real head pose.
+
+```sh
+# each candidate emits a swappable engine (run from the candidate's checkout/worktree)
+bash tools/shootout/build-live.sh <id>          # -> out/shootout/wasm/<id>.wasm  (+ regen manifest)
+uv run tools/shootout/ingest.py                 # loudness trims (from the offline WAVs) into the manifest
+# serve from repo ROOT, open the live harness (localhost is a secure context, so the camera works)
+python3 -m http.server 8000   # -> http://localhost:8000/tools/shootout/live/
+```
+
+Press **start** (grants camera + audio), **set "forward"** while facing the screen, then move your
+head — one voice stays fixed ~30° off-forward. `a`/`b` switch, `1`/`2`/`3` vote (blind, loudness-
+matched, ELO-guided, click-free crossfade). Knobs: invert-yaw, source azimuth, room. Engines must
+share the same `chamber-ffi` C ABI (candidates edit `chamber-dsp` internals only).
+
 ## The scene (`shootout` subcommand)
 
 One voice (`tools/shootout/echo.wav`) tours the perceptually hard positions past a **fixed** head

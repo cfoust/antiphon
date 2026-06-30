@@ -55,9 +55,15 @@ CONTRACT (follow exactly):
    render, or just reason about the dB of change you applied), make sure it clears that bar. If your
    effect is marginal, turn it up before committing.
 
-6. Commit your change on your branch with a clear message (so a winner's diff is recoverable).
+6. (LIVE RIG) Also build your change as a swappable wasm engine for the realtime, head-tracked A/B:
+   `bash tools/shootout/build-live.sh <ID>` (emits `out/shootout/wasm/<ID>.wasm`). HARD RULE: do NOT
+   change the `chamber-ffi` C ABI (the exported `chamber_*` function signatures) — every engine must
+   be driven identically by the shared worklet. Edit `chamber-dsp` internals only; your change must
+   take effect with stock settings (ON by default, no new FFI flag needed for the A/B).
 
-7. Your FINAL MESSAGE is your report (it is not shown to a human directly — keep it factual). Return:
+7. Commit your change on your branch with a clear message (so a winner's diff is recoverable).
+
+8. Your FINAL MESSAGE is your report (it is not shown to a human directly — keep it factual). Return:
    - the id `<ID>`,
    - 2–3 sentences: exactly what you changed and the mechanism by which it should help,
    - the file(s)/function(s) you touched,

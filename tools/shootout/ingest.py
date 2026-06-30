@@ -54,7 +54,10 @@ for fn in files:
     if npeak > PEAK_CEIL:
         norm = norm * (PEAK_CEIL / npeak)  # peak guard (slight loudness give-up beats clipping)
     sf.write(os.path.join(DST, fn), norm, rate, subtype="PCM_16")
-    manifest.append({"name": name, "file": fn})
+    # trim = linear gain to reach the target loudness (pre peak-guard) — reused by the LIVE harness,
+    # which can't pre-normalize a moving-head render, so it applies this per-engine gain instead.
+    trim = float(10.0 ** ((TARGET_LUFS - loud) / 20.0))
+    manifest.append({"name": name, "file": fn, "trim": round(trim, 6)})
     normed[name] = norm.mean(axis=1)  # mono mixdown for the delta metric
     print(f"  ok     {name:<22} in {loud:6.1f} LUFS -> {TARGET_LUFS} (peak {npeak:.2f})")
 

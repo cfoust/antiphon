@@ -216,5 +216,18 @@ voice*.
 
 ## Promoted to `main`
 
-- _none yet_ — when a candidate wins and survives a parity re-check, record `id`, the commit, and
-  why here.
+- **`dfeq` (diffuse-field EQ)** → `main` commit `95148e2` (2026-06-30). Won rounds 1–3; the durable
+  "sounds like a real voice" win. Parity re-checked: native↔wasm error **−153.2 dBFS** (< −90). The
+  one change (`crates/chamber-dsp/src/hrtf.rs`, `diffuse_field_eq` in `HrtfDb::from_asset`) is on main.
+
+## Live (realtime, head-tracked) A/B rig — `tools/shootout/live/`
+
+Built 2026-06-30 to fix the fixed-head ceiling (round 3). Each candidate now also builds a **wasm
+engine** (`bash tools/shootout/build-live.sh <id>` → `out/shootout/wasm/<id>.wasm`); the page holds
+two engines in one AudioWorklet, runs BOTH on the same live head pose + a world-fixed voice, and
+equal-power crossfades between them (per-engine loudness trim from the offline ingest). Both run
+continuously so tails stay warm and the A/B is instant + click-free. Scene: one voice fixed ~30°
+off-forward; you turn your head to audition orientations — so it finally exercises the dynamic
+externalization cue. Same blind ELO logic as the offline harness. Bootstrapped + smoke-tested with
+`baseline` vs `dfeq` (engines differ 3.4 dB, finite). Serve from repo root → `/tools/shootout/live/`.
+Candidate contract: keep the chamber-ffi C ABI identical across engines (edit `chamber-dsp` internals).
