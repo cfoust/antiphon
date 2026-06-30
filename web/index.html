@@ -12,6 +12,13 @@
   <canvas id="radar"></canvas>
 </div>
 
+<!-- HRTF "fit": dial until a source straight ahead sits OUT in front at ear level. Hidden until the experience starts. -->
+<div id="controls" class="controls" hidden>
+  <label class="ctl" for="fit">Fit</label>
+  <input id="fit" class="ctl-range" type="range" min="0.7" max="2.2" step="0.01" value="2.0" />
+  <span id="fitVal" class="ctl-val">2.00</span>
+</div>
+
 <!-- live mode only: type to the agent you're facing (focus it, dictate or type, Enter) -->
 <form id="say" class="say" hidden>
   <input id="sayText" class="say-input" type="text" autocomplete="off"

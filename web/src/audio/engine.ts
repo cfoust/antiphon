@@ -40,6 +40,7 @@ export class Chamber {
   env: EnvName = "room"; // measured-BRIR convolution room (the default that sounded best)
   lookGate = 1; // 1 = forward, 0 = looking down (everyone whispers)
   activeCount = 5;
+  fit = 2.0; // HRTF "fit": warps the pinna spectral cue until a source ahead sits OUT in front
 
   // what drives the agents (set in start()); demo loads canned audio, live never does
   mode: ChamberMode = "demo";
@@ -216,6 +217,7 @@ export class Chamber {
     });
     this.wasm.connect(this.agentBus);
     this.wasm.setRoom(ENV_ROOM[this.env]);
+    this.wasm.setFreqScale(this.fit); // apply the default "fit" before any audio plays
     this.setListener();
 
     const bs = ARRANGE[this.arrangement](this.activeCount);
@@ -528,6 +530,16 @@ export class Chamber {
 
   setMasterVol(v: number): void {
     if (this.master) this.master.gain.value = v;
+  }
+
+  /** HRTF "fit": dial until a source straight ahead sits OUT in front at ear level. */
+  setFit(v: number): void {
+    this.fit = v;
+    this.wasm?.setFreqScale(v);
+  }
+
+  getFit(): number {
+    return this.fit;
   }
 
   setArrangement(a: Arrangement): void {

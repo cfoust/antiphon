@@ -50,7 +50,7 @@ struct ContentView: View {
                     HStack(spacing: 10) {
                         Text("Fit").font(.caption2).foregroundStyle(.secondary)
                         Slider(value: Binding(get: { engine.freqScale },
-                                              set: { engine.setFreqScale($0) }), in: 0.7...2.0)
+                                              set: { engine.setFreqScale($0) }), in: 0.7...2.2)
                             .frame(width: 200)
                         Text(String(format: "%.2f", engine.freqScale))
                             .font(.caption2.monospaced()).foregroundStyle(.tertiary)

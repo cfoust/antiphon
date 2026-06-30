@@ -102,6 +102,8 @@ export class WasmEngine {
     this.node.port.postMessage({ type: "pose", qw: q.w, qx: q.x, qy: q.y, qz: q.z, px: pos.x, py: pos.y, pz: pos.z });
   }
 
+  /** HRTF "fit": warps the pinna spectral cue. The dsp clamps to 0.5..2.2. */
+  setFreqScale(value: number): void { this.node.port.postMessage({ type: "freqScale", value }); }
   setRoom(index: number): void { this.node.port.postMessage({ type: "room", index }); }
   setReflections(on: boolean): void { this.node.port.postMessage({ type: "reflections", on }); }
   setMaster(gain: number): void { this.node.port.postMessage({ type: "master", gain }); }

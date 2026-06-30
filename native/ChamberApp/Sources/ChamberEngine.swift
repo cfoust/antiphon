@@ -111,7 +111,7 @@ final class ChamberEngine: ObservableObject {
     @Published var ready = false
     @Published var roomIndex = 2 // "hall (FDN)" — parametric late tail + 6DoF ISM early reflections
     @Published var reverbBlend = 1.0 // BRIR rooms: 0 = FDN tail, 1 = measured BRIR tail
-    @Published var freqScale = 1.0   // HRTF fit: <1 / >1 warps the pinna spectral cue
+    @Published var freqScale = 2.0   // HRTF fit: <1 / >1 warps the pinna spectral cue
     @Published var hrtfName = ""
     /// End-to-end motion-to-sound latency (ms): camera capture → pose → this audio block reaching
     /// the output. The latency oracle for plan 07 (target < ~60 ms).
@@ -193,6 +193,7 @@ final class ChamberEngine: ObservableObject {
         renderer.setRoom(roomIndex)
         // close 1.3 m arc + 6 summed voices + BRIR tail is hot -> keep the master well down
         renderer.setMasterGain(0.45)
+        renderer.setFreqScale(Float(freqScale)) // push the default "fit" so it's applied from the first block
 
         buildGraph()
         do { try engine.start() } catch { print("[chamber] engine start: \(error)"); return }

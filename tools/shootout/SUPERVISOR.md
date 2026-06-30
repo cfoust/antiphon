@@ -61,7 +61,7 @@ to render the scene correctly.
    loudness-matches everything to −23 LUFS, rewrites `out/shootout/norm/manifest.json`. **This step
    is non-negotiable** — without it a single-listener A/B just measures loudness.
 4. **Tell the human to listen:** from the repo root, `python3 -m http.server 8000`, open
-   `http://localhost:8000/tools/shootout/elo/`. Keys: `a`/`b` switch, `1`/`2`/`3` vote
+   `http://localhost:8000/tools/shootout/live/`. Keys: `a`/`b` switch, `1`/`2`/`3` vote
    (A / B / too-close), `space` plays. Pairing is ELO-guided (least-played vs nearest-rated) — no
    O(N²). "standings" reveals ratings; "export" downloads the results JSON.
 5. **Read the result:** the human can hand you the exported `shootout_elo.json` (ratings + games +
@@ -129,6 +129,6 @@ The two complaints map most directly to: `dfeq`, `crossfeed`, `front_notch`, `lf
 - `tools/shootout/FINDINGS.md` — the running ledger; **update it after every round** (step 6).
 - `tools/shootout/README.md` — operational quick-reference.
 - `tools/shootout/ingest.py` — sanitize + loudness-match + manifest (uv inline deps).
-- `tools/shootout/elo/index.html` — the blind ELO harness (served from repo root).
+- `tools/shootout/live/index.html` — the realtime head-tracked A/B harness (served from repo root).
 - `tools/shootout/echo.wav` — the committed source clip (reproducible across worktrees).
 - `crates/chamber-render/src/main.rs` — the `shootout` subcommand (`run_shootout`).

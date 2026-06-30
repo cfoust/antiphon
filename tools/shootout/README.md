@@ -15,7 +15,7 @@ uv run tools/shootout/ingest.py
 
 # 3. listen: serve from the repo ROOT, open the harness
 python3 -m http.server 8000
-#   -> http://localhost:8000/tools/shootout/elo/
+#   -> http://localhost:8000/tools/shootout/live/
 ```
 
 In the harness: switch **A/B** (keys `a`/`b`), vote `1`/`2`/`3` (A / B / too-close), `space` plays.

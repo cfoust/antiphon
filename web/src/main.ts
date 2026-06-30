@@ -36,6 +36,18 @@ const recalBtn = $<HTMLButtonElement>("recal");
 const calib = $("calib");
 const calArrow = $("calArrow");
 const calText = $("calText");
+const controls = $("controls");
+const fitSlider = $<HTMLInputElement>("fit");
+const fitVal = $("fitVal");
+
+// HRTF "fit" — dial until a source straight ahead sits OUT in front at ear level.
+fitSlider.value = String(engine.fit);
+fitVal.textContent = engine.fit.toFixed(2);
+fitSlider.oninput = () => {
+  const v = parseFloat(fitSlider.value);
+  engine.setFit(v);
+  fitVal.textContent = v.toFixed(2);
+};
 
 type Clips = { left: AudioBuffer; right: AudioBuffer; done: AudioBuffer };
 let clips: Clips | null = null;
@@ -113,6 +125,7 @@ startBtn.onclick = async () => {
   tracker.attach(engine); // go live with the calibration
   intro.classList.add("gone");
   calib.hidden = true;
+  controls.hidden = false; // reveal the Fit slider once the experience is live
   if (LIVE) {
     const { connectLive } = await import("./live/bridge");
     connectLive(engine); // agents driven by a real Claude Code session

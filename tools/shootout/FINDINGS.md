@@ -319,12 +319,34 @@ never actually in the pool they evaluated). Treat round 5's trustworthy signal a
 - **Promoted?** <id → main commit, or none>
 -->
 
+## ⛔ CEILING VERDICT (2026-06-30) — adversarial red-team, see `scratch/ceiling-verdict.md`
+
+5 parallel adversarial subagents red-teamed the next slate. **We are at the generic-HRTF ceiling for
+this listener.** ~50% of the residual realism gap is generic-HRTF spectral mismatch (front-collapse)
+= a **personalization** problem = out of current scope. dfeq captured the in-scope timbre win; ~25
+candidates since produced one edge + one motion result, all else tied/lost — that's the signature of
+a ceiling, not bad luck. **Stop generating in-scope single-DSP-block candidates; they're noise here.**
+- **KILLED (don't build):** `hp_eq` (can't target this listener's headphone → coin-flip, confounded
+  w/ dfeq) · `hrtf_ku100`/population-avg (same class as the `hrtf_ari` tie; pop-avg = worse dfeq) ·
+  `brir_conv` + `room_match` (revsend's byte-identical-dry-path loss proves reverb's failure is the
+  *unexpected room*, not tuning — divergence unavoidable w/o a measured room) · `fd_itd`, `near_pres`,
+  `src_spread`, `air_damp` (sub-floor, or only audible by coloring the voice).
+- **Predicted dead among the unjudged:** `frontgain` (1.3× inside the rotation JND + swimming),
+  `onsetkick` (sub-JND or wobble), `champion` (round-3 dfeq_full already showed stacking washes out).
+- **Worth the listener's time:** `timbrelock` vs dfeq (decisive on the timbre axis — if it ties like
+  dfeq2/dfeq_erb, FREEZE timbre) and `parallax_pos` (the one preference-safe spatial lever).
+- **THE decisive experiment:** render the listener's OWN Fit-personalized HRTF as an upper-bound
+  **oracle** vs dfeq on the live rig. If it externalizes the front → ceiling = personalization →
+  scope change. If even it fails → redirect to designed-BRIR room + gentle HpEQ. One afternoon.
+- **One last reverb shot, then bury:** `revsend` ALONE vs baseline/dfeq on the fixed low-lag 6DoF
+  rig, head moving, judging *externalization not timbre*. Lose → reverb is done here forever.
+
 ## Backlog (ideas to try / deepen — prioritized; grows from findings)
 
 - **RULE (from round 1): only test changes likely to be CLEARLY audible.** Subtle = wasted round.
-- (round 2, in flight) `dfeq2`, `rev_tilt`, `er_pattern`, `rev_predelay`, `crossfeed_strong`, `decorr_strong`
-- remaining deck, only if made bold: `fd_itd`, `near_pres`, `src_spread`, `air_damp`
-- combine winners (e.g. dfeq × best-room lever) once round 2 ranks the room levers
+- **RULE (ceiling verdict): in-scope single-block DSP tweaks are exhausted — see above. Next real
+  lever is a SCOPE CHANGE (lightweight personalization), gated on the oracle experiment.**
+- remaining deck — **all KILLED by red-team** (kept for the record): `fd_itd`, `near_pres`, `src_spread`, `air_damp`
 - retired-as-tuned (round 1, imperceptible): `front_notch`, `lf_body`, `hrir_smooth` — revisit only bolder
 
 ## Promoted to `main`
