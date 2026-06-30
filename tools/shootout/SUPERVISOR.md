@@ -66,11 +66,17 @@ to render the scene correctly.
    O(N²). "standings" reveals ratings; "export" downloads the results JSON.
 5. **Read the result:** the human can hand you the exported `shootout_elo.json` (ratings + games +
    history) or just tell you the standings. Highest ELO well-separated from #2 = winner.
-6. **Iterate or promote:** spawn a round 2 (new hypotheses, or refinements of the leader — adding
-   candidates keeps existing ELO and starts new ones at 1500), or promote a winner: review its
-   `cand/<id>` branch diff and cherry-pick/merge into `main` after a parity check
-   (`cargo run -p chamber-render --release -- parity` → wasm build → `node tools/parity.mjs`),
-   re-tuning if the experimental change broke parity.
+6. **Record the round in `tools/shootout/FINDINGS.md` — REQUIRED, every round.** Update the master
+   ledger table (status, best ELO + Δ vs baseline, verdict, one-line finding) and add a dated round
+   section from the template there: pool, comparison count, final standings, per-candidate listener
+   notes, the outcome, and "deepen/revise" follow-ups (push new ideas into the Backlog). This is how
+   the experiment compounds instead of re-trying the same things. Commit it.
+7. **Iterate or promote:** spawn a round 2 (new hypotheses, refinements of the leader, or
+   combinations of complementary winners — adding candidates keeps existing ELO and starts new ones
+   at 1500), or promote a winner: review its `cand/<id>` branch diff and cherry-pick/merge into
+   `main` after a parity check (`cargo run -p chamber-render --release -- parity` → wasm build →
+   `node tools/parity.mjs`), re-tuning if the experimental change broke parity. Record the promotion
+   in FINDINGS.md.
 
 ## Decisions already made (don't re-litigate)
 
@@ -120,6 +126,7 @@ The two complaints map most directly to: `dfeq`, `crossfeed`, `front_notch`, `lf
 
 - `tools/shootout/SUPERVISOR.md` — this file.
 - `tools/shootout/CANDIDATE_PROMPT.md` — the exact prompt for each exploration agent.
+- `tools/shootout/FINDINGS.md` — the running ledger; **update it after every round** (step 6).
 - `tools/shootout/README.md` — operational quick-reference.
 - `tools/shootout/ingest.py` — sanitize + loudness-match + manifest (uv inline deps).
 - `tools/shootout/elo/index.html` — the blind ELO harness (served from repo root).
