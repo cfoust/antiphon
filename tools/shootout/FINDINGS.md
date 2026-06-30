@@ -13,27 +13,41 @@ and factual; this is a lab notebook, not prose.
 - **ELO** is from the blind, loudness-matched harness; baseline is anchored at ~1500. Report each
   candidate's best ELO and its Δ vs the baseline in that round.
 
+## ⭐ The preference function (what actually wins — learned from rounds 1–2)
+
+The listener's verdict, in their words: **"the bad ones sounded tinny or altered; the best ones
+sounded like real voices."** The winning axis is **naturalness of the voice timbre**, NOT spatial
+trickery. Every result fits this: `dfeq` (diffuse-field de-coloration) won both rounds because it makes
+the voice *more natural*; the losers (`er_pattern`, `decorr_strong`, `rev_predelay`) all *altered* the
+voice (slap-back, phasey-wide, echoey → "processed/tinny"). **Rule for all future candidates: a change
+may only win if the voice still sounds like a real, natural voice.** Spatial/externalization levers are
+worth adding ONLY when they don't color, smear, or "process" the voice. This supersedes the round-1
+"be bold" rule for anything that touches voice timbre — bold is fine for *space*, not for *altering the
+voice*.
+
 ## Hypothesis ledger (master checklist — at a glance)
 
 | id | status | rounds | best ELO (Δ base) | verdict | one-line finding |
 |----|--------|--------|-------------------|---------|------------------|
 | `baseline`    | — | all | 1484 (anchor) | — | sanity floor (unmodified renderer) |
-| `dfeq`        | ✅ | 1 | **1544 (+60)** | **win** | ONLY audible candidate; won every decisive game. Deepen. |
-| `crossfeed`   | ✅ | 1 | 1500 (+16) | tie | imperceptible as tuned (−42 dB Δ); retest BOLD |
-| `front_notch` | ✅ | 1 | 1485 (+1) | tie | imperceptible (−55 dB Δ, fires 15% of frames); too narrow/gated |
-| `lf_body`     | ✅ | 1 | 1486 (+2) | tie | imperceptible (−51 dB Δ); +3 dB bell too gentle |
-| `decorr`      | ✅ | 1 | 1500 (+16) | tie | big sample Δ but perceptually nil on frontal content |
-| `hrir_smooth` | ✅ | 1 | 1500 (+16) | tie | imperceptible (−40 dB Δ); ½-oct smoothing too gentle |
-| `dfeq2`         | 🔬 | 2 | — | — | deepen dfeq (±12 dB, less clamp, bright-tilt variant) |
-| `rev_tilt`      | 🔬 | 2 | — | — | direct-to-reverberant ratio + reverb level/tilt (room = #1 lever) |
-| `er_pattern`    | 🔬 | 2 | — | — | stronger/earlier first-order reflections |
-| `rev_predelay`  | 🔬 | 2 | — | — | reverb pre-delay / distance cue |
-| `crossfeed_strong` | 🔬 | 2 | — | — | crossfeed cranked to clearly audible (−3 dB) |
-| `decorr_strong`    | 🔬 | 2 | — | — | full-band decorrelation, clearly audible |
+| `dfeq`        | 🏆→main-cand | 1,2 | **1544 / 1531** | **WIN ×2** | the durable win — "sounds like a real voice"; merged to research as round-3 base |
+| `crossfeed`   | ✅ | 1 | 1500 | tie | imperceptible as tuned (−42 dB Δ); bold retest → crossfeed_strong |
+| `front_notch` | ✅ retired | 1 | 1485 | tie | imperceptible (−55 dB Δ, fires 15% frames); too narrow/gated |
+| `lf_body`     | ✅ retired | 1 | 1486 | tie | imperceptible (−51 dB Δ); +3 dB bell too gentle |
+| `decorr`      | ✅ | 1 | 1500 | tie | perceptually nil on frontal content; bold retest → decorr_strong |
+| `hrir_smooth` | ✅ retired | 1 | 1500 | tie | imperceptible (−40 dB Δ); ½-oct smoothing too gentle |
+| `dfeq2`         | ✅ | 2 | 1532 | tie(dfeq) | deepened dfeq (±12 dB+shelf) split 1-1 w/ dfeq → ±8 dB is enough, don't push |
+| `crossfeed_strong` | ✅ | 2 | 1514 | **edge** | bold −4 dB crossfeed beats baseline; positive secondary (doesn't alter timbre) |
+| `rev_tilt`      | ✅ | 2 | 1500 | tie/subj+ | ELO-neutral but listener LIKED the warm deep room; refine subtle for r3 |
+| `rev_predelay`  | ✅ | 2 | 1483 | loss | below baseline; bloom read as "altered" not better |
+| `decorr_strong` | ✅ retired | 2 | 1484 | loss | below baseline; "altered/phasey" — alters the voice |
+| `er_pattern`    | ✅ retired | 2 | 1455 | loss | worst; reflections above direct = slap-backy/"tinny", alters voice |
+| `dfeq_xfeed`    | 🔬 | 3 | — | — | dfeq + bold crossfeed (the two positive levers stacked) |
+| `dfeq_revtilt`  | 🔬 | 3 | — | — | dfeq + SUBTLE warm deep reverb (the room the listener liked) |
+| `dfeq_predelay` | 🔬 | 3 | — | — | dfeq + subtle reverb bloom-after-voice |
+| `dfeq_full`     | 🔬 | 3 | — | — | dfeq + crossfeed + subtle warm reverb (everything-that-helps blend) |
 | `fd_itd`      | ⬜ | — | — | — | frequency-dependent ITD (full LF, less HF) |
-| `er_pattern`  | ⬜ | — | — | — | denser/earlier first-order reflections |
 | `near_pres`   | ⬜ | — | — | — | proximity/presence shaping for frontal sources |
-| `rev_tilt`    | ⬜ | — | — | — | reverb tilt + direct-to-reverberant ratio |
 | `src_spread`  | ⬜ | — | — | — | decorrelated near-copies — give the voice size |
 | `air_damp`    | ⬜ | — | — | — | air-absorption + ER HF-damping naturalness |
 
@@ -115,12 +129,34 @@ and factual; this is a lab notebook, not prose.
     L/R correlation −0.079→−0.008 (pulls together, not mono-collapsed). `lib.rs`.
   - `decorr_strong` (peak 0.48, Δ −0.0 dB) — 3-stage Schroeder all-pass decorrelator per ear above a
     ~700 Hz crossover (LF/ITD preserved exactly), opposite sign per ear. Wide/enveloping. `voice.rs`+`lib.rs`.
-- **Comparisons:** _pending listen_
-- **Standings (final ELO):** _pending listen_
-- **Listener notes (by ear, per candidate):** _pending listen_
-- **Outcome:** _pending listen_
-- **Deepen / revise:** _pending listen_
-- **Promoted?** _pending_
+- **Comparisons:** 16 (ELO-guided).
+- **Standings (final ELO):**
+  | rank | id | elo | games |
+  |------|----|----|-------|
+  | 1 | dfeq2 | 1532 | 4 |
+  | 2 | dfeq | 1531 | 4 |
+  | 3 | crossfeed_strong | 1514 | 3 |
+  | 4 | baseline | 1500 | 4 |
+  | 4 | rev_tilt | 1500 | 5 |
+  | 6 | decorr_strong | 1484 | 4 |
+  | 7 | rev_predelay | 1483 | 4 |
+  | 8 | er_pattern | 1455 | 4 |
+- **Listener notes (by ear):** Overall "mixed / quite similar" (ELO spread only ~77 pts). Key qualitative
+  verdict: **"the bad ones sounded tinny or altered; the best ones sounded like real voices."** Listener
+  also **liked the subtle deep reverb** of one room candidate (rev_tilt or rev_predelay — unsure which).
+- **Outcome:** **dfeq de-coloration wins again** (dfeq ≈ dfeq2 at the top). `dfeq2`'s deepening (±12 dB +
+  presence shelf) split 1-1 with `dfeq` → no gain; **±8 dB dfeq is the keeper, don't push harder.**
+  `crossfeed_strong` is a real positive secondary (1514, > baseline) — bold crossfeed cleared the bar the
+  gentle round-1 version couldn't, and it doesn't alter timbre. The room levers underperformed in blind
+  A/B: `er_pattern` worst (reflections above direct = slap-backy/"altered"), `rev_predelay` below baseline.
+  This matches the preference function: anything that *alters the voice* loses.
+- **Deepen / revise:** Promote `dfeq` (done — merged onto research branch as round-3 base; → main after
+  parity). Round 3 = **combinations on top of dfeq**, each held to "voice must still sound real":
+  `dfeq_xfeed` (dfeq+crossfeed), `dfeq_revtilt` (dfeq + *subtle* warm reverb), `dfeq_predelay`,
+  `dfeq_full`. Reverb must be dialed SUBTLE (the bold round-2 versions altered too much). Retired as
+  losers: `er_pattern`, `decorr_strong`, `rev_predelay`(bold), `dfeq2`, plus round-1 retirees.
+- **Promoted?** `dfeq` → merged onto `research/shootout` (commit on branch) as the round-3 foundation;
+  final promotion to `main` pending a parity re-check after round 3 settles the combo.
 
 <!-- Copy the template below for each real round. Fill it in AFTER the human listens. -->
 <!--
