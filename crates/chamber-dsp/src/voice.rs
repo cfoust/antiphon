@@ -49,6 +49,55 @@ impl DelayLine {
 /// the contiguous (chronological) window dots directly against them.
 use wide::f32x8;
 
+use crate::dvf::ShelfCoef;
+
+/// Per-ear first-order shelving filter (the near-field DVF), with per-sample coefficient ramping
+/// so distance changes are click-free. `y = b0·x + b1·x₋₁ − a1·y₋₁`. Defaults to identity, so a
+/// voice that never receives a near-field target is a bit-exact passthrough (far-field unchanged).
+struct Shelf1 {
+    x1: f32,
+    y1: f32,
+    b0: f32,
+    b1: f32,
+    a1: f32,
+    b0t: f32,
+    b1t: f32,
+    a1t: f32,
+}
+
+impl Shelf1 {
+    fn new() -> Shelf1 {
+        Shelf1 { x1: 0.0, y1: 0.0, b0: 1.0, b1: 0.0, a1: 0.0, b0t: 1.0, b1t: 0.0, a1t: 0.0 }
+    }
+    fn set_target(&mut self, c: ShelfCoef, snap: bool) {
+        self.b0t = c.b0;
+        self.b1t = c.b1;
+        self.a1t = c.a1;
+        if snap {
+            self.b0 = c.b0;
+            self.b1 = c.b1;
+            self.a1 = c.a1;
+            self.x1 = 0.0;
+            self.y1 = 0.0;
+        }
+    }
+    #[inline]
+    fn tick(&mut self, x: f32, b0s: f32, b1s: f32, a1s: f32) -> f32 {
+        self.b0 += b0s;
+        self.b1 += b1s;
+        self.a1 += a1s;
+        let mut y = self.b0 * x + self.b1 * self.x1 - self.a1 * self.y1;
+        if !y.is_finite() {
+            y = 0.0;
+        }
+        self.x1 = x;
+        // Flush the feedback state when it decays into the denormal floor (WASM has no FTZ). This
+        // never affects a far-field voice (a1 = 0 → no recursion → y already independent of y1).
+        self.y1 = if y.abs() < 1.0e-30 { 0.0 } else { y };
+        y
+    }
+}
+
 struct RampFir {
     cur: Vec<f32>,  // reversed coefficients, length L
     targ: Vec<f32>, // reversed target coefficients, length L
@@ -133,6 +182,9 @@ pub struct Voice {
     // one-pole air-absorption lowpass state + coeff
     lp_state: f32,
     lp_a: f32,
+    // per-ear near-field DVF shelf (identity unless a near-field target is set)
+    shelf_l: Shelf1,
+    shelf_r: Shelf1,
 }
 
 impl Voice {
@@ -154,7 +206,17 @@ impl Voice {
             predelay_targ: 0.0,
             lp_state: 0.0,
             lp_a: 1.0,
+            shelf_l: Shelf1::new(),
+            shelf_r: Shelf1::new(),
         }
+    }
+
+    /// Set the per-ear near-field DVF shelves. Only the direct path calls this; reflection voices
+    /// leave the shelves at identity. Snaps on (re)spawn to avoid a ramp from the identity state.
+    pub fn set_dvf(&mut self, l: ShelfCoef, r: ShelfCoef, snap: bool) {
+        let s = snap || !self.active;
+        self.shelf_l.set_target(l, s);
+        self.shelf_r.set_target(r, s);
     }
 
     pub fn reset(&mut self) {
@@ -165,6 +227,10 @@ impl Voice {
         self.predelay.clear();
         self.lp_state = 0.0;
         self.gain = 0.0;
+        self.shelf_l.x1 = 0.0;
+        self.shelf_l.y1 = 0.0;
+        self.shelf_r.x1 = 0.0;
+        self.shelf_r.y1 = 0.0;
     }
 
     /// Set per-block targets. `itd > 0` delays the right ear (source toward left).
@@ -218,6 +284,13 @@ impl Voice {
         let dl_step = (self.delay_l_targ - self.delay_l_cur) * inv_n;
         let dr_step = (self.delay_r_targ - self.delay_r_cur) * inv_n;
         let pd_step = (self.predelay_targ - self.predelay_cur) * inv_n;
+        // per-ear near-field shelf coefficient ramp (identity → identity is a no-op)
+        let lb0 = (self.shelf_l.b0t - self.shelf_l.b0) * inv_n;
+        let lb1 = (self.shelf_l.b1t - self.shelf_l.b1) * inv_n;
+        let la1 = (self.shelf_l.a1t - self.shelf_l.a1) * inv_n;
+        let rb0 = (self.shelf_r.b0t - self.shelf_r.b0) * inv_n;
+        let rb1 = (self.shelf_r.b1t - self.shelf_r.b1) * inv_n;
+        let ra1 = (self.shelf_r.a1t - self.shelf_r.a1) * inv_n;
 
         for i in 0..n {
             // distance gain ramp + air-absorption one-pole LP (+ denormal flush: WASM has
@@ -245,6 +318,11 @@ impl Voice {
             self.delay_r_cur += dr_step;
             let xl = self.delay_l.read(self.delay_l_cur);
             let xr = self.delay_r.read(self.delay_r_cur);
+
+            // near-field DVF: per-ear shelf on top of the far-field HRIR (H_far · DVF ≈ H_near).
+            // Identity for far-field voices, so this is a passthrough outside ~1 m.
+            let xl = self.shelf_l.tick(xl, lb0, lb1, la1);
+            let xr = self.shelf_r.tick(xr, rb0, rb1, ra1);
 
             out_l[i] += self.fir_l.tick(xl, inv_n);
             out_r[i] += self.fir_r.tick(xr, inv_n);

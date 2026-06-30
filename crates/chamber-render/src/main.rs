@@ -107,10 +107,12 @@ fn main() {
         *pose = Pose::default();
     }, &[noise_bursts()]);
 
-    // --- Scene 6: distance fly-by, far -> near -> far, passing the right ear ---
+    // --- Scene 6: distance fly-by, far -> near -> far, grazing the right ear ---
+    // Grazes ~0.12 m so the near-field DVF is unmistakable: as it passes on the right the right
+    // ear should gain low end and the left ear lose it (ILD swelling at LOW freq, not just volume).
     render(&asset, &out_dir, "06_distance", room_of(&room_names, "room"), 8.0, |t, srcs, pose| {
         let x = 6.0 * (t / 8.0) - 3.0; // -3 .. +3 m, moving left->right
-        srcs[0].position = Vec3::new(x, 0.0, -0.5);
+        srcs[0].position = Vec3::new(x, 0.0, -0.12);
         *pose = Pose::default();
     }, &[voice(165.0)]);
 
@@ -541,7 +543,9 @@ fn run_parity(asset_path: &str) {
     )
     .unwrap();
 
-    let src = vec![Source::new(Vec3::new(0.9, 0.0, -1.3), 0.9)]; // ~35° right
+    // Near-field source (~0.36 m, to the right) so the parity oracle exercises the per-ear
+    // near-field DVF shelf — the recursive filter is the only new float state crossing to wasm.
+    let src = vec![Source::new(Vec3::new(0.3, 0.0, -0.2), 0.9)];
     let pose = Pose::default();
     let mut out_l = vec![0.0; BLOCK];
     let mut out_r = vec![0.0; BLOCK];

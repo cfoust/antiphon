@@ -8,6 +8,7 @@
 //! and a budget of **image-source early reflections** through the same HRTF kernel, and
 //! feed a mono send to a parametric **FDN late reverb**. Sum, limit, output stereo.
 
+pub mod dvf;
 pub mod hrtf;
 pub mod math;
 pub mod reverb;
@@ -297,6 +298,17 @@ impl Renderer {
 
             self.direct[i].set_target(
                 &self.hrir_l, &self.hrir_r, itd, dgain, lp_a, 0.0, false,
+            );
+            // Near-field DVF: derive each ear's incidence angle from the SAME `dir` as the ITD
+            // (cos θ_right = dir.x, cos θ_left = −dir.x — pinned to the +x-right ear axis, so it
+            // can't flip L/R). rho = r / head-radius. Identity beyond ~1 m → far field unchanged.
+            let rho = dist / 0.0875;
+            let theta_r = dir.x.clamp(-1.0, 1.0).acos().to_degrees();
+            let theta_l = (-dir.x).clamp(-1.0, 1.0).acos().to_degrees();
+            self.direct[i].set_dvf(
+                dvf::near_field_shelf(theta_l, rho, self.sr),
+                dvf::near_field_shelf(theta_r, rho, self.sr),
+                false,
             );
             self.direct[i].process(inp, out_l, out_r, send_slice, src.send);
         }

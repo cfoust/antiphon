@@ -54,10 +54,10 @@ const inTabPtr = ex.chamber_alloc(4);
   const dv = mem();
   for (let i = 0; i < 7; i++) dv.setFloat32(posePtr + i * 4, i === 3 ? 1 : 0, true); // qw=1
 }
-// source at (0.9, 0, -1.3), gain 0.9, send 0.35
+// near-field source (~0.36 m, right) so the DVF shelf is exercised — matches run_parity()
 {
   const dv = mem();
-  const s = [0.9, 0.0, -1.3, 0.9, 0.35];
+  const s = [0.3, 0.0, -0.2, 0.9, 0.35];
   s.forEach((v, i) => dv.setFloat32(srcPtr + i * 4, v, true));
   dv.setUint32(inTabPtr, inPtr, true); // inputs[0] = inPtr
 }
