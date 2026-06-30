@@ -105,7 +105,24 @@ const $ = id => document.getElementById(id);
 let cands = [], R = {}, games = {}, history = [], pair = null, sel = "A", lastPair = "";
 let ctx = null, node = null, loaded = new Set(), wasmCache = new Map(), assetCache = new Map();
 const DEFAULT_ASSET = "chamber-kemar.chamber";
-let landmarker = null, video = null, neutral = null, curYaw = 0, curPitch = 0, live = false;
+let landmarker = null, video = null, neutral = null, curYaw = 0, curPitch = 0, curYawV = 0, curPitchV = 0, live = false;
+const LOOKAHEAD = 0.045; // s of velocity prediction to offset camera+inference+audio latency
+
+// One Euro filter: cutoff rises with speed -> low lag while moving, smooth at rest. The old fixed
+// one-pole (alpha 0.35) settled in ~350 ms, far above the <60 ms the dynamic cue needs.
+function oeAlpha(cutoff, dt) { const tau = 1 / (2 * Math.PI * cutoff); return 1 / (1 + tau / dt); }
+class OneEuro {
+  constructor(minCutoff = 1.4, beta = 0.9, dCutoff = 1.0) { this.mc = minCutoff; this.beta = beta; this.dc = dCutoff; this.xp = null; this.dxp = 0; this.tp = null; this.v = 0; }
+  filter(x, t) {
+    if (this.tp === null) { this.tp = t; this.xp = x; return x; }
+    const dt = Math.max(1e-3, (t - this.tp) / 1000); this.tp = t;
+    const dx = (x - this.xp) / dt;
+    const ad = oeAlpha(this.dc, dt); const dxh = ad * dx + (1 - ad) * this.dxp; this.dxp = dxh; this.v = dxh;
+    const a = oeAlpha(this.mc + this.beta * Math.abs(dxh), dt);
+    const xh = a * x + (1 - a) * this.xp; this.xp = xh; return xh;
+  }
+}
+const yawF = new OneEuro(), pitchF = new OneEuro();
 
 const key = () => "elo-live:" + cands.map(c => c.name).sort().join(",");
 
@@ -206,7 +223,7 @@ function srcPos() {
 }
 async function startAll() {
   if (ctx) return;
-  ctx = new AudioContext({ sampleRate: 48000 });
+  ctx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
   if (ctx.state !== "running") await ctx.resume(); // Safari starts suspended -> silence
   await ctx.audioWorklet.addModule("/tools/shootout/live/swap-worklet.js");
   node = new AudioWorkletNode(ctx, "chamber-swap", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
@@ -233,10 +250,10 @@ async function startTracking() {
       runningMode: "VIDEO", numFaces: 1, outputFacialTransformationMatrixes: true,
     });
     video = document.createElement("video"); video.autoplay = true; video.muted = true; video.playsInline = true;
-    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: "user" } });
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: "user", frameRate: { ideal: 60 } } });
     await video.play();
     $("track").textContent = "tracking: on"; $("track").className = "pill ok";
-    let lastT = -1;
+    let lastT = -1, detCount = 0, detT0 = performance.now();
     const loop = () => {
       if (video.currentTime !== lastT && video.readyState >= 2) {
         lastT = video.currentTime;
@@ -244,12 +261,15 @@ async function startTracking() {
         const mats = res.facialTransformationMatrixes;
         if (mats && mats.length) {
           const m = mats[0].data;
-          const yaw = Math.atan2(m[8], m[10]) * 180 / Math.PI;
-          const pitch = Math.atan2(-m[9], m[5]) * 180 / Math.PI;
-          curYaw += 0.35 * (yaw - curYaw); curPitch += 0.35 * (pitch - curPitch); // light smoothing
+          const t = performance.now();
+          curYaw = yawF.filter(Math.atan2(m[8], m[10]) * 180 / Math.PI, t); curYawV = yawF.v;
+          curPitch = pitchF.filter(Math.atan2(-m[9], m[5]) * 180 / Math.PI, t); curPitchV = pitchF.v;
           if (!neutral) neutral = { yaw: curYaw, pitch: curPitch };
           live = true; pushPose();
         }
+        detCount++;
+        const nowp = performance.now();
+        if (nowp - detT0 > 500) { $("track").textContent = "tracking: " + Math.round(detCount * 1000 / (nowp - detT0)) + " fps"; detCount = 0; detT0 = nowp; }
       }
       requestAnimationFrame(loop);
     };
@@ -261,8 +281,9 @@ async function startTracking() {
 function pushPose() {
   if (!node || !live || !neutral) return;
   const inv = $("invyaw").checked ? -1 : 1;
-  const yaw = inv * (curYaw - neutral.yaw) * Math.PI / 180;
-  const pitch = (curPitch - neutral.pitch) * Math.PI / 180;
+  // velocity prediction (curYawV is deg/s from the One Euro filter) cancels residual pipeline latency
+  const yaw = inv * ((curYaw - neutral.yaw) + curYawV * LOOKAHEAD) * Math.PI / 180;
+  const pitch = ((curPitch - neutral.pitch) + curPitchV * LOOKAHEAD) * Math.PI / 180;
   // yaw about +y, pitch about +x  (q = qYaw ⊗ qPitch)
   const w1 = Math.cos(yaw / 2), a = Math.sin(yaw / 2), w2 = Math.cos(pitch / 2), b = Math.sin(pitch / 2);
   const pose = { px: 0, py: 0, pz: 0, qw: w1 * w2, qx: w1 * b, qy: a * w2, qz: -a * b };

@@ -46,10 +46,10 @@ voice*.
 | `dfeq_revtilt`  | 🔬 | 3 | — | — | dfeq + SUBTLE warm deep reverb (the room the listener liked) |
 | `dfeq_predelay` | 🔬 | 3 | — | — | dfeq + subtle reverb bloom-after-voice |
 | `dfeq_full`     | 🔬 | 3 | — | — | dfeq + crossfeed + subtle warm reverb (everything-that-helps blend) |
-| `dfeq_erb`    | 🔬 | 4 | — | — | A1: regularized ERB/⅓-oct diffuse-field EQ (dfeq done right) |
-| `revsend`     | 🔬 | 4 | — | — | B1: decorrelated binaural late reverb on a send, high DRR, dry untouched |
-| `motiongain`  | 🔬 | 4 | — | — | B2 (audacious): amplify head-rotation effect 1.7× — supercharge dynamic cue |
-| `hrtf_ari`    | 🔬 | 4 | — | — | C1: swap KEMAR→ARI generic set (KEMAR a documented weak default) |
+| `motiongain`  | ⚠️ | 4 | **1530** | win* | TOP of round 4 — even with broken (350 ms) tracking. *Re-test after lag fix. |
+| `dfeq_erb`    | ✅ | 4 | 1516 | tie(dfeq) | regularized DFE == dfeq (cleaner, not better) → freeze the DFE per survey |
+| `revsend`     | ✅ | 4 | 1457 | loss | below baseline; decorrelated send reverb STILL lost — reverb keeps failing |
+| `hrtf_ari`    | ✅ | 4 | 1501 | tie | ARI generic set ≈ KEMAR here; inconclusive (maybe try KU100/avg) |
 | `fd_itd`      | ⬜ | — | — | — | frequency-dependent ITD (full LF, less HF) |
 | `near_pres`   | ⬜ | — | — | — | proximity/presence shaping for frontal sources |
 | `src_spread`  | ⬜ | — | — | — | decorrelated near-copies — give the voice size |
@@ -210,11 +210,25 @@ voice*.
     Offline WAV ≈ baseline by design (fixed head) — effect is head-motion-only. `math.rs`+`lib.rs`.
   - `hrtf_ari` — C1: same dfeq engine but the **ARI** generic HRTF set instead of KEMAR (Romigh &
     Simpson 2014: raw KEMAR is a weak default). Wired via a per-engine asset sidecar; no code change.
-- **Status:** all 6 engines built + smoke-tested (load + render the 30° scene, finite, distinct;
-  hrtf_ari format-compatible; motiongain == dfeq at rest as expected). Loudness-trimmed. **Awaiting
-  the live listen** — standings/notes/outcome to fill after.
+- **Standings (final ELO):** motiongain 1530 · dfeq_erb 1516 · dfeq 1513 · hrtf_ari 1501 ·
+  baseline 1484 · revsend 1457.
+- **Outcome:** **`motiongain` won the round** — amplifying head rotation 1.7× topped everything, even
+  though the tracking was badly lagged (see below). `dfeq_erb` tied `dfeq` (split 0.5/0.5 twice) → the
+  regularized DFE is a cleaner equal, not a win; per the survey, freeze the DFE. `revsend` LOST (below
+  baseline) — even the "correct" decorrelated send reverb failed; reverb has now lost in every round.
+  `hrtf_ari` was neutral (ARI ≈ KEMAR for this listener).
+- **⚠ Confound: head-tracking lag ~300–500 ms.** The harness smoothed pose with a fixed one-pole
+  (α=0.35) that settled in ~350 ms — far above the <60 ms the dynamic cue needs (>73 ms *hurts*
+  localization, per Brungart). So motiongain's win came THROUGH a broken pipeline — likely
+  understated. **Fixed:** replaced with a One Euro filter (low lag in motion) + 45 ms velocity
+  prediction + 60 fps camera + interactive audio latency + a live fps readout. **Re-test motiongain
+  (and the whole dynamic-cue thesis) on the fixed rig before concluding.**
 - **Dropped this round (per survey):** headphone-comp (A4 — only worth it after a better DFE) and DDSP
   (cheaper concrete wins exist first). `er_pattern`/discrete reflections stay retired (slap-back).
+- **Deepen / revise:** (1) re-run motiongain vs baseline/dfeq on the fixed (low-lag) rig; sweep the
+  gain (1.3 / 1.7 / 2.2). (2) Reverb is 0-for-4 — likely the wrong lever for this listener/scene; shelve
+  unless room-matching (mic RT60) changes it. (3) dfeq_erb can replace dfeq on main (cleaner) but no
+  rush. (4) hrtf_ari inconclusive → only worth a KU100/population-average bake if motion plateaus.
 
 <!-- Copy the template below for each real round. Fill it in AFTER the human listens. -->
 <!--
