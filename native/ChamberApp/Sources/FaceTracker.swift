@@ -56,7 +56,9 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     var yawLeft = rad(-22.5)
     var span = rad(45)
     var neutralPitch = 0.0
-    var pitchInvert = false
+    // PnP pitch decreases as you look down (up → +, down → −), but the whisper gate wants a
+    // POSITIVE downward tilt, so invert: downDeg = -(pitch - neutralPitch).
+    var pitchInvert = true
 
     var onOrient: ((Double) -> Void)? // degrees, -90…+90
     var onGate: ((Double) -> Void)? // 1 = forward, 0 = looking down
@@ -204,7 +206,7 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     /// Extract the 6 PnP model landmarks (pixels, model order), solve head pose, and publish
     /// diagnostics. Returns yaw (radians) + camera-frame position (metres), or nil to fall
     /// back. The coordinate conventions are being validated on-device via the debug overlay.
-    private func solvePose(_ face: VNFaceObservation) -> (yaw: Double, pos: (Double, Double, Double))? {
+    private func solvePose(_ face: VNFaceObservation) -> (yaw: Double, pitch: Double, pos: (Double, Double, Double))? {
         guard imageW > 0, imageH > 0, let lm = face.landmarks else {
             DispatchQueue.main.async { self.debug = "no landmarks" }
             return nil
@@ -253,7 +255,8 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
                          w, h, ok == 1 ? "ok" : "FAIL", err, ypr[0], ypr[1], ypr[2], pos[0], pos[1], pos[2])
         DispatchQueue.main.async { self.landmarks01 = norm; self.debug = dbg }
         guard ok == 1, err < 25 else { return nil }
-        return (yaw: rad(Double(ypr[0])), pos: (Double(pos[0]), Double(pos[1]), Double(pos[2])))
+        return (yaw: rad(Double(ypr[0])), pitch: rad(Double(ypr[1])),
+                pos: (Double(pos[0]), Double(pos[1]), Double(pos[2])))
     }
 
     /// Map measured extremes onto the front arc. yaws in radians.
@@ -285,11 +288,14 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // MODEL), the PnP yaw is now smooth and passes through zero at frontal. Fall back to
         // Vision yaw only if the solve fails.
         let r = face.roll?.doubleValue ?? 0
-        var p = 0.0
-        if #available(macOS 12.0, *) { p = face.pitch?.doubleValue ?? 0 }
+        var visionPitch = 0.0
+        if #available(macOS 12.0, *) { visionPitch = face.pitch?.doubleValue ?? 0 }
 
         let solved = usePnP ? solvePose(face) : nil
         let yawIn = solved?.yaw ?? (face.yaw?.doubleValue ?? 0)
+        // PnP pitch (up → +, down → −, neutral ≈ +10°). Vision pitch is coarse/quantized and
+        // never reliably crossed the whisper threshold; fall back to it only if the solve fails.
+        let p = solved?.pitch ?? visionPitch
 
         sYaw = fYaw.filter(yawIn, now)
         sPitch = fPitch.filter(p, now)
