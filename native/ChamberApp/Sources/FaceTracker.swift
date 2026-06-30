@@ -8,6 +8,37 @@ struct CameraDevice: Identifiable, Hashable {
     let name: String
 }
 
+/// 1€ filter (Casiez et al.) — a velocity-adaptive low-pass. When the signal is still it uses a
+/// very low cutoff (heavy smoothing, killing per-frame jitter like the near-frontal PnP flutter);
+/// as the signal moves faster the cutoff rises so turns stay responsive with little lag. This is
+/// what we need for single-frame PnP yaw, which is jittery at rest but must track quick head turns.
+final class OneEuro {
+    var minCutoff: Double, beta: Double, dCutoff: Double
+    private var xPrev: Double?
+    private var dxPrev = 0.0
+    private var tPrev = 0.0
+    init(minCutoff: Double, beta: Double, dCutoff: Double = 1.0) {
+        self.minCutoff = minCutoff; self.beta = beta; self.dCutoff = dCutoff
+    }
+    private func alpha(_ cutoff: Double, _ dt: Double) -> Double {
+        let tau = 1.0 / (2.0 * .pi * cutoff)
+        return 1.0 / (1.0 + tau / dt)
+    }
+    func reset() { xPrev = nil; dxPrev = 0 }
+    func filter(_ x: Double, _ t: Double) -> Double {
+        guard let xp = xPrev else { xPrev = x; tPrev = t; return x }
+        let dt = max(1e-3, t - tPrev)
+        let dx = (x - xp) / dt
+        let aD = alpha(dCutoff, dt)
+        let dxHat = dxPrev + aD * (dx - dxPrev)
+        let cutoff = minCutoff + beta * abs(dxHat)
+        let a = alpha(cutoff, dt)
+        let xHat = xp + a * (x - xp)
+        xPrev = xHat; dxPrev = dxHat; tPrev = t
+        return xHat
+    }
+}
+
 /// Webcam → Vision head pose, with device switching, max-FPS capture, and the web
 /// HeadTracker's two-point calibration → front-arc orientation + look-down whisper gate.
 final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
@@ -56,6 +87,11 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     private var lastTick = CFAbsoluteTimeGetCurrent()
     private var sYaw = 0.0, sPitch = 0.0, sRoll = 0.0
     private var imageW = 0, imageH = 0
+    // 1€ filters for the angular signals. Low minCutoff → still head is rock-steady (kills the
+    // near-frontal PnP ±flutter); beta lets fast turns through. Tuned for ~30–60 Hz capture.
+    private let fYaw = OneEuro(minCutoff: 0.8, beta: 0.6)
+    private let fPitch = OneEuro(minCutoff: 0.8, beta: 0.6)
+    private let fRoll = OneEuro(minCutoff: 1.2, beta: 0.4)
 
     override init() {
         super.init()
@@ -187,15 +223,20 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             let n = CGFloat(pts.count)
             return CGPoint(x: pts.reduce(0) { $0 + $1.x } / n, y: pts.reduce(0) { $0 + $1.y } / n)
         }
-        // model order: [nose, chin, subject-left eye, subject-right eye, subj-left mouth, subj-right mouth].
-        // In the non-mirrored .up frame the subject's LEFT appears on the image RIGHT (large x).
+        // model order: [nose, chin, +x eye, -x eye, +x mouth, -x mouth] where +x = image-right.
+        // CRITICAL: select eyes by IMAGE x-position, NOT Vision's left/right *naming*. Vision's
+        // `leftEye` lands on the image LEFT in the non-mirrored .up frame, so feeding it into the
+        // model's +x (image-right) slot — while the mouth corners are chosen by actual x — gives
+        // the eyes the opposite handedness from the mouth, and the solve collapses to a
+        // degenerate ±90° flip. Choosing both eyes and mouth by x keeps one consistent handedness.
         let noseC = centroid(nose)
         let chin = contour.min(by: { $0.y < $1.y })!     // lowest contour point (Vision y-up)
-        let leftEye = centroid(le)                       // subject-left eye  (image-right)
-        let rightEye = centroid(re)                      // subject-right eye (image-left)
-        let mouthLeft = lips.max(by: { $0.x < $1.x })!   // subject-left mouth corner = image-right
-        let mouthRight = lips.min(by: { $0.x < $1.x })!  // subject-right mouth corner = image-left
-        let imgPts = [noseC, chin, leftEye, rightEye, mouthLeft, mouthRight]
+        let eyeA = centroid(le), eyeB = centroid(re)
+        let eyeRight = eyeA.x > eyeB.x ? eyeA : eyeB     // image-right eye -> +x model slot
+        let eyeLeft = eyeA.x > eyeB.x ? eyeB : eyeA      // image-left  eye -> -x model slot
+        let mouthRight = lips.max(by: { $0.x < $1.x })!  // image-right mouth corner -> +x
+        let mouthLeft = lips.min(by: { $0.x < $1.x })!   // image-left  mouth corner -> -x
+        let imgPts = [noseC, chin, eyeRight, eyeLeft, mouthRight, mouthLeft]
         let norm = imgPts.map { CGPoint(x: $0.x / Double(w), y: $0.y / Double(h)) }
 
         // PnP input: Vision pixels are y-up; flip to y-down. No mirror (kept consistent with
@@ -238,18 +279,21 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             DispatchQueue.main.async { self.faceFound = false }
             return
         }
+        // Pitch & roll come from Vision (its pitch drives the look-down whisper gate). YAW comes
+        // from the PnP solve: Vision's own yaw is quantized to coarse buckets (~-90/0/90), which
+        // is what made orientation snap. With the model proportions corrected (see chamber-pose
+        // MODEL), the PnP yaw is now smooth and passes through zero at frontal. Fall back to
+        // Vision yaw only if the solve fails.
         let r = face.roll?.doubleValue ?? 0
         var p = 0.0
         if #available(macOS 12.0, *) { p = face.pitch?.doubleValue ?? 0 }
 
-        // PnP head pose (preferred) — landmarks -> 6DoF; else fall back to Vision yaw.
         let solved = usePnP ? solvePose(face) : nil
         let yawIn = solved?.yaw ?? (face.yaw?.doubleValue ?? 0)
 
-        let a = 0.35
-        sYaw += (yawIn - sYaw) * a
-        sPitch += (p - sPitch) * a
-        sRoll += (r - sRoll) * a
+        sYaw = fYaw.filter(yawIn, now)
+        sPitch = fPitch.filter(p, now)
+        sRoll = fRoll.filter(r, now)
 
         // map to the front arc + whisper gate (mirrors the web HeadTracker)
         let tt = (sYaw - yawLeft) / span
@@ -261,8 +305,11 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // ---- 6DoF position ----
         let cl = { (v: Double) in max(-1.0, min(1.0, v)) }
         if let sp = solved {
-            // camera frame (+x right, +y down, +z forward) -> world (+x right, +y up, +z back)
-            let wx = sp.pos.0, wy = -sp.pos.1, wz = sp.pos.2
+            // camera frame -> world (+x right, +y up, +z back). The non-mirrored .up image moves
+            // the face OPPOSITE to head translation (move head right → face goes image-left), so
+            // negate camera x to make "lean right" read as +x (right) on the radar. Flip y (cam
+            // +y is down) to world +y up.
+            let wx = -sp.pos.0, wy = -sp.pos.1, wz = sp.pos.2
             sPx += (wx - sPx) * 0.3
             sPy += (wy - sPy) * 0.3
             sPz += (wz - sPz) * 0.3

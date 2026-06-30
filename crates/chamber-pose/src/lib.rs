@@ -14,17 +14,22 @@ type M3 = [[f64; 3]; 3];
 
 /// Canonical face model points (metres), in the **camera's view convention** so that a head
 /// facing the camera solves to ~identity (no 180° flip): +x = camera-right, +y = camera-down,
-/// +z = away from camera (toward the back of the head). The subject's LEFT eye is therefore
-/// at +x (it appears on the right of a non-mirrored image). Order is fixed; the host supplies
-/// matching image points in the same order:
-/// [nose, chin, subject-left-eye, subject-right-eye, subject-left-mouth, subject-right-mouth].
+/// +z = away from camera (toward the back of the head). Order is fixed; the host supplies image
+/// points in the SAME order, selecting eyes/mouth by image x-position (NOT by Vision's left/right
+/// naming): [nose, chin, +x eye, -x eye, +x mouth, -x mouth].
+///
+/// These proportions were fit against recorded webcam frames (see the /tmp PnP harness) so the
+/// reprojection residual at a frontal pose is ~4px (was ~12px). That conditioning is what makes
+/// the yaw pass smoothly through zero instead of locking to a bistable ±25° near frontal. The key
+/// corrections: the eyes sit at the **pupil/centroid** half-width (~32mm) — NOT the outer-corner
+/// width — because the host feeds eye-region centroids; the chin reaches lower; the mouth is wider.
 pub const MODEL: [V3; 6] = [
     [0.0, 0.0, 0.0],            // 0 nose tip (frontmost)
-    [0.0, 0.075, 0.02],         // 1 chin (down, slightly back)
-    [0.046, -0.034, 0.03],      // 2 subject-left eye (camera-right, up, back)
-    [-0.046, -0.034, 0.03],     // 3 subject-right eye (camera-left)
-    [0.026, 0.043, 0.02],       // 4 subject-left mouth corner
-    [-0.026, 0.043, 0.02],      // 5 subject-right mouth corner
+    [0.0, 0.088, 0.025],        // 1 chin (down, slightly back)
+    [0.032, -0.034, 0.03],      // 2 +x eye centroid (image-right, up, back)
+    [-0.032, -0.034, 0.03],     // 3 -x eye centroid (image-left)
+    [0.030, 0.038, 0.02],       // 4 +x mouth corner (image-right)
+    [-0.030, 0.038, 0.02],      // 5 -x mouth corner (image-left)
 ];
 
 /// Recovered head pose.

@@ -23,6 +23,13 @@ struct Radar: View {
             let R = min(size.width, size.height) * 0.36
             let dim = 0.4 + 0.6 * engine.lookGatePub
 
+            // Listener offset from head translation (world x=right, z=back → radar x, y).
+            // Agents stay world-anchored on the rings; the listener dot slides within them.
+            let pxPerM = R // ~one ring-radius per metre; clamp inside the radar
+            let hp = engine.headPos
+            let lcx = cx + max(-R * 0.8, min(R * 0.8, hp.x * pxPerM))
+            let lcy = cy + max(-R * 0.8, min(R * 0.8, hp.z * pxPerM))
+
             // ambient rings
             for i in 1...3 {
                 let r = R * Double(i) / 3
@@ -30,17 +37,17 @@ struct Radar: View {
                            with: .color(.white.opacity(0.05)))
             }
 
-            // facing cone
+            // facing cone (emanates from the listener's current position)
             var cone = Path()
-            cone.move(to: CGPoint(x: cx, y: cy))
-            cone.addArc(center: CGPoint(x: cx, y: cy), radius: R * 1.1,
+            cone.move(to: CGPoint(x: lcx, y: lcy))
+            cone.addArc(center: CGPoint(x: lcx, y: lcy), radius: R * 1.1,
                         startAngle: .degrees(-90 - 26 + deg(engine.orientRad)),
                         endAngle: .degrees(-90 + 26 + deg(engine.orientRad)), clockwise: false)
             cone.closeSubpath()
             ctx.fill(cone, with: .color(Color(hex: "#5fd0c5").opacity(0.16 * dim)))
 
-            // listener
-            ctx.fill(Path(ellipseIn: CGRect(x: cx - 4, y: cy - 4, width: 8, height: 8)), with: .color(.white))
+            // listener (slides with head translation)
+            ctx.fill(Path(ellipseIn: CGRect(x: lcx - 4, y: lcy - 4, width: 8, height: 8)), with: .color(.white))
 
             for a in engine.snapshot {
                 let ang = a.bearing - .pi / 2

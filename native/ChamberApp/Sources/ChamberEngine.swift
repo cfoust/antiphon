@@ -96,6 +96,9 @@ final class ChamberEngine: ObservableObject {
     @Published var orientRad = 0.0
     @Published var lookGatePub = 1.0
     @Published var facedPub = -1
+    /// Head position relative to the calibrated neutral, world metres (x=right, y=up, z=back).
+    /// Published for the radar so lateral/forward head translation is visible on-screen.
+    @Published var headPos = SIMD3<Double>(0, 0, 0)
     @Published var autoFinish = true
     @Published var ready = false
     @Published var roomIndex = 4 // "room (BRIR)" — the measured-style convolution room
@@ -389,8 +392,10 @@ final class ChamberEngine: ObservableObject {
                     pingAge: $0.lastPingWall > 0 ? t - $0.lastPingWall : 99)
         }
         let o = orient, g = lookGate
+        let hp = SIMD3(headX, headY, headZ)
         DispatchQueue.main.async {
             self.snapshot = vms; self.orientRad = o; self.lookGatePub = g; self.facedPub = facedIdx
+            self.headPos = hp
         }
     }
 }
