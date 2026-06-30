@@ -24,11 +24,17 @@ SRC = "out/shootout"
 DST = "out/shootout/norm"
 TARGET_LUFS = -23.0
 PEAK_CEIL = 0.985
+# Perceptibility gate: a candidate whose *loudness-matched* signal differs from baseline by less than
+# this (RMS of the difference, in dB relative to baseline RMS) is unlikely to be told apart in a blind
+# A/B — round 1 proved this (front_notch −55 dB and lf_body −51 dB were both inaudible ties). It's a
+# warning, not a rejection: the render is fine, the *idea was tuned too gently*. Retune it louder.
+PERCEPT_DB = -45.0
 
 os.makedirs(DST, exist_ok=True)
 files = sorted(f for f in os.listdir(SRC) if f.endswith(".wav"))
 
 manifest = []
+normed = {}  # name -> mono float array, for the perceptibility check below
 for fn in files:
     path = os.path.join(SRC, fn)
     name = fn[:-4]
@@ -49,7 +55,26 @@ for fn in files:
         norm = norm * (PEAK_CEIL / npeak)  # peak guard (slight loudness give-up beats clipping)
     sf.write(os.path.join(DST, fn), norm, rate, subtype="PCM_16")
     manifest.append({"name": name, "file": fn})
+    normed[name] = norm.mean(axis=1)  # mono mixdown for the delta metric
     print(f"  ok     {name:<22} in {loud:6.1f} LUFS -> {TARGET_LUFS} (peak {npeak:.2f})")
+
+# Perceptibility gate vs baseline (after loudness-match, so it's a fair signal-shape comparison).
+base = normed.get("baseline")
+if base is not None:
+    print("\nperceptibility vs baseline (RMS of difference; flagged if too small to likely hear):")
+    base_rms = float(np.sqrt(np.mean(base ** 2))) + 1e-12
+    for m in manifest:
+        if m["name"] == "baseline":
+            continue
+        x = normed[m["name"]]
+        n = min(len(x), len(base))
+        d_rms = float(np.sqrt(np.mean((x[:n] - base[:n]) ** 2)))
+        delta_db = 20.0 * np.log10(d_rms / base_rms) if d_rms > 0 else -np.inf
+        m["delta_db"] = round(delta_db, 1)
+        flag = "  <-- LIKELY IMPERCEPTIBLE; retune louder" if delta_db < PERCEPT_DB else ""
+        print(f"  {m['name']:<22} {delta_db:6.1f} dB{flag}")
+else:
+    print("\n(no baseline.wav present — skipping perceptibility gate)")
 
 manifest.sort(key=lambda m: (m["name"] != "baseline", m["name"]))  # baseline first
 with open(os.path.join(DST, "manifest.json"), "w") as f:

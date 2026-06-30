@@ -31,6 +31,15 @@ CONTRACT (follow exactly):
    no extra flags, since the scene renders with stock settings). Do not change unrelated behavior,
    the shootout scene, `tools/shootout/*`, or anything in `out/`.
 
+   **TUNE IT TO BE UNMISTAKABLY AUDIBLE.** This is a blind A/B with a single human listener — a
+   change they cannot clearly hear is a *failed* candidate, even if it's "correct." Round 1 died of
+   this: six tasteful, gentle tweaks were all indistinguishable from baseline; only the single
+   boldest change (a whole-spectrum ±8 dB recolor) was perceptible and won. So: push your effect to
+   the **strong end of plausible** — pick the loud, obvious version of your idea, not the polite one.
+   Err toward *too much*; a winner can always be dialed back later, but an inaudible candidate
+   teaches us nothing. Avoid only changes so extreme they're broken/unpleasant (harsh, clipping,
+   obviously artifacted).
+
 3. Build — this must succeed:
    `cargo build -p chamber-render --release`
 
@@ -40,7 +49,11 @@ CONTRACT (follow exactly):
 
 5. Sanity-check the printed peak: it must be finite, not silent, and not wildly clipping (roughly
    0.05–1.2). If it's broken (silent / NaN / runaway), fix your change — a broken render is useless
-   and will be auto-rejected.
+   and will be auto-rejected. **Also verify your change is audibly large:** the ingest step flags any
+   candidate whose loudness-matched signal is within −45 dB RMS of baseline as "likely
+   imperceptible." If you can cheaply estimate your delta (e.g. RMS of your render minus a baseline
+   render, or just reason about the dB of change you applied), make sure it clears that bar. If your
+   effect is marginal, turn it up before committing.
 
 6. Commit your change on your branch with a clear message (so a winner's diff is recoverable).
 

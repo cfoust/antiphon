@@ -17,13 +17,19 @@ and factual; this is a lab notebook, not prose.
 
 | id | status | rounds | best ELO (Δ base) | verdict | one-line finding |
 |----|--------|--------|-------------------|---------|------------------|
-| `baseline`    | — | all | ~1500 (anchor) | — | sanity floor (unmodified renderer) |
-| `dfeq`        | 🔬 | 1 | — | — | diffuse-field EQ — kill "speaker" coloration |
-| `crossfeed`   | 🔬 | 1 | — | — | mild low-passed crossfeed (externalization) |
-| `front_notch` | 🔬 | 1 | — | — | sharpen frontal pinna notch (front-back) |
-| `lf_body`     | 🔬 | 1 | — | — | LF body/chest shelf — voice not speaker |
-| `decorr`      | 🔬 | 1 | — | — | subtle L/R decorrelation (width / less in-head) |
-| `hrir_smooth` | 🔬 | 1 | — | — | window/interp tweak — cut comb-filter timbre |
+| `baseline`    | — | all | 1484 (anchor) | — | sanity floor (unmodified renderer) |
+| `dfeq`        | ✅ | 1 | **1544 (+60)** | **win** | ONLY audible candidate; won every decisive game. Deepen. |
+| `crossfeed`   | ✅ | 1 | 1500 (+16) | tie | imperceptible as tuned (−42 dB Δ); retest BOLD |
+| `front_notch` | ✅ | 1 | 1485 (+1) | tie | imperceptible (−55 dB Δ, fires 15% of frames); too narrow/gated |
+| `lf_body`     | ✅ | 1 | 1486 (+2) | tie | imperceptible (−51 dB Δ); +3 dB bell too gentle |
+| `decorr`      | ✅ | 1 | 1500 (+16) | tie | big sample Δ but perceptually nil on frontal content |
+| `hrir_smooth` | ✅ | 1 | 1500 (+16) | tie | imperceptible (−40 dB Δ); ½-oct smoothing too gentle |
+| `dfeq2`         | 🔬 | 2 | — | — | deepen dfeq (±12 dB, less clamp, bright-tilt variant) |
+| `rev_tilt`      | 🔬 | 2 | — | — | direct-to-reverberant ratio + reverb level/tilt (room = #1 lever) |
+| `er_pattern`    | 🔬 | 2 | — | — | stronger/earlier first-order reflections |
+| `rev_predelay`  | 🔬 | 2 | — | — | reverb pre-delay / distance cue |
+| `crossfeed_strong` | 🔬 | 2 | — | — | crossfeed cranked to clearly audible (−3 dB) |
+| `decorr_strong`    | 🔬 | 2 | — | — | full-band decorrelation, clearly audible |
 | `fd_itd`      | ⬜ | — | — | — | frequency-dependent ITD (full LF, less HF) |
 | `er_pattern`  | ⬜ | — | — | — | denser/earlier first-order reflections |
 | `near_pres`   | ⬜ | — | — | — | proximity/presence shaping for frontal sources |
@@ -60,12 +66,36 @@ and factual; this is a lab notebook, not prose.
   - `hrir_smooth` (peak 0.78) — ½-octave constant-Q magnitude smoothing + min-phase rebuild of every HRIR,
     plus modified-Shepard (Franke–Little) K=3 interp weighting (farthest neighbor → 0). Softens metallic
     notches + removes ear-to-ear stepping. `hrtf.rs`.
-- **Comparisons:** _pending listen_
-- **Standings (final ELO):** _pending listen_
-- **Listener notes (by ear, per candidate):** _pending listen_
-- **Outcome:** _pending listen_
-- **Deepen / revise:** _pending listen_
-- **Promoted?** _pending_
+- **Comparisons:** 10 (ELO-guided). Most returned "too close" (r=0.5).
+- **Standings (final ELO):**
+  | rank | id | elo | games |
+  |------|----|----|-------|
+  | 1 | dfeq | 1544 | 3 |
+  | 2 | crossfeed | 1500 | 3 |
+  | 2 | decorr | 1500 | 3 |
+  | 2 | hrir_smooth | 1500 | 3 |
+  | 5 | lf_body | 1486 | 3 |
+  | 6 | front_notch | 1485 | 3 |
+  | 7 | baseline | 1484 | 2 |
+- **Listener notes (by ear):** Listener reported **most pairs were indistinguishable**. `dfeq` was the
+  only candidate that produced a perceptible, repeatable difference — it won every decisive game it
+  played (beat baseline, front_notch, lf_body). Everything else tied baseline and each other.
+- **Signal-delta check (post-normalization RMS vs baseline):** dfeq −32 dB, decorr −35 dB, hrir_smooth
+  −40 dB, crossfeed −42 dB, lf_body −51 dB, front_notch −55 dB (fires only 15% of frames). The two
+  smallest deltas (front_notch, lf_body) were physically too small to hear. decorr had a large *sample*
+  delta but a perceptually null effect on mostly-frontal content.
+- **Outcome:** **`dfeq` wins round 1** — the single audible improvement. All other round-1 levers were
+  tuned too gently (every candidate prompt said "subtle/gentle") and landed below the perceptual floor.
+- **Root-cause lesson (process):** A blind A/B cannot reward a change the listener can't hear. Candidates
+  MUST be tuned to be **unmistakably audible**; a subtle-but-correct change is a failed candidate. Baked
+  two fixes: (1) CANDIDATE_PROMPT now demands a boldly-audible change + self-check; (2) ingest.py flags
+  any candidate within −45 dB RMS of baseline as "likely imperceptible".
+- **Deepen / revise:** dfeq is the keeper → push it harder (`dfeq2`). Pivot the rest to intrinsically loud
+  levers, especially **room/reverb** (the project's #1 externalization lever, untouched in round 1):
+  `rev_tilt`, `er_pattern`, `rev_predelay`. Retest width only if cranked loud (`crossfeed_strong`,
+  `decorr_strong`). Retired as tuned: `front_notch`, `lf_body`, `hrir_smooth` (revisit only if bolder).
+- **Promoted?** none yet — `dfeq` is the leading promotion candidate but stays in the pool to be
+  challenged by round 2 before any merge-to-main + parity check.
 
 <!-- Copy the template below for each real round. Fill it in AFTER the human listens. -->
 <!--
@@ -85,10 +115,11 @@ and factual; this is a lab notebook, not prose.
 
 ## Backlog (ideas to try / deepen — prioritized; grows from findings)
 
-- (round 1 default focus) `dfeq`, `crossfeed`, `front_notch`, `lf_body`, `decorr`, `hrir_smooth`
-- then the remainder of the deck: `fd_itd`, `er_pattern`, `near_pres`, `rev_tilt`, `src_spread`,
-  `air_damp`
-- combine winners (e.g. best-timbre × best-front) once individual levers are ranked
+- **RULE (from round 1): only test changes likely to be CLEARLY audible.** Subtle = wasted round.
+- (round 2, in flight) `dfeq2`, `rev_tilt`, `er_pattern`, `rev_predelay`, `crossfeed_strong`, `decorr_strong`
+- remaining deck, only if made bold: `fd_itd`, `near_pres`, `src_spread`, `air_damp`
+- combine winners (e.g. dfeq × best-room lever) once round 2 ranks the room levers
+- retired-as-tuned (round 1, imperceptible): `front_notch`, `lf_body`, `hrir_smooth` — revisit only bolder
 
 ## Promoted to `main`
 
