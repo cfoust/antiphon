@@ -86,7 +86,9 @@ fn main() {
     mk("cathedral", [24.0, 22.0, 60.0], [5.5, 4.2, 2.4], 0.06, 1, 0.40, Fdn);
     // wet kept modest: the convolution tail adds a lot of perceived loudness on its own
     mk("room_conv", [5.5, 3.0, 6.5], [0.55, 0.45, 0.30], 0.22, 2, 0.5, Convolution);
-    mk("hall_conv", [18.0, 12.0, 28.0], [2.6, 2.1, 1.4], 0.10, 2, 0.45, Convolution);
+    // wet pulled down: at 0.45 the long 2.6 s tail swamped the direct sound and voices read as
+    // "super far away" (low direct-to-reverberant ratio). 0.28 keeps the hall but brings them forward.
+    mk("hall_conv", [18.0, 12.0, 28.0], [2.6, 2.1, 1.4], 0.10, 2, 0.28, Convolution);
 
     let bytes = b.to_bytes();
     if let Some(dir) = std::path::Path::new(&out_path).parent() {
