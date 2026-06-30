@@ -106,7 +106,7 @@ let cands = [], R = {}, games = {}, history = [], pair = null, sel = "A", lastPa
 let ctx = null, node = null, loaded = new Set(), wasmCache = new Map(), assetCache = new Map();
 const DEFAULT_ASSET = "chamber-kemar.chamber";
 let landmarker = null, video = null, neutral = null, curYaw = 0, curPitch = 0, curYawV = 0, curPitchV = 0, live = false;
-const LOOKAHEAD = 0.045; // s of velocity prediction to offset camera+inference+audio latency
+let predictSec = 0.045; // velocity-prediction lookahead (s); set ADAPTIVELY to the measured total latency
 
 // One Euro filter: cutoff rises with speed -> low lag while moving, smooth at rest. The old fixed
 // one-pole (alpha 0.35) settled in ~350 ms, far above the <60 ms the dynamic cue needs.
@@ -252,28 +252,42 @@ async function startTracking() {
     video = document.createElement("video"); video.autoplay = true; video.muted = true; video.playsInline = true;
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: "user", frameRate: { ideal: 60 } } });
     await video.play();
-    $("track").textContent = "tracking: on"; $("track").className = "pill ok";
-    let lastT = -1, detCount = 0, detT0 = performance.now();
-    const loop = () => {
-      if (video.currentTime !== lastT && video.readyState >= 2) {
-        lastT = video.currentTime;
-        const res = landmarker.detectForVideo(video, performance.now());
-        const mats = res.facialTransformationMatrixes;
-        if (mats && mats.length) {
-          const m = mats[0].data;
-          const t = performance.now();
-          curYaw = yawF.filter(Math.atan2(m[8], m[10]) * 180 / Math.PI, t); curYawV = yawF.v;
-          curPitch = pitchF.filter(Math.atan2(-m[9], m[5]) * 180 / Math.PI, t); curPitchV = pitchF.v;
-          if (!neutral) neutral = { yaw: curYaw, pitch: curPitch };
-          live = true; pushPose();
-        }
-        detCount++;
-        const nowp = performance.now();
-        if (nowp - detT0 > 500) { $("track").textContent = "tracking: " + Math.round(detCount * 1000 / (nowp - detT0)) + " fps"; detCount = 0; detT0 = nowp; }
+    $("track").className = "pill ok";
+    let detCount = 0, detT0 = performance.now(), inferEMA = 0, frameAgeEMA = 0, lastT = -1;
+    // one measured detection: time the inference, capture frame-age, filter, push the predicted pose.
+    const tick = (frameNow, meta) => {
+      const ts = performance.now();
+      const res = landmarker.detectForVideo(video, ts);
+      inferEMA = inferEMA ? inferEMA * 0.9 + (performance.now() - ts) * 0.1 : (performance.now() - ts);
+      if (meta && meta.captureTime) { const age = frameNow - meta.captureTime; if (age > 0 && age < 250) frameAgeEMA = frameAgeEMA ? frameAgeEMA * 0.9 + age * 0.1 : age; }
+      const mats = res.facialTransformationMatrixes;
+      if (mats && mats.length) {
+        const m = mats[0].data;
+        curYaw = yawF.filter(Math.atan2(m[8], m[10]) * 180 / Math.PI, ts); curYawV = yawF.v;
+        curPitch = pitchF.filter(Math.atan2(-m[9], m[5]) * 180 / Math.PI, ts); curPitchV = pitchF.v;
+        if (!neutral) neutral = { yaw: curYaw, pitch: curPitch };
+        live = true; pushPose();
       }
-      requestAnimationFrame(loop);
+      detCount++;
+      const nowp = performance.now();
+      if (nowp - detT0 > 500) {
+        const fps = Math.round(detCount * 1000 / (nowp - detT0));
+        const outMs = ((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000;
+        const camMs = frameAgeEMA || (1000 / Math.max(fps, 1)); // capture->callback (or ~1 frame if unknown)
+        const total = camMs + inferEMA + outMs;
+        predictSec = Math.min(0.12, total / 1000); // ADAPTIVE: predict ahead by the measured latency
+        $("track").textContent = `${fps}fps · cam ${Math.round(camMs)} · inf ${Math.round(inferEMA)} · out ${Math.round(outMs)} · ~${Math.round(total)}ms`;
+        detCount = 0; detT0 = nowp;
+      }
     };
-    requestAnimationFrame(loop);
+    // requestVideoFrameCallback delivers frames with timing metadata and lower latency than rAF polling.
+    if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
+      const onFrame = (now, meta) => { tick(now, meta); video.requestVideoFrameCallback(onFrame); };
+      video.requestVideoFrameCallback(onFrame);
+    } else {
+      const loop = () => { if (video.currentTime !== lastT && video.readyState >= 2) { lastT = video.currentTime; tick(performance.now(), null); } requestAnimationFrame(loop); };
+      requestAnimationFrame(loop);
+    }
   } catch (e) {
     $("track").textContent = "tracking: failed (" + e.message + ")"; $("track").className = "pill err";
   }
@@ -281,9 +295,9 @@ async function startTracking() {
 function pushPose() {
   if (!node || !live || !neutral) return;
   const inv = $("invyaw").checked ? -1 : 1;
-  // velocity prediction (curYawV is deg/s from the One Euro filter) cancels residual pipeline latency
-  const yaw = inv * ((curYaw - neutral.yaw) + curYawV * LOOKAHEAD) * Math.PI / 180;
-  const pitch = ((curPitch - neutral.pitch) + curPitchV * LOOKAHEAD) * Math.PI / 180;
+  // velocity prediction (curYawV is deg/s from the One Euro filter) cancels the measured pipeline latency
+  const yaw = inv * ((curYaw - neutral.yaw) + curYawV * predictSec) * Math.PI / 180;
+  const pitch = ((curPitch - neutral.pitch) + curPitchV * predictSec) * Math.PI / 180;
   // yaw about +y, pitch about +x  (q = qYaw ⊗ qPitch)
   const w1 = Math.cos(yaw / 2), a = Math.sin(yaw / 2), w2 = Math.cos(pitch / 2), b = Math.sin(pitch / 2);
   const pose = { px: 0, py: 0, pz: 0, qw: w1 * w2, qx: w1 * b, qy: a * w2, qz: -a * b };
