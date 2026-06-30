@@ -34,8 +34,9 @@ the **real `Renderer`**, so a candidate's `chamber-dsp` edits show up.
 
 1. Implement **one** hypothesis in `chamber-dsp` (the engine), keeping it deterministic.
 2. `cargo build -p chamber-render --release` must succeed.
-3. Render to the **main checkout's** shared dir (absolute path), naming the file after your idea:
-   `cargo run -p chamber-render --release -- shootout assets/baked/chamber-default.chamber /Users/cfoust/Developer/cfoust/chamber/out/shootout/<id>.wav`
+3. Render to the **main checkout's** shared dir, using the main checkout's KEMAR asset (both
+   absolute paths so it works from any worktree), naming the file after your idea:
+   `cargo run -p chamber-render --release -- shootout /Users/cfoust/Developer/cfoust/chamber/assets/baked/chamber-kemar.chamber /Users/cfoust/Developer/cfoust/chamber/out/shootout/<id>.wav`
 4. Sanity-check the printed peak (roughly 0.05–1.2, not silent, finite).
 5. Commit your change on your branch (so a winner's diff is recoverable).
 6. Report: the id, what you changed and why, and the peak.
