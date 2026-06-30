@@ -91,7 +91,7 @@ to render the scene correctly.
 ## The scene (don't change it mid-experiment — it must stay constant across candidates)
 
 `chamber-render shootout <asset> <out.wav> [voice.wav]` (code in
-`crates/chamber-render/src/main.rs`, `run_shootout`). One voice (`tools/shootout/voice.wav`) tours
+`crates/chamber-render/src/main.rs`, `run_shootout`). One voice (`tools/shootout/echo.wav`) tours
 the hard positions past a fixed head: front arc back-and-forth (0–6 s), then a full orbit with an
 elevation wobble (6–12 s). Room = `room` (FDN). Renders through the real `Renderer`, so a
 candidate's `chamber-dsp` edits take effect. Regenerate the baseline any time with:
@@ -130,5 +130,5 @@ The two complaints map most directly to: `dfeq`, `crossfeed`, `front_notch`, `lf
 - `tools/shootout/README.md` — operational quick-reference.
 - `tools/shootout/ingest.py` — sanitize + loudness-match + manifest (uv inline deps).
 - `tools/shootout/elo/index.html` — the blind ELO harness (served from repo root).
-- `tools/shootout/voice.wav` — the committed source clip (reproducible across worktrees).
+- `tools/shootout/echo.wav` — the committed source clip (reproducible across worktrees).
 - `crates/chamber-render/src/main.rs` — the `shootout` subcommand (`run_shootout`).

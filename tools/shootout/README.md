@@ -24,7 +24,7 @@ Pairings are **ELO-guided** (least-played vs nearest-rated), so you don't do O(N
 
 ## The scene (`shootout` subcommand)
 
-One voice (`tools/shootout/voice.wav`) tours the perceptually hard positions past a **fixed** head
+One voice (`tools/shootout/echo.wav`) tours the perceptually hard positions past a **fixed** head
 (so externalization/front-back isn't rescued by head motion): a front arc back-and-forth, then a
 full orbit with an elevation wobble (behind + angled + up). Same scene / signal / asset / room
 (`room`, FDN) for every candidate — the renderer change is the only variable. It renders through

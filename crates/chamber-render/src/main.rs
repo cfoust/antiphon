@@ -57,7 +57,7 @@ fn main() {
         let a: Vec<String> = std::env::args().collect();
         let asset = a.get(2).cloned().unwrap_or_else(|| "assets/baked/chamber-default.chamber".into());
         let out = a.get(3).cloned().unwrap_or_else(|| "out/shootout/candidate.wav".into());
-        let voice = a.get(4).cloned().unwrap_or_else(|| "tools/shootout/voice.wav".into());
+        let voice = a.get(4).cloned().unwrap_or_else(|| "tools/shootout/echo.wav".into());
         run_shootout(&asset, &out, &voice);
         return;
     }
