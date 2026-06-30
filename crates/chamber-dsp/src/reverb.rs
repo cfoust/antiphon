@@ -15,6 +15,10 @@ const BASE_DELAYS: [usize; LINES] = [
 
 const ANTI_DENORMAL: f32 = 1.0e-20;
 
+/// Mean of `BASE_DELAYS` (samples) — used to scale the delay lines so the network's echo-density
+/// build-up aligns with the room's mixing time.
+const MEAN_BASE_DELAY: f32 = 2947.0;
+
 pub struct Fdn {
     lines: Vec<Vec<f32>>,
     read: Vec<usize>,
@@ -26,6 +30,16 @@ pub struct Fdn {
     out_sign_r: [f32; LINES],
     wet: f32,
     sr: f32,
+    // specular->diffuse handoff: the diffuse tail starts at the mixing time `t_mix` (a short
+    // input pre-delay), so it picks up where the discrete image-source reflections stop rather
+    // than smearing underneath them.
+    in_delay: Vec<f32>,
+    in_delay_w: usize,
+    predelay: usize,
+    t_mix_samp: f32,
+    /// Scale applied to the per-source send so the (delayed) tail onset matches the reverberant
+    /// field level at `t_mix` — energy is continuous across the seam instead of double-counted.
+    send_scale: f32,
 }
 
 impl Fdn {
@@ -43,6 +57,8 @@ impl Fdn {
             sgl[i] = s;
             sgr[i] = if (i / 2) % 2 == 0 { s } else { -s };
         }
+        // input pre-delay ring, sized for the largest mixing time we allow (~200 ms)
+        let in_delay = vec![0.0f32; (0.2 * sr) as usize + 8];
         Fdn {
             lines,
             read: vec![0; LINES],
@@ -54,13 +70,35 @@ impl Fdn {
             out_sign_r: sgr,
             wet: 0.3,
             sr,
+            in_delay,
+            in_delay_w: 0,
+            predelay: 0,
+            t_mix_samp: 0.0,
+            send_scale: 1.0,
         }
     }
 
-    /// Configure from a room preset. `size` ~ mean room dimension in metres.
-    pub fn configure(&mut self, rt60_mid: f32, rt60_high: f32, size: f32, wet: f32) {
+    /// Mixing-time pre-delay in samples (where the diffuse tail begins, relative to the direct).
+    pub fn t_mix_samples(&self) -> f32 {
+        self.t_mix_samp
+    }
+    /// Per-source send scale that keeps the tail onset energy continuous across the seam.
+    pub fn send_scale(&self) -> f32 {
+        self.send_scale
+    }
+
+    /// Configure from room geometry. `dims` (w,h,d, metres) sets the mixing time, the delay-line
+    /// scaling, and the energy-conserving send.
+    pub fn configure(&mut self, rt60_mid: f32, rt60_high: f32, dims: [f32; 3], wet: f32) {
         self.wet = wet;
-        let scale = (size / 8.0).clamp(0.35, 3.0);
+        // Mixing time t_mix ~ sqrt(V) ms (accepted echo-density rule). The diffuse tail starts
+        // here, and the delay lines are scaled so the network reaches dense echo build-up by then.
+        let vol = (dims[0] * dims[1] * dims[2]).max(1.0);
+        let t_mix_s = (vol.sqrt() / 1000.0).clamp(0.005, 0.20);
+        self.t_mix_samp = t_mix_s * self.sr;
+        self.predelay = (self.t_mix_samp as usize).min(self.in_delay.len().saturating_sub(8));
+
+        let scale = (self.t_mix_samp / MEAN_BASE_DELAY).clamp(0.3, 3.0);
         let max = self.lines[0].len();
         for i in 0..LINES {
             let l = ((BASE_DELAYS[i] as f32) * scale) as usize;
@@ -74,6 +112,12 @@ impl Fdn {
         let ratio = (rt60_high.max(0.05) / rt60_mid.max(0.05)).clamp(0.05, 1.0);
         // smaller ratio -> more HF damping -> smaller damp_a
         self.damp_a = (0.15 + 0.8 * ratio).clamp(0.05, 0.999);
+
+        // Energy-conserving send: with the tail delayed to t_mix, its onset should sit at the
+        // reverberant field level *at* t_mix, i.e. already decayed by exp(-t_mix/tau_a), where
+        // tau_a = RT60/6.91 is the amplitude time constant. So scale the send accordingly.
+        let tau_a = rt60_mid.max(0.05) / 6.91;
+        self.send_scale = (-t_mix_s / tau_a).exp();
     }
 
     pub fn reset(&mut self) {
@@ -82,14 +126,23 @@ impl Fdn {
         }
         self.damp_state.iter_mut().for_each(|v| *v = 0.0);
         self.read.iter_mut().for_each(|v| *v = 0);
+        self.in_delay.iter_mut().for_each(|v| *v = 0.0);
+        self.in_delay_w = 0;
     }
 
     /// Process a mono send block, adding wet stereo into `out_l`/`out_r`.
     pub fn process(&mut self, send: &[f32], out_l: &mut [f32], out_r: &mut [f32]) {
         let n = send.len();
         let in_gain = 1.0 / (LINES as f32).sqrt();
+        let cap = self.in_delay.len();
         for s in 0..n {
-            let x = if send[s].is_finite() { send[s] } else { 0.0 };
+            let xin = if send[s].is_finite() { send[s] } else { 0.0 };
+            // mixing-time pre-delay: inject the input as it was `predelay` samples ago, so the
+            // diffuse tail begins at t_mix rather than under the discrete early reflections.
+            self.in_delay[self.in_delay_w] = xin;
+            let ri = (self.in_delay_w + cap - self.predelay) % cap;
+            let x = self.in_delay[ri];
+            self.in_delay_w = if self.in_delay_w + 1 >= cap { 0 } else { self.in_delay_w + 1 };
             // read taps
             let mut v = [0.0f32; LINES];
             for i in 0..LINES {

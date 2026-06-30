@@ -173,7 +173,7 @@ impl Renderer {
         let mut fdn = Fdn::new(sample_rate);
         let (room, conv) = if let Some(p) = asset.rooms.first() {
             let r = Room::from_preset(p);
-            fdn.configure(p.rt60[1], p.rt60[2], mean_dim(&p.dims), p.wet);
+            fdn.configure(p.rt60[1], p.rt60[2], p.dims, p.wet);
             let c = build_conv(&r, max_block);
             (r, c)
         } else {
@@ -287,6 +287,12 @@ impl Renderer {
 
         let send_slice = &mut self.send_bus[..frames];
 
+        // Energy-conserving FDN send: with the diffuse tail delayed to t_mix, scale the send so
+        // its onset matches the reverberant field at t_mix (no double-counting). The convolution
+        // backend carries its own early+late in one IR, so it keeps the raw send.
+        let fdn = matches!(self.room.backend, ReverbBackend::Fdn);
+        let send_scale = if fdn { self.fdn.send_scale() } else { 1.0 };
+
         for i in 0..n {
             let src = sources[i];
             let inp = &inputs[i][..frames];
@@ -316,7 +322,7 @@ impl Renderer {
                 dvf::near_field_shelf(theta_r, rho, self.sr),
                 false,
             );
-            self.direct[i].process(inp, out_l, out_r, send_slice, src.send);
+            self.direct[i].process(inp, out_l, out_r, send_slice, src.send * send_scale);
         }
 
         // deactivate unused voices (ramp to silence next block if reused)
@@ -329,10 +335,18 @@ impl Renderer {
             }
         }
 
-        // ---- image-source early reflections (order 1..2, global energy budget) ----
+        // ---- image-source early reflections (order 1..2, energy-ranked budget) ----
         if self.reflections_enabled && self.room.reflection_order >= 1 {
             let order = self.room.reflection_order;
             let surf = self.room.surface_abs;
+            // Window the discrete reflections out past the mixing time so they don't overlap the
+            // FDN tail (which begins at t_mix). Smoothly faded across t_mix..1.5·t_mix so motion
+            // stays click-free. Only for the FDN backend; the conv IR owns its own early+late.
+            let (win_edge, win_trans) = if fdn {
+                (self.fdn.t_mix_samples(), (0.5 * self.fdn.t_mix_samples()).max(1.0))
+            } else {
+                (f32::INFINITY, 1.0)
+            };
 
             let head_pos = self.head_pos;
             let dims = self.room.dims;
@@ -383,7 +397,9 @@ impl Renderer {
                         // the high/mid ratio darkens the one-pole so carpet-heavy paths roll off
                         // HF more (LF-vs-mid shelf is a later refinement).
                         let g = band_gain(&surf, &bounces);
-                        let igain = gain * g[1] * distance_atten(idist);
+                        // fade the image out as its arrival crosses the mixing time (FDN takes over)
+                        let win = (1.0 - (predelay - win_edge) / win_trans).clamp(0.0, 1.0);
+                        let igain = gain * g[1] * distance_atten(idist) * win;
                         let hf_tilt = if g[1] > 1e-6 { (g[2] / g[1]).clamp(0.05, 1.0) } else { 1.0 };
                         let ilp = (air_lp(idist) * hf_tilt).clamp(0.05, 1.0);
                         let rt = self.refl_taps;
@@ -446,9 +462,6 @@ impl Renderer {
     }
 }
 
-fn mean_dim(d: &[f32; 3]) -> f32 {
-    (d[0] + d[1] + d[2]) / 3.0
-}
 
 /// Build a convolution reverb for a room if it uses a BRIR; otherwise None.
 fn build_conv(room: &Room, max_block: usize) -> Option<ConvReverb> {
@@ -630,9 +643,8 @@ mod tests {
 
 impl Fdn {
     fn configure_from(&mut self, dims: [f32; 3], wet: f32) {
-        // reconfigure with mid/high RT60 estimated from geometry (Sabine-ish via size)
-        let size = mean_dim(&dims);
+        // reconfigure with mid/high RT60 estimated from geometry (Sabine-ish)
         let rt = (0.16 * (dims[0] * dims[1] * dims[2]) / (2.0 * (dims[0] * dims[1] + dims[1] * dims[2] + dims[0] * dims[2]) * 0.15)).clamp(0.2, 4.0);
-        self.configure(rt, rt * 0.7, size, wet);
+        self.configure(rt, rt * 0.7, dims, wet);
     }
 }
