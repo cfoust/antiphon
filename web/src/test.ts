@@ -5,6 +5,9 @@
 
 import { WasmEngine, ENGINE_URLS, type Vec3 } from "./audio/wasmEngine";
 import { SFX } from "./audio/sfx";
+import { HeadTracker } from "./tracking/headTracking";
+
+const DEFAULT_SFX = SFX.findIndex((s) => s.name.startsWith("drone")); // an audible loop
 
 // Enabled by `just harness-dev` (VITE_DEV3D=1). Vite exposes VITE_-prefixed env on import.meta.
 const DEV3D = (import.meta as { env?: Record<string, string> }).env?.VITE_DEV3D === "1";
@@ -27,21 +30,29 @@ let selected = -1;
 let nextId = 1;
 let orientDeg = 0;
 let listenerY = 0;
+let tracker: HeadTracker | null = null;
+let tracking = false;
 const SCALE = 36; // px per metre on the top-down map
 
 // ---- audio setup ----------------------------------------------------------
 ($("start") as HTMLButtonElement).onclick = async () => {
   if (engine) { await ctx!.resume(); return; }
-  $("status").textContent = "loading…";
-  ctx = new AudioContext({ sampleRate: 48000 });
-  engine = await WasmEngine.create(ctx, { ...ENGINE_URLS, maxSources: 24 });
-  engine.connect(ctx.destination);
-  engine.setRoom(2); // hall
-  engine.setReflections(true);
-  $("status").textContent = `running @ ${ctx.sampleRate} Hz · ${engine.numRooms} rooms`;
-  applyPose();
-  // a starter source so there's something to hear
-  addSource({ x: 1.6, y: 0, z: -1.2 });
+  try {
+    $("status").textContent = "loading…";
+    ctx = new AudioContext({ sampleRate: 48000 });
+    await ctx.resume(); // some browsers start suspended even inside the gesture
+    engine = await WasmEngine.create(ctx, { ...ENGINE_URLS, maxSources: 24 });
+    engine.connect(ctx.destination);
+    engine.setRoom(2); // hall
+    engine.setReflections(true);
+    $("status").textContent = `running @ ${ctx.sampleRate} Hz · ${engine.numRooms} rooms`;
+    applyPose();
+    // a starter source — a looping bed so you immediately hear it (not a one-shot blip)
+    addSource({ x: 1.6, y: 0, z: -1.2 }, DEFAULT_SFX);
+  } catch (e) {
+    $("status").textContent = "error: " + (e as Error).message;
+    console.error(e);
+  }
 };
 
 // ---- sound generation -----------------------------------------------------
@@ -49,9 +60,9 @@ function sfxSamples(i: number): Float32Array {
   return SFX[i].make(ctx!.sampleRate);
 }
 
-function addSource(pos: Vec3) {
+function addSource(pos: Vec3, forceSfx?: number) {
   if (!engine) { $("status").textContent = "press Start first"; return; }
-  const sfxIndex = (document.getElementById("sfx") as HTMLSelectElement).selectedIndex;
+  const sfxIndex = forceSfx ?? (document.getElementById("sfx") as HTMLSelectElement).selectedIndex;
   const s: Src = {
     id: "s" + nextId++, pos, gain: 0.8, sfx: sfxIndex, loop: SFX[sfxIndex].loop,
     color: COLORS[sources.length % COLORS.length], name: SFX[sfxIndex].name,
@@ -76,6 +87,7 @@ function applyPose() {
 function initControls() {
   const sfxSel = $("sfx") as HTMLSelectElement;
   SFX.forEach((s) => sfxSel.add(new Option(s.name + (s.loop ? " (loop)" : ""))));
+  sfxSel.selectedIndex = Math.max(0, DEFAULT_SFX); // default to an audible loop
   const roomSel = $("room") as HTMLSelectElement;
   ROOMS.forEach((r, i) => roomSel.add(new Option(r, String(i))));
   roomSel.value = "2";
@@ -86,6 +98,23 @@ function initControls() {
   orient.oninput = () => { orientDeg = +orient.value; $("orientVal").textContent = orientDeg + "°"; applyPose(); };
   const lisY = $("lisY") as HTMLInputElement;
   lisY.oninput = () => { listenerY = +lisY.value; applyPose(); };
+  // optional webcam head-tracking — feeds yaw to the engine + the dev views
+  ($("track") as HTMLButtonElement).onclick = async (e) => {
+    const btn = e.target as HTMLButtonElement;
+    if (tracking) return;
+    try {
+      $("trackStatus").textContent = "starting camera…";
+      tracker = new HeadTracker();
+      await tracker.startCamera();
+      $("trackStatus").textContent = "loading model…";
+      await tracker.loadModel();
+      tracker.startLoop(() => { $("trackStatus").textContent = "tracking — turn your head"; });
+      tracking = true; btn.textContent = "Tracking ✓"; btn.disabled = true;
+    } catch (err) {
+      $("trackStatus").textContent = "error: " + (err as Error).message;
+      console.error(err);
+    }
+  };
   ($("add") as HTMLButtonElement).onclick = () => addSource({ x: 0, y: 0, z: -2 });
   ($("addFile") as HTMLButtonElement).onclick = () => ($("file") as HTMLInputElement).click();
   ($("file") as HTMLInputElement).onchange = async (e) => {
@@ -183,51 +212,57 @@ function drawMap() {
   });
 }
 
-// ---- dev 3D head-view -----------------------------------------------------
+// ---- dev 3D head-view (oblique 3/4 projection from behind-above) -----------
+const S3 = 30; // px per metre
+function project3(p: Vec3): [number, number, number] {
+  const cx = dev.width / 2, cy = dev.height * 0.6;
+  // +x right; -z (front) → up & smaller; +y → up
+  return [cx + p.x * S3, cy + p.z * S3 * 0.5 - p.y * S3, p.z];
+}
 function drawDev3D() {
   const c = devCtx, W = dev.width, H = dev.height;
   c.clearRect(0, 0, W, H);
-  // camera: above and behind the listener (at origin), looking toward −z (front)
-  const camPos = { x: 0, y: 2.2, z: 3.4 };
-  const f = 320; // focal
-  const project = (p: Vec3): [number, number, number] | null => {
-    const x = p.x - camPos.x, y = p.y - camPos.y, z = p.z - camPos.z;
-    const zc = -z; // distance in front of camera (camera looks toward −z)
-    if (zc <= 0.05) return null;
-    return [W / 2 + (x * f) / zc, H / 2 - ((y + 0.4) * f) / zc, zc];
-  };
-  // ground grid (xz plane at y=0)
-  c.strokeStyle = "#1a2030"; c.lineWidth = 1;
+  // ground grid (xz plane, y=0)
+  c.strokeStyle = "#161c28"; c.lineWidth = 1;
   for (let gx = -4; gx <= 4; gx++) {
-    const a = project({ x: gx, y: 0, z: -6 }), b = project({ x: gx, y: 0, z: 0.5 });
-    if (a && b) { c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); }
+    const a = project3({ x: gx, y: 0, z: -5 }), b = project3({ x: gx, y: 0, z: 2 });
+    c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
   }
-  for (let gz = -6; gz <= 0; gz++) {
-    const a = project({ x: -4, y: 0, z: gz }), b = project({ x: 4, y: 0, z: gz });
-    if (a && b) { c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); }
+  for (let gz = -5; gz <= 2; gz++) {
+    const a = project3({ x: -4, y: 0, z: gz }), b = project3({ x: 4, y: 0, z: gz });
+    c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
   }
-  // collect drawables (head + sources), painter's sort by depth
-  const items: { p: [number, number, number]; r: number; col: string; head?: boolean }[] = [];
-  const head = project({ x: 0, y: listenerY, z: 0 });
-  if (head) items.push({ p: head, r: 16, col: "#5fd0c5", head: true });
-  for (const s of sources) { const p = project(s.pos); if (p) items.push({ p, r: 10, col: s.color }); }
-  items.sort((a, b) => b.p[2] - a.p[2]);
   const o = (orientDeg * Math.PI) / 180;
+  type Item = { sx: number; sy: number; z: number; r: number; col: string; head?: boolean };
+  const items: Item[] = [];
+  const hp = project3({ x: 0, y: listenerY, z: 0 });
+  items.push({ sx: hp[0], sy: hp[1], z: 0, r: 9, col: "#5fd0c5", head: true });
+  for (const s of sources) {
+    const p = project3(s.pos);
+    items.push({ sx: p[0], sy: p[1], z: s.pos.z, r: Math.max(4, Math.min(16, 9 + s.pos.z * 1.5)), col: s.color });
+  }
+  items.sort((a, b) => a.z - b.z); // far (front) first, near (behind) last
   for (const it of items) {
-    const [sx, sy, zc] = it.p;
-    const rr = (it.r * 320) / zc / 12;
-    c.fillStyle = it.col; c.globalAlpha = 0.85; c.beginPath(); c.arc(sx, sy, Math.max(2, rr), 0, 7); c.fill(); c.globalAlpha = 1;
+    c.fillStyle = it.col; c.globalAlpha = 0.9;
+    c.beginPath(); c.arc(it.sx, it.sy, it.r, 0, 7); c.fill(); c.globalAlpha = 1;
     if (it.head) {
-      // facing arrow on the ground
-      const tip = project({ x: Math.sin(o) * 1.0, y: listenerY, z: -Math.cos(o) * 1.0 });
-      if (tip) { c.strokeStyle = "#5fd0c5"; c.lineWidth = 2; c.beginPath(); c.moveTo(sx, sy); c.lineTo(tip[0], tip[1]); c.stroke(); }
+      const tip = project3({ x: Math.sin(o) * 1.4, y: listenerY, z: -Math.cos(o) * 1.4 });
+      c.strokeStyle = "#5fd0c5"; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(it.sx, it.sy); c.lineTo(tip[0], tip[1]); c.stroke();
     }
   }
   c.fillStyle = "#7c8499"; c.font = "11px sans-serif";
-  c.fillText("dev: estimated head (teal) + sources, looking from behind", 10, H - 8);
+  c.fillText("dev: head (teal, with facing) + sources — front is up, behind is down", 10, H - 8);
 }
 
 function frame() {
+  if (tracking && tracker) {
+    // raw head-yaw (degrees) drives orientation; mirror it onto the slider
+    orientDeg = Math.max(-180, Math.min(180, tracker.yaw));
+    ($("orient") as HTMLInputElement).value = String(Math.round(orientDeg));
+    $("orientVal").textContent = Math.round(orientDeg) + "°";
+    applyPose();
+  }
   drawMap();
   if (DEV3D) drawDev3D();
   requestAnimationFrame(frame);
