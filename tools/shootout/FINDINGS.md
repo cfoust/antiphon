@@ -158,6 +158,29 @@ voice*.
 - **Promoted?** `dfeq` → merged onto `research/shootout` (commit on branch) as the round-3 foundation;
   final promotion to `main` pending a parity re-check after round 3 settles the combo.
 
+### Round 3 — 2026-06-30 — combinations on the dfeq foundation ("does any spatial lever add to dfeq?")
+- **Pool:** baseline, dfeq (the bar), dfeq_xfeed, dfeq_revtilt, dfeq_predelay, dfeq_full (6 total). dfeq is
+  now merged onto the research branch, so all four combos = dfeq + their spatial lever, built identically.
+- **Bar to clear:** the voice must still sound like a real, natural voice (the preference function). The
+  spatial lever only wins if it adds space/externalization WITHOUT making the voice tinny/altered.
+- **What each adds on top of dfeq (peak = raw; Δ = loudness-matched mono RMS vs baseline):**
+  - `dfeq_xfeed` (peak 0.36, Δ −2.3 dB) — + Bauer crossfeed on final bus (0.3 ms, ~900 Hz LP, −4 dB,
+    mono-unity normalized). Externalization without coloring the voice. `lib.rs`.
+  - `dfeq_revtilt` (peak 0.55, Δ −3.3 dB) — + subtle warm reverb: FDN wet ×1.5 + dark tail LP 2.8 kHz
+    (unity at DC, wet-only so decay/RT60 unchanged). The "subtle deep" room the listener liked. `reverb.rs`.
+  - `dfeq_predelay` (peak 0.55, Δ −3.3 dB) — + gentle bloom: FDN tail pre-delay t_mix+15 ms with a
+    SOFTER send (≈0.64 vs 0.78, not hot) + warm tilt. Room opens a beat after the voice. `reverb.rs`.
+  - `dfeq_full` (peak 0.37, Δ −2.4 dB) — + crossfeed (−4.5 dB) AND subtle reverb (wet ×1.45, LP 2.75 kHz)
+    stacked conservatively. The "everything that helps" blend. `lib.rs` + `reverb.rs`.
+- **Note:** dfeq_revtilt/dfeq_predelay show the same −3.3 dB Δ as dfeq alone — the reverb refinements are
+  subtle relative to dfeq's recolor (by design). The A/B will show if they're distinguishable from dfeq.
+- **Comparisons:** _pending listen_
+- **Standings (final ELO):** _pending listen_
+- **Listener notes (by ear, per candidate):** _pending listen_
+- **Outcome:** _pending listen_
+- **Deepen / revise:** _pending listen_
+- **Promoted?** _pending_
+
 <!-- Copy the template below for each real round. Fill it in AFTER the human listens. -->
 <!--
 ### Round N — YYYY-MM-DD — <theme, e.g. "timbre + externalization">
