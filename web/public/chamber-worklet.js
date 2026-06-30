@@ -113,13 +113,17 @@ class ChamberProcessor extends AudioWorkletProcessor {
       const buf = s.buf;
       const len = buf.length;
       let c = s.cursor;
+      let finished = false;
       for (let k = 0; k < n; k++) {
+        if (c >= len) {
+          if (s.loop) { c = 0; }
+          else { heap[inBase + k] = 0; finished = true; continue; } // never read past the end (was NaN)
+        }
         heap[inBase + k] = buf[c] * s.gain;
         c++;
-        if (c >= len) { if (s.loop) c = 0; else { c = len; heap[inBase + k] = heap[inBase + k]; } }
       }
-      s.cursor = c >= len && !s.loop ? len : c % len;
-      if (c >= len && !s.loop) s.playing = false;
+      s.cursor = c;
+      if (finished) s.playing = false;
       // source struct: x,y,z,gain(=1, already applied),send
       const so = this.srcArr + idx * 5 * 4;
       dv.setFloat32(so, s.x, true);
@@ -139,8 +143,13 @@ class ChamberProcessor extends AudioWorkletProcessor {
     ex.chamber_renderer_process(this.r, this.poseP, this.srcArr, idx, this.inTab, this.outL, this.outR, n);
 
     const h = new Float32Array(ex.memory.buffer); // re-view (may have grown)
-    out[0].set(h.subarray(this.outL / 4, this.outL / 4 + n));
-    out[1].set(h.subarray(this.outR / 4, this.outR / 4 + n));
+    const lo = this.outL / 4, ro = this.outR / 4;
+    const ol = out[0], or = out[1];
+    for (let k = 0; k < n; k++) {
+      const l = h[lo + k], r = h[ro + k];
+      ol[k] = l === l ? l : 0; // NaN backstop (NaN !== NaN)
+      or[k] = r === r ? r : 0;
+    }
     return true;
   }
 }

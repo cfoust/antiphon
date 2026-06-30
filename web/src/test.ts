@@ -35,23 +35,33 @@ let tracking = false;
 const SCALE = 36; // px per metre on the top-down map
 
 // ---- audio setup ----------------------------------------------------------
-($("start") as HTMLButtonElement).onclick = async () => {
-  if (engine) { await ctx!.resume(); return; }
+/** Lazily create the audio engine on the first interaction (any click is a valid gesture).
+ *  Returns true once the engine is ready. */
+async function ensureStarted(): Promise<boolean> {
+  if (engine) { await ctx!.resume(); return true; }
   try {
     $("status").textContent = "loading…";
     ctx = new AudioContext({ sampleRate: 48000 });
     await ctx.resume(); // some browsers start suspended even inside the gesture
     engine = await WasmEngine.create(ctx, { ...ENGINE_URLS, maxSources: 24 });
     engine.connect(ctx.destination);
-    engine.setRoom(2); // hall
-    engine.setReflections(true);
+    const roomSel = document.getElementById("room") as HTMLSelectElement | null;
+    engine.setRoom(roomSel ? +roomSel.value : 2);
+    const refl = document.getElementById("refl") as HTMLInputElement | null;
+    engine.setReflections(refl ? refl.checked : true);
     $("status").textContent = `running @ ${ctx.sampleRate} Hz · ${engine.numRooms} rooms`;
     applyPose();
-    // a starter source — a looping bed so you immediately hear it (not a one-shot blip)
-    addSource({ x: 1.6, y: 0, z: -1.2 }, DEFAULT_SFX);
+    return true;
   } catch (e) {
     $("status").textContent = "error: " + (e as Error).message;
     console.error(e);
+    return false;
+  }
+}
+
+($("start") as HTMLButtonElement).onclick = async () => {
+  if ((await ensureStarted()) && sources.length === 0) {
+    addSource({ x: 1.6, y: 0, z: -1.2 }, DEFAULT_SFX); // an audible looping starter
   }
 };
 
@@ -60,8 +70,12 @@ function sfxSamples(i: number): Float32Array {
   return SFX[i].make(ctx!.sampleRate);
 }
 
+async function addSourceAt(pos: Vec3) {
+  if (await ensureStarted()) addSource(pos);
+}
+
 function addSource(pos: Vec3, forceSfx?: number) {
-  if (!engine) { $("status").textContent = "press Start first"; return; }
+  if (!engine) { void ensureStarted().then((ok) => ok && addSource(pos, forceSfx)); return; }
   const sfxIndex = forceSfx ?? (document.getElementById("sfx") as HTMLSelectElement).selectedIndex;
   const s: Src = {
     id: "s" + nextId++, pos, gain: 0.8, sfx: sfxIndex, loop: SFX[sfxIndex].loop,
@@ -103,7 +117,8 @@ function initControls() {
   const lisY = $("lisY") as HTMLInputElement;
   lisY.oninput = () => { listenerY = +lisY.value; applyPose(); };
   // optional webcam head-tracking — feeds yaw to the engine + the dev views
-  ($("track") as HTMLButtonElement).onclick = async (e) => {
+  const trackBtn = document.getElementById("track") as HTMLButtonElement | null;
+  if (trackBtn) trackBtn.onclick = async (e) => {
     const btn = e.target as HTMLButtonElement;
     if (tracking) return;
     try {
@@ -119,11 +134,13 @@ function initControls() {
       console.error(err);
     }
   };
-  ($("add") as HTMLButtonElement).onclick = () => addSource({ x: 0, y: 0, z: -2 });
-  ($("addFile") as HTMLButtonElement).onclick = () => ($("file") as HTMLInputElement).click();
+  ($("add") as HTMLButtonElement).onclick = () => addSourceAt({ x: 0, y: 0, z: -2 });
+  ($("addFile") as HTMLButtonElement).onclick = async () => {
+    if (await ensureStarted()) ($("file") as HTMLInputElement).click();
+  };
   ($("file") as HTMLInputElement).onchange = async (e) => {
     const f = (e.target as HTMLInputElement).files?.[0];
-    if (!f || !ctx || !engine) return;
+    if (!f || !(await ensureStarted()) || !ctx || !engine) return;
     const ab = await f.arrayBuffer();
     const ad = await ctx.decodeAudioData(ab);
     const mono = ad.getChannelData(0).slice();
@@ -181,9 +198,9 @@ map.addEventListener("pointerdown", (e) => {
     const [x, y] = worldToMap(sources[i].pos);
     if (Math.hypot(sx - x, sy - y) < 12) { dragging = i; selected = i; renderSources(); map.setPointerCapture(e.pointerId); return; }
   }
-  // empty space → add
+  // empty space → add (auto-starts the engine if needed)
   const w = mapToWorld(sx, sy); w.y = sources[selected]?.pos.y ?? 0;
-  addSource(w);
+  void addSourceAt(w);
 });
 map.addEventListener("pointermove", (e) => {
   if (dragging < 0) return;
