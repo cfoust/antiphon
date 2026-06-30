@@ -50,6 +50,9 @@ voice*.
 | `dfeq_erb`    | ✅ | 4 | 1516 | tie(dfeq) | regularized DFE == dfeq (cleaner, not better) → freeze the DFE per survey |
 | `revsend`     | ✅ | 4 | 1457 | loss | below baseline; decorrelated send reverb STILL lost — reverb keeps failing |
 | `hrtf_ari`    | ✅ | 4 | 1501 | tie | ARI generic set ≈ KEMAR here; inconclusive (maybe try KU100/avg) |
+| `motion_2p5`  | 🔬 | 5 | — | — | head-rotation amplification 2.5× (sweep up from motiongain 1.7×) |
+| `parallax`    | 🔬 | 5 | — | — | amplify 6DoF head-TRANSLATION parallax 2.5× (rig was orientation-only!) |
+| `interp_xfade`| 🔬 | 5 | — | — | A2: continuous (Shepard, K=4) HRTF+ITD interp — kill ear-to-ear comb on motion |
 | `fd_itd`      | ⬜ | — | — | — | frequency-dependent ITD (full LF, less HF) |
 | `near_pres`   | ⬜ | — | — | — | proximity/presence shaping for frontal sources |
 | `src_spread`  | ⬜ | — | — | — | decorrelated near-copies — give the voice size |
@@ -229,6 +232,26 @@ voice*.
   gain (1.3 / 1.7 / 2.2). (2) Reverb is 0-for-4 — likely the wrong lever for this listener/scene; shelve
   unless room-matching (mic RT60) changes it. (3) dfeq_erb can replace dfeq on main (cleaner) but no
   rush. (4) hrtf_ari inconclusive → only worth a KU100/population-average bake if motion plateaus.
+
+### Round 5 — 2026-06-30 — all-in on dynamic/spatial cues (the live rig's home turf)
+- **Rationale:** timbre is solved (`dfeq` on main); reverb is 0-for-4 (dead); the frontier is dynamic
+  cues, which only the live head-tracked rig can judge. Research backs this as the #1 non-coloring lever.
+- **⚠ Rig fix mid-stream:** discovered the live harness was sending **orientation only** — head
+  POSITION was pinned to (0,0,0), so NO translation parallax (a major externalization cue) the whole
+  time, despite the renderer supporting 6DoF. Now sends filtered head translation (toggle "6DoF
+  (lean→parallax)", default on). This alone should boost externalization for every engine.
+- **Pool (engines):** baseline, dfeq (timbre anchor), motiongain (rotation 1.7×, carried), + 3 new:
+  - `motion_2p5` — rotation amplification **2.5×** (sweep up from 1.7×). `math.rs`+`lib.rs`.
+  - `parallax` — amplify head-translation **2.5×** (lean → exaggerated source parallax); distance
+    attenuation kept on TRUE position (no loudness pumping), only the HRTF/ITD direction amplified. `lib.rs`.
+  - `interp_xfade` — A2: modified-Shepard/Franke–Little continuous K=4 interpolation of HRIR **and** ITD
+    (farthest neighbor tapers to 0 → C0-continuous as the head turns) to kill the "ear-to-ear" comb-step
+    on motion, without magnitude smoothing (preserves timbre). `hrtf.rs`.
+- **Status:** all 6 engines built + smoke-tested (load + render under a leaning pose, finite, distinct).
+  Loudness-trimmed. **Awaiting the live listen** (ideally on WIRED headphones — see scratch/latency.md).
+- **Test plan:** reset the harness (prior votes confounded by lag/Bluetooth + the orientation-only bug);
+  with 6DoF on and head moving, A/B the motion sweep (dfeq vs motiongain vs motion_2p5), parallax, and
+  interp_xfade. Also worth toggling 6DoF off/on to feel the parallax contribution directly.
 
 <!-- Copy the template below for each real round. Fill it in AFTER the human listens. -->
 <!--
