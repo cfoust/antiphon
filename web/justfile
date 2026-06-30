@@ -17,13 +17,13 @@ wasm:
 dev: wasm
     bun run dev
 
-# Renderer test harness — place sources in space, pick sci-fi SFX, switch rooms.
+# Renderer test harness — plain HTTP on :5174, opens /test.html (place sources, sci-fi SFX).
 harness: wasm
-    bun run dev --open /test.html
+    CHAMBER_HTTP=1 bun run dev --port 5174 --strictPort --open /test.html
 
 # Same harness with the 3D dev head-view enabled (shows where we think the head is).
 harness-dev: wasm
-    CHAMBER_DEV=1 bun run dev --open /test.html
+    CHAMBER_HTTP=1 VITE_DEV3D=1 bun run dev --port 5174 --strictPort --open /test.html
 
 # Type-check and build to dist/
 build: wasm

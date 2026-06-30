@@ -8,12 +8,13 @@ import { resolve } from "node:path";
 // CHAMBER_LIVE=1  → plain HTTP for the live bridge (localhost camera still works).
 // CHAMBER_DEV=1   → enables the test harness's 3D head-view (`just harness-dev`).
 const live = process.env.CHAMBER_LIVE === "1";
-const dev3d = process.env.CHAMBER_DEV === "1";
+// The harness is localhost-only and uses no camera, so it runs over plain HTTP (no
+// self-signed-cert warning). HTTPS stays on for the Chamber app (it needs the webcam).
+const noSsl = live || process.env.CHAMBER_HTTP === "1";
 
 export default defineConfig({
-  plugins: live ? [] : [basicSsl()],
+  plugins: noSsl ? [] : [basicSsl()],
   server: { host: true, open: true },
-  define: { __DEV3D__: JSON.stringify(dev3d) },
   build: {
     target: "es2022",
     sourcemap: true,

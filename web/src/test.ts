@@ -6,8 +6,8 @@
 import { WasmEngine, ENGINE_URLS, type Vec3 } from "./audio/wasmEngine";
 import { SFX } from "./audio/sfx";
 
-declare const __DEV3D__: boolean;
-const DEV3D = typeof __DEV3D__ !== "undefined" && __DEV3D__;
+// Enabled by `just harness-dev` (VITE_DEV3D=1). Vite exposes VITE_-prefixed env on import.meta.
+const DEV3D = (import.meta as { env?: Record<string, string> }).env?.VITE_DEV3D === "1";
 
 const ROOMS = ["dry", "room", "hall", "cathedral", "room (BRIR)", "hall (BRIR)"];
 const COLORS = ["#7aa2ff", "#5fd0c5", "#ffce6b", "#c08bff", "#ff9d7a", "#9aa6b8", "#6be4a0", "#e46b9a"];
