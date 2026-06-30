@@ -244,7 +244,7 @@ impl Renderer {
     /// HRTF frequency-scaling / "fit" (Middlebrooks): 1.0 = baked HRTF; >1 shifts pinna cues up
     /// (smaller head/pinna), <1 down. Personalizes the median-plane / front-back cue by ear.
     pub fn set_freq_scale(&mut self, s: f32) {
-        self.freq_scale = s.clamp(0.7, 1.4);
+        self.freq_scale = s.clamp(0.5, 2.2);
     }
 
     /// Select a room preset by index (clamped). Reconfigures the reverb.
