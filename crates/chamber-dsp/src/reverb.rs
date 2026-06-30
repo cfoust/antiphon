@@ -94,7 +94,9 @@ impl Fdn {
         // Mixing time t_mix ~ sqrt(V) ms (accepted echo-density rule). The diffuse tail starts
         // here, and the delay lines are scaled so the network reaches dense echo build-up by then.
         let vol = (dims[0] * dims[1] * dims[2]).max(1.0);
-        let t_mix_s = (vol.sqrt() / 1000.0).clamp(0.005, 0.20);
+        // t_mix ~ sqrt(V) ms, floored at 20 ms — the sqrt rule under-estimates small rooms, and we
+        // must not window out the discrete first-order reflections (they arrive ~15-20 ms).
+        let t_mix_s = (vol.sqrt() / 1000.0).clamp(0.020, 0.20);
         self.t_mix_samp = t_mix_s * self.sr;
         self.predelay = (self.t_mix_samp as usize).min(self.in_delay.len().saturating_sub(8));
 

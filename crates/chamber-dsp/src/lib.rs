@@ -174,7 +174,7 @@ impl Renderer {
         let (room, conv) = if let Some(p) = asset.rooms.first() {
             let r = Room::from_preset(p);
             fdn.configure(p.rt60[1], p.rt60[2], p.dims, p.wet);
-            let c = build_conv(&r, max_block);
+            let c = build_conv(&r, max_block, fdn.t_mix_samples());
             (r, c)
         } else {
             (Room::dry(), None)
@@ -244,7 +244,7 @@ impl Renderer {
         };
         self.fdn.configure_from(self.room.dims, self.room.wet);
         self.fdn.reset();
-        self.conv = build_conv(&self.room, self.max_block);
+        self.conv = build_conv(&self.room, self.max_block, self.fdn.t_mix_samples());
     }
 
     /// Render one block. `inputs[i]` is the mono signal for `sources[i]`; each must be
@@ -339,14 +339,13 @@ impl Renderer {
         if self.reflections_enabled && self.room.reflection_order >= 1 {
             let order = self.room.reflection_order;
             let surf = self.room.surface_abs;
-            // Window the discrete reflections out past the mixing time so they don't overlap the
-            // FDN tail (which begins at t_mix). Smoothly faded across t_mix..1.5·t_mix so motion
-            // stays click-free. Only for the FDN backend; the conv IR owns its own early+late.
-            let (win_edge, win_trans) = if fdn {
-                (self.fdn.t_mix_samples(), (0.5 * self.fdn.t_mix_samples()).max(1.0))
-            } else {
-                (f32::INFINITY, 1.0)
-            };
+            // Hand the discrete reflections off to the late tail at the mixing time: the ISM owns
+            // [0, t_mix], the late stage owns [t_mix, ∞). Equal-power fade-out across
+            // t_mix..1.5·t_mix (click-free), complementary to the late stage's fade-in — for the
+            // FDN (pre-delayed to t_mix) AND the BRIR (gated to its late tail by build_conv, so the
+            // translating ISM provides the early reflections the fixed BRIR can't).
+            let win_edge = self.fdn.t_mix_samples();
+            let win_trans = (0.5 * win_edge).max(1.0);
 
             let head_pos = self.head_pos;
             let dims = self.room.dims;
@@ -397,8 +396,9 @@ impl Renderer {
                         // the high/mid ratio darkens the one-pole so carpet-heavy paths roll off
                         // HF more (LF-vs-mid shelf is a later refinement).
                         let g = band_gain(&surf, &bounces);
-                        // fade the image out as its arrival crosses the mixing time (FDN takes over)
-                        let win = (1.0 - (predelay - win_edge) / win_trans).clamp(0.0, 1.0);
+                        // equal-power fade-out as arrival crosses t_mix (late stage takes over)
+                        let f = ((predelay - win_edge) / win_trans).clamp(0.0, 1.0);
+                        let win = (1.0 - f).sqrt();
                         let igain = gain * g[1] * distance_atten(idist) * win;
                         let hf_tilt = if g[1] > 1e-6 { (g[2] / g[1]).clamp(0.05, 1.0) } else { 1.0 };
                         let ilp = (air_lp(idist) * hf_tilt).clamp(0.05, 1.0);
@@ -464,15 +464,26 @@ impl Renderer {
 
 
 /// Build a convolution reverb for a room if it uses a BRIR; otherwise None.
-fn build_conv(room: &Room, max_block: usize) -> Option<ConvReverb> {
+fn build_conv(room: &Room, max_block: usize, t_mix_samp: f32) -> Option<ConvReverb> {
     if room.backend == ReverbBackend::Convolution && !room.ir_left.is_empty() {
-        Some(ConvReverb::new(
-            128,
-            &room.ir_left,
-            &room.ir_right,
-            room.wet,
-            max_block,
-        ))
+        // B0 (report 06 §4): keep the measured BRIR for the DIFFUSE LATE TAIL only. Its early
+        // reflections are baked at one listening point and don't translate; the analytic ISM
+        // (which does translate with the listener) now owns the early part. Fade the IR in across
+        // the mixing time, equal-power-complementary to the ISM fade-OUT, so they cross at t_mix.
+        let win_late = |ir: &[f32]| -> Vec<f32> {
+            let edge = t_mix_samp;
+            let trans = (0.5 * t_mix_samp).max(1.0);
+            ir.iter()
+                .enumerate()
+                .map(|(j, &v)| {
+                    let f = ((j as f32 - edge) / trans).clamp(0.0, 1.0);
+                    v * f.sqrt() // equal-power fade-in (complements ISM's sqrt fade-out)
+                })
+                .collect()
+        };
+        let irl = win_late(&room.ir_left);
+        let irr = win_late(&room.ir_right);
+        Some(ConvReverb::new(128, &irl, &irr, room.wet, max_block))
     } else {
         None
     }
