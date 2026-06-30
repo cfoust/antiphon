@@ -60,6 +60,7 @@
   <div class="row">
     <button id="setfwd">set “forward” (look at screen)</button>
     <label class="pill"><input type="checkbox" id="invyaw" /> invert yaw</label>
+    <label class="pill"><input type="checkbox" id="sixdof" checked /> 6DoF (lean→parallax)</label>
     <span class="pill">source az
       <select id="az">
         <option value="-30" selected>30° right</option>
@@ -105,7 +106,8 @@ const $ = id => document.getElementById(id);
 let cands = [], R = {}, games = {}, history = [], pair = null, sel = "A", lastPair = "";
 let ctx = null, node = null, loaded = new Set(), wasmCache = new Map(), assetCache = new Map();
 const DEFAULT_ASSET = "chamber-kemar.chamber";
-let landmarker = null, video = null, neutral = null, curYaw = 0, curPitch = 0, curYawV = 0, curPitchV = 0, live = false;
+let landmarker = null, video = null, neutral = null, curYaw = 0, curPitch = 0, curYawV = 0, curPitchV = 0, curX = 0, curY = 0, curZ = 0, live = false;
+const POS_SCALE = 0.012; // matrix translation -> world metres-ish (head lean -> source parallax)
 let predictSec = 0.045; // velocity-prediction lookahead (s); set ADAPTIVELY to the measured total latency
 
 // One Euro filter: cutoff rises with speed -> low lag while moving, smooth at rest. The old fixed
@@ -123,6 +125,7 @@ class OneEuro {
   }
 }
 const yawF = new OneEuro(), pitchF = new OneEuro();
+const posXF = new OneEuro(0.6, 0.4), posYF = new OneEuro(0.6, 0.4), posZF = new OneEuro(0.6, 0.4); // position is noisier -> gentler
 
 const key = () => "elo-live:" + cands.map(c => c.name).sort().join(",");
 
@@ -265,7 +268,8 @@ async function startTracking() {
         const m = mats[0].data;
         curYaw = yawF.filter(Math.atan2(m[8], m[10]) * 180 / Math.PI, ts); curYawV = yawF.v;
         curPitch = pitchF.filter(Math.atan2(-m[9], m[5]) * 180 / Math.PI, ts); curPitchV = pitchF.v;
-        if (!neutral) neutral = { yaw: curYaw, pitch: curPitch };
+        curX = posXF.filter(m[12], ts); curY = posYF.filter(m[13], ts); curZ = posZF.filter(m[14], ts);
+        if (!neutral) neutral = { yaw: curYaw, pitch: curPitch, x: curX, y: curY, z: curZ };
         live = true; pushPose();
       }
       detCount++;
@@ -303,14 +307,17 @@ function pushPose() {
   const pitch = ((curPitch - neutral.pitch) + curPitchV * predictSec) * Math.PI / 180;
   // yaw about +y, pitch about +x  (q = qYaw ⊗ qPitch)
   const w1 = Math.cos(yaw / 2), a = Math.sin(yaw / 2), w2 = Math.cos(pitch / 2), b = Math.sin(pitch / 2);
-  const pose = { px: 0, py: 0, pz: 0, qw: w1 * w2, qx: w1 * b, qy: a * w2, qz: -a * b };
+  // 6DoF: feed head translation (neutral-relative) so leaning gives source parallax. +x right, +y up, front -z.
+  const s6 = $("sixdof").checked ? POS_SCALE : 0;
+  const px = -(curX - neutral.x) * s6, py = (curY - neutral.y) * s6, pz = (curZ - neutral.z) * s6;
+  const pose = { px, py, pz, qw: w1 * w2, qx: w1 * b, qy: a * w2, qz: -a * b };
   node.port.postMessage({ type: "pose", pose });
   $("yaw").textContent = Math.round((curYaw - neutral.yaw)) + "°";
 }
 
 // ---- wire UI ----
 $("start").onclick = () => startAll();
-$("setfwd").onclick = () => { if (live) neutral = { yaw: curYaw, pitch: curPitch }; };
+$("setfwd").onclick = () => { if (live) neutral = { yaw: curYaw, pitch: curPitch, x: curX, y: curY, z: curZ }; };
 $("btnA").onclick = () => switchTo("A"); $("btnB").onclick = () => switchTo("B");
 $("voteA").onclick = () => vote(1); $("voteB").onclick = () => vote(0); $("voteDraw").onclick = () => vote(0.5);
 $("az").onchange = () => { if (node) { const p = srcPos(); node.port.postMessage({ type: "source", x: p.x, y: p.y, z: p.z }); } };
