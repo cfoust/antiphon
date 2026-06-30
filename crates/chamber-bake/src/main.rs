@@ -67,11 +67,27 @@ fn main() {
         } else {
             (Vec::new(), Vec::new())
         };
+        // Per-surface 3-band absorption from the broadband coefficient. Real materials absorb
+        // high frequencies more (so the reflected spectrum darkens), and a carpeted/occupied
+        // floor far more than the walls — giving the early reflections a direction-dependent
+        // colour. Bands = [low, mid, high]; surfaces = [+x, -x, +y ceiling, -y floor, +z, -z].
+        let band = |a: f32, hf: f32| -> [f32; 3] {
+            [(a * 0.65).clamp(0.0, 0.95), a.clamp(0.0, 0.95), (a * hf).clamp(0.0, 0.95)]
+        };
+        let surface_abs = [
+            band(abs, 1.4), // +x wall
+            band(abs, 1.4), // -x wall
+            band(abs, 1.7), // +y ceiling
+            band(abs, 2.6), // -y floor (carpet/people: strong HF absorption)
+            band(abs, 1.4), // +z wall
+            band(abs, 1.4), // -z wall
+        ];
         b.push_room(RoomPreset {
             name: name.into(),
             dims,
             rt60,
             wall_absorption: abs,
+            surface_abs,
             reflection_order: order,
             wet,
             backend,

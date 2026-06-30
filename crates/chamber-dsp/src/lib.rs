@@ -23,10 +23,11 @@ use voice::Voice;
 
 pub const SPEED_OF_SOUND: f32 = 343.0;
 const MAX_ITD_SAMPLES: usize = 64; // ~1.3 ms @48k
-/// Image sources rendered per source, in a **fixed** order (lowest reflection order first).
-/// Each image keeps a stable voice slot across blocks, so head motion never reshuffles
-/// slots — which would otherwise click on every swap. 6 = the first-order shoebox walls.
-const REFLECT_PER_SOURCE: usize = 6;
+/// Image sources rendered per source. The **K loudest** images (energy-ranked by a
+/// listener-independent proxy, so the image→slot map stays stable as the listener moves — no
+/// reshuffle clicks) are kept, drawn from the full order-≤2 enumeration rather than just the
+/// six first-order walls. Each image keeps a stable voice slot across blocks.
+const REFLECT_PER_SOURCE: usize = 8;
 /// Reflections use a shorter HRIR than the direct path — they're spectrally less critical,
 /// and this keeps the per-image cost low enough for real time (esp. WASM).
 const REFL_TAPS: usize = 64;
@@ -77,6 +78,8 @@ struct Room {
     dims: [f32; 3],
     reflection_order: u32,
     wall_absorption: f32,
+    /// Per-surface 3-band absorption, surfaces [+x, -x, +y, -y, +z, -z], bands [low, mid, high].
+    surface_abs: [[f32; 3]; 6],
     wet: f32,
     backend: ReverbBackend,
     ir_left: Vec<f32>,
@@ -89,6 +92,7 @@ impl Room {
             dims: p.dims,
             reflection_order: p.reflection_order,
             wall_absorption: p.wall_absorption,
+            surface_abs: p.surface_abs,
             wet: p.wet,
             backend: p.backend,
             ir_left: p.ir_left.clone(),
@@ -100,6 +104,7 @@ impl Room {
             dims: [8.0, 4.0, 10.0],
             reflection_order: 0,
             wall_absorption: 1.0,
+            surface_abs: [[1.0; 3]; 6],
             wet: 0.0,
             backend: ReverbBackend::Fdn,
             ir_left: Vec::new(),
@@ -231,6 +236,7 @@ impl Renderer {
             dims: src.dims,
             reflection_order: src.reflection_order,
             wall_absorption: src.wall_absorption,
+            surface_abs: src.surface_abs,
             wet: src.wet,
             backend: src.backend,
             ir_left: src.ir_left.clone(),
@@ -326,40 +332,60 @@ impl Renderer {
         // ---- image-source early reflections (order 1..2, global energy budget) ----
         if self.reflections_enabled && self.room.reflection_order >= 1 {
             let order = self.room.reflection_order;
-            let refl_coeff = (1.0 - self.room.wall_absorption).max(0.0); // per bounce
-            let wall_abs = self.room.wall_absorption;
+            let surf = self.room.surface_abs;
 
             let head_pos = self.head_pos;
             let dims = self.room.dims;
             let per = REFLECT_PER_SOURCE;
-            // Each source owns a fixed slot range. Its images are enumerated in a fixed
-            // order (lowest reflection order first), so image -> slot is stable across
-            // blocks: no reshuffling, no clicks as the head moves.
+            // Each source owns a fixed slot range. We keep the K LOUDEST images, ranked by a
+            // listener-independent energy proxy (mid-band path gain / distance from the room
+            // centre, where the listener sits), so the image→slot map is stable as the listener
+            // moves — no reshuffle clicks. Fixed-size top-K insertion: no alloc, deterministic.
             for i in 0..n {
                 let s = sources[i].position;
                 let gain = sources[i].gain;
                 let direct_dist = self.src_dist[i];
 
-                // collect up to `per` images in stable order (no alloc)
-                let mut imgs = [(Vec3::new(0.0, 0.0, 0.0), 0u32); REFLECT_PER_SOURCE];
+                // (pos, order, per-surface bounces, energy proxy), held descending by energy.
+                let mut imgs =
+                    [(Vec3::new(0.0, 0.0, 0.0), 0u32, [0u32; 6], f32::NEG_INFINITY); REFLECT_PER_SOURCE];
                 let mut count = 0usize;
-                shoebox_images(s, dims, order, |pos, ord| {
+                shoebox_images(s, dims, order, |pos, ord, bounces| {
+                    let g = band_gain(&surf, &bounces);
+                    let e = g[1] / pos.len().max(0.1); // mid-band, listener-independent
                     if count < per {
-                        imgs[count] = (pos, ord);
+                        imgs[count] = (pos, ord, bounces, e);
+                        let mut j = count;
+                        while j > 0 && imgs[j].3 > imgs[j - 1].3 {
+                            imgs.swap(j, j - 1);
+                            j -= 1;
+                        }
                         count += 1;
+                    } else if e > imgs[per - 1].3 {
+                        imgs[per - 1] = (pos, ord, bounces, e);
+                        let mut j = per - 1;
+                        while j > 0 && imgs[j].3 > imgs[j - 1].3 {
+                            imgs.swap(j, j - 1);
+                            j -= 1;
+                        }
                     }
                 });
 
                 for k in 0..per {
                     let slot = i * per + k;
                     if k < count {
-                        let (pos, ord) = imgs[k];
+                        let (pos, _ord, bounces, _e) = imgs[k];
                         let rel = inv_head.rotate(pos.sub(head_pos));
                         let idist = rel.len().max(0.05);
                         let idir = rel.normalized();
                         let predelay = (idist - direct_dist).max(0.0) / SPEED_OF_SOUND * self.sr;
-                        let igain = gain * refl_coeff.powi(ord as i32) * distance_atten(idist);
-                        let ilp = (air_lp(idist) * (1.0 - 0.4 * wall_abs * ord as f32)).clamp(0.05, 1.0);
+                        // per-surface, 3-band reflection gain. Mid band sets the broadband level;
+                        // the high/mid ratio darkens the one-pole so carpet-heavy paths roll off
+                        // HF more (LF-vs-mid shelf is a later refinement).
+                        let g = band_gain(&surf, &bounces);
+                        let igain = gain * g[1] * distance_atten(idist);
+                        let hf_tilt = if g[1] > 1e-6 { (g[2] / g[1]).clamp(0.05, 1.0) } else { 1.0 };
+                        let ilp = (air_lp(idist) * hf_tilt).clamp(0.05, 1.0);
                         let rt = self.refl_taps;
                         let iitd = self.db.interp(idir, &mut self.hrir_l, &mut self.hrir_r);
                         self.reflect[slot].set_target(
@@ -458,15 +484,56 @@ fn soft_limit(x: f32, limit: f32) -> f32 {
     limit * (x / limit).tanh()
 }
 
+/// 3-band reflection gain for an image: the product over surfaces of `(1 - absorption)^bounces`,
+/// per band. Deterministic (`powi`, no transcendentals) → parity-safe. `surf` surfaces are
+/// `[+x, -x, +y, -y, +z, -z]`, bands `[low, mid, high]`.
+#[inline]
+fn band_gain(surf: &[[f32; 3]; 6], bounces: &[u32; 6]) -> [f32; 3] {
+    let mut g = [1.0f32; 3];
+    for s in 0..6 {
+        let n = bounces[s] as i32;
+        if n == 0 {
+            continue;
+        }
+        for b in 0..3 {
+            g[b] *= (1.0 - surf[s][b]).max(0.0).powi(n);
+        }
+    }
+    g
+}
+
+/// Bounce counts per surface `[+x, -x, +y, -y, +z, -z]` for a shoebox image with mirror indices
+/// `(mx, my, mz)`. Along each axis the image undergoes `|m|` reflections alternating between the
+/// two walls; we split them evenly, giving the leftover (odd) bounce to the wall on the side the
+/// image is mirrored toward. Deterministic — only matters when the two walls differ (floor vs
+/// ceiling) — and parity-safe.
+fn surface_bounces(mx: i32, my: i32, mz: i32) -> [u32; 6] {
+    // returns (neg_wall_bounces, pos_wall_bounces) for one axis
+    let split = |m: i32| -> (u32, u32) {
+        let a = m.unsigned_abs();
+        let (h, odd) = (a / 2, a % 2);
+        if odd == 0 {
+            (h, h)
+        } else if m > 0 {
+            (h, h + 1) // mirrored toward +: extra bounce on the + wall
+        } else {
+            (h + 1, h)
+        }
+    };
+    let (xn, xp) = split(mx);
+    let (yn, yp) = split(my);
+    let (zn, zp) = split(mz);
+    [xp, xn, yp, yn, zp, zn] // [+x, -x, +y, -y, +z, -z]
+}
+
 /// Enumerate shoebox image sources up to `order` for a room centred at the origin with
 /// walls at ±dim/2. For a 1-D room the image of source `s` is `m*L + (-1)^m * s`; the 3-D
-/// images are the product, with reflection order `|mx|+|my|+|mz|`. Calls `push(pos, order)`
-/// for each image (excluding the direct path, order 0).
-fn shoebox_images(s: Vec3, dims: [f32; 3], order: u32, mut push: impl FnMut(Vec3, u32)) {
+/// images are the product, with reflection order `|mx|+|my|+|mz|`. Calls
+/// `push(pos, order, surface_bounces)` for each image (excluding the direct path, order 0).
+fn shoebox_images(s: Vec3, dims: [f32; 3], order: u32, mut push: impl FnMut(Vec3, u32, [u32; 6])) {
     let o = order as i32;
     let (lx, ly, lz) = (dims[0], dims[1], dims[2]);
     let axis = |m: i32, l: f32, c: f32| m as f32 * l + if m & 1 == 0 { c } else { -c };
-    // emit lowest reflection order first so a fixed-size take keeps the loudest images
     for target in 1..=o {
         for mx in -o..=o {
             for my in -o..=o {
@@ -477,6 +544,7 @@ fn shoebox_images(s: Vec3, dims: [f32; 3], order: u32, mut push: impl FnMut(Vec3
                     push(
                         Vec3::new(axis(mx, lx, s.x), axis(my, ly, s.y), axis(mz, lz, s.z)),
                         target as u32,
+                        surface_bounces(mx, my, mz),
                     );
                 }
             }
@@ -509,6 +577,7 @@ mod tests {
             dims: [5.0, 3.0, 6.0],
             rt60: [0.5, 0.4, 0.3],
             wall_absorption: 0.2,
+            surface_abs: [[0.13, 0.2, 0.34]; 6],
             reflection_order: 1,
             wet: 0.25,
             backend: ReverbBackend::Fdn,

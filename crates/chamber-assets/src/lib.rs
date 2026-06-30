@@ -28,7 +28,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 pub const MAGIC: [u8; 4] = *b"CHMB";
-pub const FORMAT_VERSION: u32 = 2;
+/// v3 adds per-surface 3-band absorption to each room. v2 assets still parse (the broadband
+/// `wall_absorption` is replicated across all surfaces/bands).
+pub const FORMAT_VERSION: u32 = 3;
 
 /// Reverb backend a room preset asks the engine to use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,7 +74,13 @@ pub struct RoomPreset {
     /// Target RT60 (seconds) in low / mid / high bands.
     pub rt60: [f32; 3],
     /// Broadband wall absorption coefficient 0..1 (image-source attenuation per bounce).
+    /// Retained for back-compat / as the fallback when per-surface data is absent.
     pub wall_absorption: f32,
+    /// Per-surface 3-band absorption coefficients (0..1). Surfaces in the order
+    /// `[+x, -x, +y(ceiling), -y(floor), +z, -z]`; bands `[low, mid, high]`. Real rooms absorb
+    /// high frequencies more, and the floor (carpet/people) more than the walls — this is what
+    /// lets the image-source reflections carry a believable, direction-dependent spectrum.
+    pub surface_abs: [[f32; 3]; 6],
     /// Highest image-source reflection order to compute (0 disables early reflections).
     pub reflection_order: u32,
     /// Wet gain applied to the reverb bus for this preset.
@@ -142,7 +150,7 @@ impl ChamberAsset {
             return Err(ParseError::BadMagic);
         }
         let version = c.u32()?;
-        if version != FORMAT_VERSION {
+        if version != 2 && version != 3 {
             return Err(ParseError::BadVersion(version));
         }
         let sample_rate = c.f32()?;
@@ -188,6 +196,15 @@ impl ChamberAsset {
             let dims = [c.f32()?, c.f32()?, c.f32()?];
             let rt60 = [c.f32()?, c.f32()?, c.f32()?];
             let wall_absorption = c.f32()?;
+            // v3: per-surface 3-band absorption; v2: replicate the broadband scalar.
+            let mut surface_abs = [[wall_absorption; 3]; 6];
+            if version >= 3 {
+                for s in 0..6 {
+                    for b in 0..3 {
+                        surface_abs[s][b] = c.f32()?;
+                    }
+                }
+            }
             let reflection_order = c.u32()?;
             let wet = c.f32()?;
             let backend = ReverbBackend::from_u32(c.u32()?);
@@ -205,6 +222,7 @@ impl ChamberAsset {
                 dims,
                 rt60,
                 wall_absorption,
+                surface_abs,
                 reflection_order,
                 wet,
                 backend,
@@ -313,6 +331,12 @@ mod build {
                 ] {
                     o.extend_from_slice(&v.to_le_bytes());
                 }
+                // v3: per-surface 3-band absorption (6 surfaces x 3 bands)
+                for s in &r.surface_abs {
+                    for v in s {
+                        o.extend_from_slice(&v.to_le_bytes());
+                    }
+                }
                 o.extend_from_slice(&r.reflection_order.to_le_bytes());
                 o.extend_from_slice(&r.wet.to_le_bytes());
                 o.extend_from_slice(&(r.backend as u32).to_le_bytes());
@@ -348,6 +372,7 @@ mod tests {
             dims: [10.0, 6.0, 14.0],
             rt60: [2.0, 1.8, 1.2],
             wall_absorption: 0.08,
+            surface_abs: [[0.05, 0.08, 0.16]; 6],
             reflection_order: 2,
             wet: 0.3,
             backend: ReverbBackend::Fdn,
@@ -359,6 +384,7 @@ mod tests {
             dims: [4.0, 3.0, 5.0],
             rt60: [1.0, 0.9, 0.6],
             wall_absorption: 0.1,
+            surface_abs: [[0.06, 0.1, 0.2]; 6],
             reflection_order: 0,
             wet: 0.3,
             backend: ReverbBackend::Convolution,

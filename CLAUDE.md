@@ -32,7 +32,8 @@ web/               Vite/Bun TS app + AudioWorklet (public/chamber-worklet.js) ru
 
 Signal flow per source: minimum-phase HRIR FIR (128 taps, SIMD via `wide` f32x8) on the direct
 path + separate fractional-delay ITD + distance/air-absorption → order-2 shoebox image-source
-early reflections (energy-ranked, global 48-voice budget) → late reverb (16-line FDN *or*
+early reflections (per-surface 3-band absorption; the loudest images kept per source via an
+energy-ranked, listener-independent top-K budget, 8 images/source) → late reverb (16-line FDN *or*
 partitioned BRIR convolution, selectable per room preset). Coefficients ramp per block for
 click-free motion.
 
