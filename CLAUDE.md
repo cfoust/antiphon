@@ -101,3 +101,5 @@ node tools/parity.mjs                                        # asserts native �
 - `docs/sofa.md` — measured SOFA importer (strict fidelity upgrade over the analytic placeholder).
 - `web/justfile` — all web + live-mode (MCP/WebSocket/TTS bridge) recipes.
 - The `scratch/` dir holds an earlier native spike; the live app is `native/ChamberApp`.
+- `tools/shootout/SUPERVISOR.md` — (on the `research/shootout` branch) cold-start guide for the
+  blind-ELO renderer-fidelity experiment: spawn candidate agents, loudness-match, A/B by ear.
