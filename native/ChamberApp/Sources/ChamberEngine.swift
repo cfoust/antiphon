@@ -3,6 +3,10 @@ import Combine
 import Foundation
 import QuartzCore
 
+/// Level of the accept chime when mixed into an agent's spatialized voice. Higher than the old
+/// centred level (~0.6) to offset the distance attenuation + HRTF the spatial path applies.
+let CHIME_GAIN: Float = 0.85
+
 func rad(_ d: Double) -> Double { d * .pi / 180 }
 func deg(_ r: Double) -> Double { r * 180 / .pi }
 func angdiff(_ a: Double, _ b: Double) -> Double {
@@ -76,6 +80,7 @@ final class AgentRuntime {
     // one-shot triggers (atomic-enough Int counters)
     var pingTrig = 0, pingSeen = 0
     var summaryTrig = 0, summarySeen = 0
+    var chimeCur = -1, chimeTrig = 0, chimeSeen = 0  // accept chime, spatialized from this agent
     var summaryDone = false
 
     // state-machine fields
@@ -117,8 +122,6 @@ final class ChamberEngine: ObservableObject {
 
     private var agents: [AgentRuntime] = []
     private var chime: [Float] = []
-    private var chimeCur = -1, chimeTrig = 0, chimeSeen = 0
-    private var gChime: Float = 0
 
     private let q = DispatchQueue(label: "chamber.state")
     private var timer: DispatchSourceTimer?
@@ -227,6 +230,7 @@ final class ChamberEngine: ObservableObject {
         for (ai, a) in agents.enumerated() {
             if a.pingTrig != a.pingSeen { a.pingSeen = a.pingTrig; a.pingCur = 0 }
             if a.summaryTrig != a.summarySeen { a.summarySeen = a.summaryTrig; a.summaryCur = 0 }
+            if a.chimeTrig != a.chimeSeen { a.chimeSeen = a.chimeTrig; a.chimeCur = 0 }
             let buf = inBufs[ai]
             let gc = a.gClear, gw = a.gWhisper, gs = a.gStat, gp = a.gPing, gsum = a.gSummary
             for k in 0..<n {
@@ -235,6 +239,8 @@ final class ChamberEngine: ObservableObject {
                 if !a.whisper.isEmpty { s += a.whisper[a.whisperCur] * gw; a.whisperCur = (a.whisperCur + 1) % a.whisper.count }
                 if !a.stat.isEmpty { s += a.stat[a.statCur] * gs; a.statCur = (a.statCur + 1) % a.stat.count }
                 if a.pingCur >= 0 { s += a.ping[a.pingCur] * gp; a.pingCur += 1; if a.pingCur >= a.ping.count { a.pingCur = -1 } }
+                // accept chime: spatialized through this agent's voice (was a centred, in-head one-shot)
+                if a.chimeCur >= 0 { s += chime[a.chimeCur] * CHIME_GAIN; a.chimeCur += 1; if a.chimeCur >= chime.count { a.chimeCur = -1 } }
                 if a.summaryCur >= 0 {
                     s += a.summary[a.summaryCur] * gsum; a.summaryCur += 1
                     if a.summaryCur >= a.summary.count { a.summaryCur = -1; a.summaryDone = true }
@@ -259,16 +265,7 @@ final class ChamberEngine: ObservableObject {
                                qw: Float(cos(h)), qx: 0, qy: Float(-sin(h)), qz: 0)
         renderer.process(pose: &pose, sources: UnsafePointer(srcArr), n: agents.count,
                          inputs: UnsafePointer(inTable), outL: outL, outR: outR, frames: n)
-
-        // chime: non-spatial one-shot, added centred
-        if chimeTrig != chimeSeen { chimeSeen = chimeTrig; chimeCur = 0 }
-        if chimeCur >= 0 {
-            for k in 0..<n where chimeCur >= 0 {
-                let c = chime[chimeCur] * gChime
-                outL[k] += c; outR[k] += c
-                chimeCur += 1; if chimeCur >= chime.count { chimeCur = -1 }
-            }
-        }
+        // (the accept chime is now mixed into its agent's voice above, so it is spatialized.)
     }
 
     // MARK: inputs from the head tracker
@@ -370,7 +367,6 @@ final class ChamberEngine: ObservableObject {
             a.gWhisper += (whisper - a.gWhisper) * 0.15
             a.gStat += (stat - a.gStat) * 0.15
         }
-        gChime += (0 - gChime) * 0.02 // decays after each trigger sets it high
     }
 
     // MARK: transitions
@@ -392,8 +388,7 @@ final class ChamberEngine: ObservableObject {
         guard a.state == .done else { return }
         a.state = .summarizing
         lingerIdx = -1
-        gChime = 0.6
-        chimeTrig += 1
+        a.chimeTrig += 1  // spatial accept chime from this agent
         q.asyncAfter(deadline: .now() + 0.65) {
             guard a.state == .summarizing, !a.summary.isEmpty else { return }
             a.gSummary = 0.95
