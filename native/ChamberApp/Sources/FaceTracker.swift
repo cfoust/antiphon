@@ -39,13 +39,18 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     /// Capture the current head position as the neutral/origin (call after calibration).
     func resetNeutral() { nPx = sPx; nPy = sPy; nPz = sPz; posInit = true }
 
-    /// Use the PnP solver (landmarks -> 6DoF) when landmarks are available; falls back to
-    /// Vision's yaw + the bbox position estimate otherwise.
+    /// Use the PnP solver (landmarks -> 6DoF). On while we validate the coordinate
+    /// conventions on-device (see `debug` for the live solver output).
     var usePnP = true
+
+    /// Live diagnostics for the PnP path (shown in the app's debug panel).
+    @Published var debug = ""
 
     let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "chamber.spike.face")
-    private var request: VNDetectFaceLandmarksRequest!
+    // Rectangles request (smooth yaw/pitch, low cost) when PnP is off; the landmarks request
+    // is created instead when PnP is enabled (it also yields yaw/pitch).
+    private var request: VNImageBasedRequest!
     private var currentInput: AVCaptureDeviceInput?
     private var frameCount = 0
     private var lastTick = CFAbsoluteTimeGetCurrent()
@@ -54,9 +59,15 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 
     override init() {
         super.init()
-        // Landmarks request gives yaw/pitch AND the 2D landmarks the PnP solver needs.
-        request = VNDetectFaceLandmarksRequest(completionHandler: { [weak self] req, _ in self?.handle(req) })
-        if #available(macOS 12.0, *) { request.revision = VNDetectFaceLandmarksRequestRevision3 }
+        if usePnP {
+            let req = VNDetectFaceLandmarksRequest(completionHandler: { [weak self] r, _ in self?.handle(r) })
+            if #available(macOS 12.0, *) { req.revision = VNDetectFaceLandmarksRequestRevision3 }
+            request = req
+        } else {
+            let req = VNDetectFaceRectanglesRequest(completionHandler: { [weak self] r, _ in self?.handle(r) })
+            if #available(macOS 12.0, *) { req.revision = VNDetectFaceRectanglesRequestRevision3 }
+            request = req
+        }
     }
 
     private func discover() -> [AVCaptureDevice] {
@@ -147,36 +158,49 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         try? handler.perform([request])
     }
 
-    /// Extract the 6 PnP model landmarks (pixels, model order) and solve head pose.
-    /// Returns yaw in radians + camera-frame position (metres). Best-effort; needs
-    /// per-device validation (Vision landmark conventions + camera mirroring).
+    /// The 6 detected model landmarks in normalized image coords (0..1, y-up), for the
+    /// debug overlay: [nose, chin, left-eye, right-eye, mouth-L, mouth-R].
+    @Published var landmarks01: [CGPoint] = []
+
+    /// Extract the 6 PnP model landmarks (pixels, model order), solve head pose, and publish
+    /// diagnostics. Returns yaw (radians) + camera-frame position (metres), or nil to fall
+    /// back. The coordinate conventions are being validated on-device via the debug overlay.
     private func solvePose(_ face: VNFaceObservation) -> (yaw: Double, pos: (Double, Double, Double))? {
-        guard imageW > 0, imageH > 0, let lm = face.landmarks else { return nil }
+        guard imageW > 0, imageH > 0, let lm = face.landmarks else {
+            DispatchQueue.main.async { self.debug = "no landmarks" }
+            return nil
+        }
         let w = imageW, h = imageH
         func pix(_ region: VNFaceLandmarkRegion2D?) -> [CGPoint] {
             region?.pointsInImage(imageSize: CGSize(width: w, height: h)) ?? []
         }
         let nose = pix(lm.nose), contour = pix(lm.faceContour)
         let le = pix(lm.leftEye), re = pix(lm.rightEye), lips = pix(lm.outerLips)
-        guard !nose.isEmpty, !contour.isEmpty, !le.isEmpty, !re.isEmpty, !lips.isEmpty else { return nil }
-        // Vision pixel coords are y-up, origin bottom-left; PnP wants y-down + un-mirrored x.
-        func conv(_ p: CGPoint) -> (Float, Float) { (Float(Double(w) - Double(p.x)), Float(Double(h) - Double(p.y))) }
+        guard !nose.isEmpty, !contour.isEmpty, !le.isEmpty, !re.isEmpty, !lips.isEmpty else {
+            DispatchQueue.main.async { self.debug = "missing landmark region(s)" }
+            return nil
+        }
         let noseTip = nose.min(by: { $0.y < $1.y })!     // bottom-most nose point
         let chin = contour.min(by: { $0.y < $1.y })!     // bottom-most contour point
         let leOuter = le.min(by: { $0.x < $1.x })!
         let reOuter = re.max(by: { $0.x < $1.x })!
         let mouthL = lips.min(by: { $0.x < $1.x })!
         let mouthR = lips.max(by: { $0.x < $1.x })!
+        let imgPts = [noseTip, chin, leOuter, reOuter, mouthL, mouthR]
+        let norm = imgPts.map { CGPoint(x: $0.x / Double(w), y: $0.y / Double(h)) }
+
+        // PnP input: y-down + un-mirrored x (current best guess; being validated).
         var flat = [Float]()
-        for pt in [noseTip, chin, leOuter, reOuter, mouthL, mouthR] {
-            let c = conv(pt); flat.append(c.0); flat.append(c.1)
-        }
+        for pt in imgPts { flat.append(Float(Double(w) - pt.x)); flat.append(Float(Double(h) - pt.y)) }
         var ypr = [Float](repeating: 0, count: 3)
         var pos = [Float](repeating: 0, count: 3)
         var err: Float = 0
         let ok = flat.withUnsafeBufferPointer {
             chamber_solve_head_pose($0.baseAddress, 6, Float(w), Float(w) / 2, Float(h) / 2, &ypr, &pos, &err)
         }
+        let dbg = String(format: "img %dx%d  PnP %@  err %.1f px\nyaw %+.0f°  pitch %+.0f°  roll %+.0f°\npos  x %+.2f  y %+.2f  z %+.2f m",
+                         w, h, ok == 1 ? "ok" : "FAIL", err, ypr[0], ypr[1], ypr[2], pos[0], pos[1], pos[2])
+        DispatchQueue.main.async { self.landmarks01 = norm; self.debug = dbg }
         guard ok == 1, err < 25 else { return nil }
         return (yaw: rad(Double(ypr[0])), pos: (Double(pos[0]), Double(pos[1]), Double(pos[2])))
     }

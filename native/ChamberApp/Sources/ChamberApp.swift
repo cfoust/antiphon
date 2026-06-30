@@ -15,6 +15,7 @@ struct ContentView: View {
     @StateObject private var engine = ChamberEngine()
     @State private var enabled = false
     @State private var live = false
+    @State private var showDebug = false
     @State private var calArrow = ""
     @State private var calText = ""
     private let rooms = ["dry", "room", "hall", "cathedral", "room (BRIR)", "hall (BRIR)"]
@@ -53,8 +54,12 @@ struct ContentView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16))
             }
 
+            if showDebug {
+                TrackingDebugView(tracker: tracker) { showDebug = false }
+            }
+
             // intro gate
-            if !live && calText.isEmpty {
+            if !live && calText.isEmpty && !showDebug {
                 introCard
             }
         }
@@ -79,6 +84,8 @@ struct ContentView: View {
                     .disabled(!tracker.faceFound)
                 Text(tracker.faceFound ? "Head tracking ready" : "Looking for your face…")
                     .font(.caption).foregroundStyle(tracker.faceFound ? .green : .secondary)
+                Button("Debug tracking →") { showDebug = true }
+                    .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
             }
             if !engine.hrtfName.isEmpty {
                 Text(engine.hrtfName).font(.caption2).foregroundStyle(.tertiary)
@@ -113,6 +120,8 @@ struct ContentView: View {
         enabled = true
     }
 
+    private func startDebug() { showDebug = true }
+
     /// Voice-less two-point calibration: look fully left, then fully right.
     private func runCalibration() {
         Task { @MainActor in
@@ -129,5 +138,68 @@ struct ContentView: View {
             calText = ""; calArrow = ""
             live = true
         }
+    }
+}
+
+/// Live PnP-tracking diagnostics — record this screen while moving your head so the
+/// landmark detection + solver output can be validated.
+struct TrackingDebugView: View {
+    @ObservedObject var tracker: FaceTracker
+    let back: () -> Void
+    private let labels = ["nose", "chin", "L eye", "R eye", "mouth L", "mouth R"]
+    private let colors: [Color] = [.red, .orange, .blue, .cyan, .green, .yellow]
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Button("← Back") { back() }.buttonStyle(.borderless)
+                Spacer()
+                Text("PnP tracking debug").font(.headline)
+                Spacer()
+                Text(String(format: "%.0f Hz", tracker.hz)).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack(alignment: .top, spacing: 16) {
+                CameraPreview(session: tracker.session)
+                    .frame(width: 320, height: 240)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(.black.opacity(0.45))
+                    Canvas { ctx, size in
+                        for (i, p) in tracker.landmarks01.enumerated() {
+                            let x = p.x * size.width
+                            let y = (1 - p.y) * size.height // normalized y-up -> view y-down
+                            let rect = CGRect(x: x - 5, y: y - 5, width: 10, height: 10)
+                            ctx.fill(Path(ellipseIn: rect), with: .color(colors[i % colors.count]))
+                        }
+                    }
+                    Text("detected landmarks").font(.caption2).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(6)
+                }
+                .frame(width: 240, height: 240)
+            }
+            HStack(spacing: 12) {
+                ForEach(0..<labels.count, id: \.self) { i in
+                    HStack(spacing: 4) {
+                        Circle().fill(colors[i]).frame(width: 8, height: 8)
+                        Text(labels[i]).font(.caption2)
+                    }
+                }
+            }.foregroundStyle(.secondary)
+
+            Text(tracker.debug.isEmpty ? "waiting for a face…" : tracker.debug)
+                .font(.system(.body, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10).background(.black.opacity(0.35)).clipShape(RoundedRectangle(cornerRadius: 6))
+
+            Text(String(format: "smoothed → orient %+.0f°   pitch %+.0f°   roll %+.0f°",
+                        deg(tracker.yaw), deg(tracker.pitch), deg(tracker.roll)))
+                .font(.system(.callout, design: .monospaced)).foregroundStyle(.secondary)
+
+            Text("Record this while you: look left → look right → lean in → lean left/right.")
+                .font(.caption).foregroundStyle(.tertiary)
+        }
+        .padding(20)
+        .frame(width: 620)
+        .background(Color(red: 0.04, green: 0.047, blue: 0.063))
     }
 }
