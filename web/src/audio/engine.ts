@@ -41,9 +41,14 @@ export class Chamber {
   lookGate = 1; // 1 = forward, 0 = looking down (everyone whispers)
   activeCount = 5;
   fit = 2.0; // HRTF "fit": warps the pinna spectral cue until a source ahead sits OUT in front
-  // Full-scale master level (see start()). The immersion envelope (setEyesClosed / setImmersion)
-  // ramps the master between this — eyes CLOSED → full — and ~0 (eyes OPEN → silent).
+  // Full-scale master level. The eyes/immersion fade is now PER-SOURCE inside the engine (see
+  // setImmersion), not a master-gain ramp, so the master stays at this level.
   readonly masterFull = 0.42;
+
+  // "Agent waiting" attention cue: minutes to build silent→full. Lower than native's 10 for the web
+  // so the pulses are audible during a short session (tune later). `lastWaiting` de-dupes the count.
+  private readonly attnBuildMin = 0.5;
+  private lastWaiting = -1;
 
   // what drives the agents (set in start()); demo loads canned audio, live never does
   mode: ChamberMode = "demo";
@@ -221,6 +226,7 @@ export class Chamber {
     this.wasm.connect(this.agentBus);
     this.wasm.setRoom(ENV_ROOM[this.env]);
     this.wasm.setFreqScale(this.fit); // apply the default "fit" before any audio plays
+    this.wasm.setAttentionBuildMinutes(this.attnBuildMin); // "agent waiting" cue build time
     this.setListener();
 
     const bs = ARRANGE[this.arrangement](this.activeCount);
@@ -454,10 +460,12 @@ export class Chamber {
     if (!this.started) return;
     const now = performance.now(),
       at = this.ctx.currentTime;
-    // pings for done agents + recycle heard agents back to working
+    // pings for done agents + recycle heard agents back to working; also count agents WAITING (done)
+    let waiting = 0;
     for (let i = 0; i < this.activeCount; i++) {
       const N = this.nodes[this.agents[i].id];
       if (!N) continue;
+      if (N.state === "done") waiting++;
       if (N.state === "done" && at >= N.nextPing) {
         this.schedulePing(this.agents[i].id, i);
         N.lastPingMs = now;
@@ -472,6 +480,11 @@ export class Chamber {
           N.stMod.gain.setTargetAtTime(target, at, 0.05);
         }
       }
+    }
+    // drive the "agent waiting" cue: voices per pulse = number of done agents (audible eyes-open)
+    if (waiting !== this.lastWaiting) {
+      this.lastWaiting = waiting;
+      this.wasm?.setAttentionAgents(waiting);
     }
     // auto-finish scheduler
     if (this.autoFinish && now >= this.nextAuto) {
@@ -531,15 +544,13 @@ export class Chamber {
     if (this.started) this.updateMix();
   }
 
-  /** Immersion envelope: closing your eyes makes the binaural scene immersive, so eyes
-   *  CLOSED fades the master IN to full and eyes OPEN fades it OUT to silence. `imm` is a
-   *  continuous 0..1 (0 = eyes open/silent, 1 = eyes closed/full). This is an independent
-   *  master envelope multiplied on top of the graph — it does NOT touch the lookGate/whisper
-   *  mix. setTargetAtTime(τ=0.25) gives a smooth, click-free ~0.6–1.0 s fade. */
+  /** Immersion envelope: closing your eyes makes the binaural scene immersive. `imm` is a
+   *  continuous 0..1 (0 = eyes open/scene silent, 1 = eyes closed/scene full). Applied PER-SOURCE
+   *  inside the engine now (not a master ramp): the renderer scales scene sources by `imm` and the
+   *  attention cue by (1−imm), so opening your eyes crossfades the scene OUT and the cue IN through
+   *  one shared reverb (the scene's tail rings out naturally). Smoothed in-engine (τ≈0.25 s). */
   setImmersion(imm: number): void {
-    if (!this.master) return;
-    const target = this.masterFull * Math.max(0, Math.min(1, imm));
-    this.master.gain.setTargetAtTime(target, this.ctx.currentTime, 0.25);
+    this.wasm?.setImmersionEngine(Math.max(0, Math.min(1, imm)));
   }
 
   /** Convenience over setImmersion for the boolean eyes-closed detector: closed → full,
