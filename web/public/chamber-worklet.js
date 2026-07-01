@@ -62,6 +62,9 @@ class ChamberProcessor extends AudioWorkletProcessor {
       case "attnBuild": // minutes to ramp the cue from silent -> full urgency
         if (this.ready) this.ex.chamber_renderer_set_attention_build_minutes(this.r, d.minutes);
         break;
+      case "immersion": // eyes fade target 0..1 (1 = scene full/cue silent), applied per-source in-engine
+        if (this.ready) this.ex.chamber_renderer_set_immersion(this.r, d.value);
+        break;
       case "freqScale": // HRTF "fit": warps the pinna spectral cue (dsp clamps 0.5..2.2)
         this.freqScale = d.value;
         if (this.ready) this.ex.chamber_renderer_set_freq_scale(this.r, d.value);

@@ -70,6 +70,7 @@ async function start(){
 function onReady(ctx){
   node.port.postMessage({type:"master", gain:0.9});
   node.port.postMessage({type:"room", index:4});            // room_conv (BRIR), matches the app default
+  node.port.postMessage({type:"immersion", value:0});       // "eyes open" so the cue (rides 1−immersion) is audible
   node.port.postMessage({type:"attnBuild", minutes:buildMin});
   document.getElementById("start").disabled=true;
   for(const id of ["panel","buildrow"]){ const el=document.getElementById(id); el.style.opacity=1; el.style.pointerEvents="auto"; }

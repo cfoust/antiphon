@@ -39,6 +39,11 @@ void chamber_renderer_set_freq_scale(ChamberRenderer *h, float s);
 void chamber_renderer_set_attention_agents(ChamberRenderer *h, uint32_t n);
 /* Minutes over which the attention cue builds from silent -> full urgency (louder + faster). */
 void chamber_renderer_set_attention_build_minutes(ChamberRenderer *h, float m);
+/* Immersion (eyes) fade target 0..1: 1 = eyes-closed (scene full, cue silent), 0 = eyes-open
+ * (scene silent, cue audible). Applied per-source in-engine; scene<->cue crossfade is automatic. */
+void chamber_renderer_set_immersion(ChamberRenderer *h, float target);
+/* Current smoothed immersion value (for host UI/debug). */
+float chamber_renderer_immersion(ChamberRenderer *h);
 uint32_t chamber_renderer_num_rooms(ChamberRenderer *h);
 
 /* Render `frames` samples. `inputs` is `n` pointers to `frames` mono floats each. */

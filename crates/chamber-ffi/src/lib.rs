@@ -199,6 +199,26 @@ pub unsafe extern "C" fn chamber_renderer_set_attention_build_minutes(h: *mut c_
     }
 }
 
+/// Immersion (eyes) fade target 0..1: 1 = eyes-closed (scene full, cue silent), 0 = eyes-open
+/// (scene silent, cue audible). Applied per-source in-engine; the scene↔cue crossfade is automatic.
+/// # Safety: `h` is a valid handle.
+#[no_mangle]
+pub unsafe extern "C" fn chamber_renderer_set_immersion(h: *mut c_void, target: f32) {
+    if let Some(h) = (h as *mut Handle).as_mut() {
+        h.r.set_immersion(target);
+    }
+}
+
+/// Current smoothed immersion value (for host UI/debug). Returns 1.0 for a null handle.
+/// # Safety: `h` is a valid handle.
+#[no_mangle]
+pub unsafe extern "C" fn chamber_renderer_immersion(h: *mut c_void) -> f32 {
+    match (h as *mut Handle).as_mut() {
+        Some(h) => h.r.immersion(),
+        None => 1.0,
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn chamber_renderer_num_rooms(h: *mut c_void) -> u32 {
     match (h as *mut Handle).as_mut() {

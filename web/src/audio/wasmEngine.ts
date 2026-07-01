@@ -108,6 +108,9 @@ export class WasmEngine {
   setAttentionAgents(n: number): void { this.node.port.postMessage({ type: "attnAgents", n }); }
   /** Minutes over which the attention cue builds from silent → full urgency (louder + faster). */
   setAttentionBuildMinutes(minutes: number): void { this.node.port.postMessage({ type: "attnBuild", minutes }); }
+  /** Immersion (eyes) fade target 0..1 (1 = eyes-closed/scene full & cue silent, 0 = eyes-open/scene
+   *  silent & cue audible). Applied per-source in-engine; the scene↔cue crossfade is automatic. */
+  setImmersionEngine(target: number): void { this.node.port.postMessage({ type: "immersion", value: target }); }
   setRoom(index: number): void { this.node.port.postMessage({ type: "room", index }); }
   setReflections(on: boolean): void { this.node.port.postMessage({ type: "reflections", on }); }
   setMaster(gain: number): void { this.node.port.postMessage({ type: "master", gain }); }
