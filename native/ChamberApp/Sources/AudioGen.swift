@@ -34,22 +34,6 @@ func loadMono(_ url: URL) -> [Float]? {
     return samples(outBuf)
 }
 
-/// Make a buffer loop click-free: return a buffer of length (n - fade) whose head is an
-/// equal-power crossfade of the original head with the wrapped tail, so playing it on repeat
-/// has no discontinuity at the seam. `fade` ≈ 20–40 ms works well.
-func makeSeamlessLoop(_ s: [Float], fade: Int) -> [Float] {
-    guard s.count > fade * 3, fade > 0 else { return s }
-    let n = s.count - fade
-    var out = Array(s[0..<n])
-    for i in 0..<fade {
-        let t = Double(i) / Double(fade)
-        let head = Double(s[i]) * sin(t * .pi / 2)          // fade IN the true head
-        let tail = Double(s[n + i]) * cos(t * .pi / 2)      // fade OUT the wrapped tail
-        out[i] = Float(head + tail)
-    }
-    return out
-}
-
 /// RBJ biquad over a fresh copy.
 private func biquad(_ x: [Float], b0: Float, b1: Float, b2: Float, a0: Float, a1: Float, a2: Float) -> [Float] {
     var y = [Float](repeating: 0, count: x.count)
