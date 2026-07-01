@@ -180,6 +180,25 @@ pub unsafe extern "C" fn chamber_renderer_set_freq_scale(h: *mut c_void, s: f32)
     }
 }
 
+/// Number of agents waiting for attention. 0 silences the "agent waiting" cue and resets its
+/// build clock; the first agent starts it building from silence.
+/// # Safety: `h` is a valid handle.
+#[no_mangle]
+pub unsafe extern "C" fn chamber_renderer_set_attention_agents(h: *mut c_void, n: u32) {
+    if let Some(h) = (h as *mut Handle).as_mut() {
+        h.r.set_attention_agents(n);
+    }
+}
+
+/// Minutes over which the attention cue ramps from silent → full urgency (louder + faster pulses).
+/// # Safety: `h` is a valid handle.
+#[no_mangle]
+pub unsafe extern "C" fn chamber_renderer_set_attention_build_minutes(h: *mut c_void, m: f32) {
+    if let Some(h) = (h as *mut Handle).as_mut() {
+        h.r.set_attention_build_minutes(m);
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn chamber_renderer_num_rooms(h: *mut c_void) -> u32 {
     match (h as *mut Handle).as_mut() {

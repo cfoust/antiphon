@@ -62,6 +62,38 @@ fn main() {
         return;
     }
 
+    // `nearfield <in.wav> <out.wav> [R|L] [dist_m] [gain] [room] [send] [asset]`: render a mono clip
+    // STATICALLY very close to one ear (near-field DVF), through position-based reverb (same as the
+    // voices), quiet. No animation — models the "an agent is waiting, at the tracked ear" cue.
+    if std::env::args().nth(1).as_deref() == Some("nearfield") {
+        let a: Vec<String> = std::env::args().collect();
+        run_nearfield(
+            a.get(2).map(|s| s.as_str()).unwrap_or("in.wav"),
+            a.get(3).map(|s| s.as_str()).unwrap_or("out/nearfield.wav"),
+            a.get(4).map(|s| s.as_str()).unwrap_or("R"),
+            a.get(5).and_then(|s| s.parse().ok()).unwrap_or(0.12),
+            a.get(6).and_then(|s| s.parse().ok()).unwrap_or(0.10),
+            a.get(7).map(|s| s.as_str()).unwrap_or("room"),
+            a.get(8).and_then(|s| s.parse().ok()).unwrap_or(0.30),
+            a.get(9).map(|s| s.as_str()).unwrap_or("assets/baked/chamber-default.chamber"),
+        );
+        return;
+    }
+
+    // `attention <out.wav> [agents] [build_min] [dur_s] [room]`: render the "agent waiting" cue,
+    // synthesized + spatialized entirely inside the Renderer (near-field, position-based reverb).
+    if std::env::args().nth(1).as_deref() == Some("attention") {
+        let a: Vec<String> = std::env::args().collect();
+        run_attention(
+            a.get(2).map(|s| s.as_str()).unwrap_or("out/concepts/engine/attention.wav"),
+            a.get(3).and_then(|s| s.parse().ok()).unwrap_or(2),
+            a.get(4).and_then(|s| s.parse().ok()).unwrap_or(1.0),
+            a.get(5).and_then(|s| s.parse().ok()).unwrap_or(75.0),
+            a.get(6).map(|s| s.as_str()).unwrap_or("room"),
+        );
+        return;
+    }
+
     let asset_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "assets/baked/chamber-default.chamber".to_string());
@@ -734,6 +766,106 @@ fn run_shootout(asset_path: &str, out_path: &str, voice_path: &str) {
     write_wav(out_path, &stereo);
     let peak = stereo.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
     println!("shootout: wrote {} ({:.0}s, peak {:.3})", out_path, dur, peak);
+}
+
+/// Render a mono clip statically, very close to one ear (near-field DVF), through position-based
+/// reverb (same treatment as the voices), and quiet. No animation — a static point < 0.5 m from the
+/// head, since offline we don't know the live ear pose. A tail is appended so the reverb rings out.
+fn run_nearfield(
+    in_path: &str,
+    out_path: &str,
+    side: &str,
+    dist: f32,
+    gain: f32,
+    room: &str,
+    send: f32,
+    asset_path: &str,
+) {
+    let bytes = std::fs::read(asset_path).expect("read asset");
+    let asset = ChamberAsset::parse(&bytes).expect("parse asset");
+    let room_names: Vec<String> = asset.rooms.iter().map(|r| r.name.clone()).collect();
+    let mut r = Renderer::new(&asset, SR, 1, BLOCK);
+    r.set_room(room_of(&room_names, room)); // position-based reverb, like the voices
+    r.set_master_gain(0.9);
+
+    let sig = load_wav_mono(in_path);
+    // +x = right ear. Tiny forward tuck (z) so it reads as "at the ear", not a pole at hard 90°.
+    let sx = if side.eq_ignore_ascii_case("L") { -dist } else { dist };
+    let mut s = Source::new(Vec3::new(sx, 0.0, -0.03), gain);
+    s.send = send; // reverb send -> shares the voices' acoustic space
+    let src = [s];
+    let pose = Pose::default();
+
+    let tail = (2.0 * SR) as usize; // let the reverb ring out past the source
+    let total = sig.len() + tail;
+    let mut out_l = vec![0.0f32; BLOCK];
+    let mut out_r = vec![0.0f32; BLOCK];
+    let mut stereo = Vec::with_capacity(total * 2);
+    let mut inbuf = vec![0.0f32; BLOCK];
+    let mut pos = 0usize;
+    while pos < total {
+        let n = BLOCK.min(total - pos);
+        // feed the source while it lasts, then silence so the reverb tail rings out
+        for k in 0..n {
+            inbuf[k] = if pos + k < sig.len() { sig[pos + k] } else { 0.0 };
+        }
+        let inref: Vec<&[f32]> = vec![&inbuf[..n]];
+        r.process(&pose, &src, &inref, &mut out_l, &mut out_r, n);
+        for i in 0..n {
+            stereo.push(out_l[i]);
+            stereo.push(out_r[i]);
+        }
+        pos += n;
+    }
+    if let Some(d) = std::path::Path::new(out_path).parent() {
+        std::fs::create_dir_all(d).ok();
+    }
+    write_wav(out_path, &stereo);
+    let peak = stereo.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
+    println!(
+        "nearfield: {} -> {}  ({} ear, {:.2} m, gain {:.2}, room {}, send {:.2}, peak {:.3})",
+        in_path, out_path, side, dist, gain, room, send, peak
+    );
+}
+
+/// Render the "an agent is waiting" attention cue. No external sources — the cue is generated and
+/// spatialized inside the Renderer. `build_min` is compressed (e.g. 1.0) so the silent→full ramp is
+/// audible in a short clip; the real default is 10 minutes.
+fn run_attention(out_path: &str, agents: u32, build_min: f32, dur: f32, room: &str) {
+    let bytes = std::fs::read("assets/baked/chamber-default.chamber").expect("read asset");
+    let asset = ChamberAsset::parse(&bytes).expect("parse asset");
+    let room_names: Vec<String> = asset.rooms.iter().map(|r| r.name.clone()).collect();
+    let mut r = Renderer::new(&asset, SR, 1, BLOCK);
+    r.set_room(room_of(&room_names, room));
+    r.set_master_gain(0.9);
+    r.set_attention_build_minutes(build_min);
+    r.set_attention_agents(agents);
+
+    let total = (dur * SR) as usize;
+    let mut out_l = vec![0.0f32; BLOCK];
+    let mut out_r = vec![0.0f32; BLOCK];
+    let mut stereo = Vec::with_capacity(total * 2);
+    let no_src: [Source; 0] = [];
+    let no_in: [&[f32]; 0] = [];
+    let mut pos = 0usize;
+    while pos < total {
+        let nfr = BLOCK.min(total - pos);
+        r.process(&Pose::default(), &no_src, &no_in, &mut out_l, &mut out_r, nfr);
+        for i in 0..nfr {
+            stereo.push(out_l[i]);
+            stereo.push(out_r[i]);
+        }
+        pos += nfr;
+    }
+    if let Some(d) = std::path::Path::new(out_path).parent() {
+        std::fs::create_dir_all(d).ok();
+    }
+    write_wav(out_path, &stereo);
+    let peak = stereo.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
+    println!(
+        "attention: {} ({} agents, build {:.1} min, {:.0}s, room {}, peak {:.3})",
+        out_path, agents, build_min, dur, room, peak
+    );
 }
 
 fn write_wav(path: &str, interleaved: &[f32]) {

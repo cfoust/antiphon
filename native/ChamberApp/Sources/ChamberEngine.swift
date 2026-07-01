@@ -38,6 +38,8 @@ final class ChamberRenderer {
     func setMasterGain(_ g: Float) { chamber_renderer_set_master_gain(handle, g) }
     func setReverbBlend(_ b: Float) { chamber_renderer_set_reverb_blend(handle, b) }
     func setFreqScale(_ s: Float) { chamber_renderer_set_freq_scale(handle, s) }
+    func setAttentionAgents(_ n: Int) { chamber_renderer_set_attention_agents(handle, UInt32(max(0, n))) }
+    func setAttentionBuildMinutes(_ m: Float) { chamber_renderer_set_attention_build_minutes(handle, m) }
 
     @inline(__always)
     func process(pose: UnsafePointer<ChamberPose>, sources: UnsafePointer<ChamberSource>, n: Int,
@@ -109,7 +111,7 @@ final class ChamberEngine: ObservableObject {
     @Published var headPos = SIMD3<Double>(0, 0, 0)
     @Published var autoFinish = true
     @Published var ready = false
-    @Published var roomIndex = 2 // "hall (FDN)" — parametric late tail + 6DoF ISM early reflections
+    @Published var roomIndex = 4 // "room (BRIR)" = room_conv — matches the web default (measured tail)
     @Published var reverbBlend = 1.0 // BRIR rooms: 0 = FDN tail, 1 = measured BRIR tail
     @Published var freqScale = 2.0   // HRTF fit: <1 / >1 warps the pinna spectral cue
     @Published var hrtfName = ""
@@ -154,6 +156,22 @@ final class ChamberEngine: ObservableObject {
     // One-pole coefficient for a ~0.25 s time constant (≈ 0.6–1.0 s audible fade), matching the web
     // engine's setTargetAtTime(τ=0.25). Per-sample: g += (target − g) * coef.
     private let immersionCoef: Float = 1 - expf(-1 / Float(0.25 * SAMPLE_RATE))
+
+    // --- attention cue (near-field, in-engine) -----------------------------------------------
+    // The "an agent is waiting" cue: a soft minor-7th bloom at a RANDOM ear that BUILDS louder &
+    // faster the longer agents wait (synthesized inside chamber-dsp — see AttentionCue). It runs in
+    // a SECOND renderer whose output is added AFTER the immersion multiply, so it stays audible while
+    // your EYES ARE OPEN and ducks when you close them to attend. Head-anchored (identity pose).
+    private var whisperRenderer: ChamberRenderer!
+    private var attnGate: Float = 0       // smoothed audibility gate (eyes open & live)
+    private let whisperGainCoef: Float = 1 - expf(-1 / Float(0.4 * SAMPLE_RATE)) // ~0.4 s fade
+    private let attnBuildMinutes: Float = 10 // silent → full urgency over this many minutes; the one easy knob
+    private var wInBuf: UnsafeMutablePointer<Float>!
+    private var wInTable: UnsafeMutablePointer<UnsafePointer<Float>?>!
+    private var wSrcArr: UnsafeMutablePointer<ChamberSource>!
+    private var wOutL: UnsafeMutablePointer<Float>!
+    private var wOutR: UnsafeMutablePointer<Float>!
+
     // latency oracle (plan 07): capture timestamp of the latest pose + measured device output
     // latency; the render callback closes the loop and stores the end-to-end number.
     private var poseCaptureTime = 0.0
@@ -215,6 +233,18 @@ final class ChamberEngine: ObservableObject {
         // close 1.3 m arc + 6 summed voices + BRIR tail is hot -> keep the master well down
         renderer.setMasterGain(0.45)
         renderer.setFreqScale(Float(freqScale)) // push the default "fit" so it's applied from the first block
+
+        // attention cue: its OWN renderer so it bypasses the immersion fade (added post-multiply).
+        // The cue is synthesized inside this renderer; we only tell it how many agents wait.
+        if let wr = ChamberRenderer(assetURL: assetURL, sampleRate: SAMPLE_RATE, maxSources: 1, maxBlock: maxBlock) {
+            wr.setRoom(roomIndex); wr.setMasterGain(0.9); wr.setFreqScale(Float(freqScale))
+            wr.setAttentionBuildMinutes(attnBuildMinutes)
+            whisperRenderer = wr
+            wInBuf = .allocate(capacity: maxBlock)
+            wInTable = .allocate(capacity: 1); wInTable[0] = UnsafePointer(wInBuf)
+            wSrcArr = .allocate(capacity: 1)
+            wOutL = .allocate(capacity: maxBlock); wOutR = .allocate(capacity: maxBlock)
+        }
 
         buildGraph()
         do { try engine.start() } catch { print("[chamber] engine start: \(error)"); return }
@@ -301,6 +331,31 @@ final class ChamberEngine: ObservableObject {
             outR[k] *= g
         }
         immersionGain = g
+
+        // --- attention cue: added AFTER the immersion multiply, so it is audible while your eyes
+        // are OPEN (when the scene above is faded to silence) and ducks when you close them. The cue
+        // (bloom at a random ear, building louder+faster the longer agents wait) is synthesized
+        // inside `wr` — we just set the waiting-agent count and gate audibility to eyes-open. ---
+        if let wr = whisperRenderer {
+            var waiting = 0
+            for a in agents where a.state == .done { waiting += 1 } // agents wanting to summarize
+            wr.setAttentionAgents(waiting) // 0 silences + resets the build clock; N = voices per pulse
+
+            // audibility gate: live (armed) + eyes open. The build keeps running while your eyes are
+            // closed (agents are still waiting) — we just duck the sound, we don't reset it.
+            let audible: Float = (immersionArmed && !lastEyesClosedState) ? 1 : 0
+            var wsrc = ChamberSource(x: 0, y: 0, z: 0, gain: 0, send: 0) // no external source; cue is internal
+            var wpose = ChamberPose(px: 0, py: 0, pz: 0, qw: 1, qx: 0, qy: 0, qz: 0)
+            wr.process(pose: &wpose, sources: &wsrc, n: 0,
+                       inputs: UnsafePointer(wInTable), outL: wOutL, outR: wOutR, frames: n)
+            var ag = attnGate
+            for k in 0..<n {
+                ag += (audible - ag) * whisperGainCoef
+                outL[k] += wOutL[k] * ag
+                outR[k] += wOutR[k] * ag
+            }
+            attnGate = ag
+        }
     }
 
     // MARK: inputs from the head tracker

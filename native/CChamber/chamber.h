@@ -35,6 +35,10 @@ void chamber_renderer_set_master_gain(ChamberRenderer *h, float g);
 void chamber_renderer_set_reverb_blend(ChamberRenderer *h, float b);
 /* HRTF frequency-scaling / "fit": 1.0 = baked HRTF; >1 shifts pinna cues up, <1 down. */
 void chamber_renderer_set_freq_scale(ChamberRenderer *h, float s);
+/* "An agent is waiting" cue: number of waiting agents (0 = silent, resets the build clock). */
+void chamber_renderer_set_attention_agents(ChamberRenderer *h, uint32_t n);
+/* Minutes over which the attention cue builds from silent -> full urgency (louder + faster). */
+void chamber_renderer_set_attention_build_minutes(ChamberRenderer *h, float m);
 uint32_t chamber_renderer_num_rooms(ChamberRenderer *h);
 
 /* Render `frames` samples. `inputs` is `n` pointers to `frames` mono floats each. */

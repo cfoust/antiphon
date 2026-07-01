@@ -21,6 +21,15 @@ dev: wasm
 harness: wasm
     CHAMBER_HTTP=1 bun run dev --port 5174 --strictPort --open /test.html
 
+# Live tweaker for the "agent waiting" arpeggio cue (P3) — runs the real engine.
+# Opens http://localhost:5174/arp-lab.html (headphones!).
+arp-lab: wasm
+    CHAMBER_HTTP=1 bun run dev --port 5174 --strictPort --open /arp-lab.html
+
+# Demo the REAL in-engine attention cue (set waiting-agent count, hear it build). Headphones!
+attention-demo: wasm
+    CHAMBER_HTTP=1 bun run dev --port 5174 --strictPort --open /attention-demo.html
+
 # Same harness with the 3D dev head-view enabled (shows where we think the head is).
 harness-dev: wasm
     CHAMBER_HTTP=1 VITE_DEV3D=1 bun run dev --port 5174 --strictPort --open /test.html
