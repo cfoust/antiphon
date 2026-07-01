@@ -68,6 +68,9 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     /// Host-clock (CACurrentMediaTime) capture timestamp of the pose just published, so the audio
     /// render callback can compute the true end-to-end motion-to-sound latency.
     var onPoseStamp: ((Double) -> Void)?
+    /// Debounced eye-closure result (true = eyes held closed). Fired only on change so the host can
+    /// drive the immersion fade: eyes CLOSED → audio fades in, eyes OPEN → audio fades out.
+    var onEyesClosed: ((Bool) -> Void)?
 
     // --- latency budget (plan 07) ---
     /// camera-exposure → pose-available latency (capture + Vision + solve), milliseconds.
@@ -135,6 +138,15 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     private let fYaw = OneEuro(minCutoff: 0.8, beta: 0.6)
     private let fPitch = OneEuro(minCutoff: 0.8, beta: 0.6)
     private let fRoll = OneEuro(minCutoff: 1.2, beta: 0.4)
+    // Eye-closure → immersion fade. Native derives openness from a Vision eye-contour extent ratio
+    // (web uses a 6-pt EAR); the debounced decision + shared thresholds live in EyeClosureCore. The
+    // open-eye baseline is per-user, so we auto-calibrate it over the first ~1 s a face is seen —
+    // the core is seeded with a placeholder until then (see handle()).
+    private let eyes = EyeClosureCore(cal: .fromOpen(0.30))
+    private let eyeCal = OpenEyeCalibrator()
+    private var eyeCalStart = 0.0
+    private var eyesCalibrated = false
+    private var lastEyesClosed = false
 
     override init() {
         super.init()
@@ -345,6 +357,33 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         sYaw = fYaw.filter(yawIn, now)
         sPitch = fPitch.filter(p, now)
         sRoll = fRoll.filter(r, now)
+
+        // --- eye-closure → immersion fade ---
+        // Vision already gave us the face + eye contours; derive openness (de-rotated by the
+        // filtered head roll, radians) and run the shared debounced core. Auto-calibrate the
+        // open-eye baseline like the neutral pose: assume the eyes are OPEN for the first ~1 s
+        // after a face is seen, taking the median extent-ratio as the open reference. Fire the
+        // callback only on a committed change so the host fade isn't re-triggered every frame.
+        if imageW > 0, imageH > 0,
+           let rawEye = VisionEyeOpenness.openness(
+               face, imageSize: CGSize(width: imageW, height: imageH), rollRad: sRoll) {
+            let tSec = CACurrentMediaTime()
+            if !eyesCalibrated {
+                if eyeCalStart == 0 { eyeCalStart = tSec }
+                eyeCal.add(rawEye)
+                if tSec - eyeCalStart >= 1.0 {
+                    eyes.setCalibration(eyeCal.finish())
+                    eyesCalibrated = true
+                }
+                // until calibrated, treat the eyes as open (never fade in)
+            } else {
+                let closed = eyes.update(rawEye, tSec)
+                if closed != lastEyesClosed {
+                    lastEyesClosed = closed
+                    onEyesClosed?(closed)
+                }
+            }
+        }
 
         // Latency oracle: camera-exposure → pose-ready (capture + Vision + PnP). Smoothed for a
         // stable readout. Hand the capture timestamp to the engine so it can finish the budget

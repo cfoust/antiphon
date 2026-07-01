@@ -133,6 +133,20 @@ final class ChamberEngine: ObservableObject {
     private var orient = 0.0
     private var headX = 0.0, headY = 0.0, headZ = 0.0
     private var lookGate = 1.0
+
+    // Immersion envelope (eyes closed → full, eyes open → ~silent). This is a HOST-side master
+    // envelope applied on the render output — it lives entirely here, NOT in chamber-dsp/ffi, so
+    // native↔wasm DSP parity is untouched. `immersionTarget` is written by the eye detector (0 =
+    // eyes open/silent, 1 = eyes closed/full); `immersionGain` is the per-sample-smoothed value the
+    // render callback actually multiplies in, ramped toward the target for a click-free fade.
+    // `immersionArmed` gates it to the live experience (like the web engine only fading when live):
+    // before the user starts, the envelope holds at full so calibration/intro audio is audible.
+    private var immersionTarget: Float = 1
+    private var immersionGain: Float = 1
+    private var immersionArmed = false
+    // One-pole coefficient for a ~0.25 s time constant (≈ 0.6–1.0 s audible fade), matching the web
+    // engine's setTargetAtTime(τ=0.25). Per-sample: g += (target − g) * coef.
+    private let immersionCoef: Float = 1 - expf(-1 / Float(0.25 * SAMPLE_RATE))
     // latency oracle (plan 07): capture timestamp of the latest pose + measured device output
     // latency; the render callback closes the loop and stores the end-to-end number.
     private var poseCaptureTime = 0.0
@@ -268,12 +282,32 @@ final class ChamberEngine: ObservableObject {
         renderer.process(pose: &pose, sources: UnsafePointer(srcArr), n: agents.count,
                          inputs: UnsafePointer(inTable), outL: outL, outR: outR, frames: n)
         // (the accept chime is now mixed into its agent's voice above, so it is spatialized.)
+
+        // Immersion envelope: ramp the whole stereo output toward the eyes-open/closed target,
+        // per sample so the fade is click-free (one-pole, ~0.25 s τ). Host-side only — the DSP
+        // block above is byte-identical to the wasm build; this multiply happens after it.
+        let target = immersionTarget
+        var g = immersionGain
+        for k in 0..<n {
+            g += (target - g) * immersionCoef
+            outL[k] *= g
+            outR[k] *= g
+        }
+        immersionGain = g
     }
 
     // MARK: inputs from the head tracker
 
     func setOrient(deg degrees: Double) { q.async { self.orient = rad(degrees) } }
     func setLookGate(_ g: Double) { q.async { self.lookGate = max(0, min(1, g)) } }
+    /// Arm the immersion fade for the live experience. Until armed the envelope stays at full so
+    /// intro/calibration audio is audible; after arming, eye state drives it (see setEyesClosed).
+    func armImmersion() { q.async { self.immersionArmed = true } }
+    /// Eyes CLOSED → fade the scene IN to full; eyes OPEN → fade OUT to silence. The render
+    /// callback ramps toward this target per sample (click-free). No-op until armed.
+    func setEyesClosed(_ closed: Bool) {
+        q.async { if self.immersionArmed { self.immersionTarget = closed ? 1 : 0 } }
+    }
     /// Host-clock capture time of the most recent pose (from FaceTracker), for the latency oracle.
     func setPoseStamp(_ t: Double) { q.async { self.poseCaptureTime = t } }
     func setPosition(_ x: Double, _ y: Double, _ z: Double) {

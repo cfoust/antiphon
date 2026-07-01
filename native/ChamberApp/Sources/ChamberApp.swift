@@ -101,7 +101,7 @@ struct ContentView: View {
             } else {
                 // Skip the two-point flow if a calibration was restored from a previous session.
                 Button(tracker.hasSavedCalibration ? "Start" : "Calibrate & start") {
-                    if tracker.hasSavedCalibration { live = true } else { runCalibration() }
+                    if tracker.hasSavedCalibration { engine.armImmersion(); live = true } else { runCalibration() }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!tracker.faceFound)
@@ -144,6 +144,10 @@ struct ContentView: View {
         tracker.onGate = { [weak engine] g in engine?.setLookGate(g) }
         tracker.onPosition = { [weak engine] x, y, z in engine?.setPosition(x, y, z) }
         tracker.onPoseStamp = { [weak engine] t in engine?.setPoseStamp(t) }
+        // Eyes closed → fade the binaural scene IN; eyes open → fade OUT. The engine's envelope
+        // stays at full until armImmersion() (called when the live experience starts below), so the
+        // intro/calibration audio is audible even though the detector is already running.
+        tracker.onEyesClosed = { [weak engine] closed in engine?.setEyesClosed(closed) }
         tracker.start()
         enabled = true
     }
@@ -165,6 +169,7 @@ struct ContentView: View {
             calArrow = "✓"; calText = "Calibrated"
             try? await Task.sleep(nanoseconds: 900_000_000)
             calText = ""; calArrow = ""
+            engine.armImmersion() // arm the eyes-closed immersion fade as the live experience begins
             live = true
         }
     }

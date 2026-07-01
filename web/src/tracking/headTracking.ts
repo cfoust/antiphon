@@ -1,5 +1,12 @@
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import type { Chamber } from "../audio/engine";
+import {
+  EyeClosureCore,
+  OpenEyeCalibrator,
+  calibrationFromOpen,
+  mediapipeOpenness,
+  type LM,
+} from "./eyeClosure";
 
 // Pin the WASM runtime to the same version as the npm package (see package.json).
 const VISION_VER = "0.10.14";
@@ -9,6 +16,11 @@ const MODEL_URL =
 
 const DOWN_START = 8, // degrees of downward tilt where "all whisper" begins…
   DOWN_FULL = 26; // …and where it's fully engaged
+
+// How long (ms) we treat the eyes as OPEN after a face is first seen, while we collect the
+// open-eye EAR baseline (mirrors the neutral-pose auto-capture). Until this completes the
+// fade never engages (eyes assumed open).
+const EYE_CAL_MS = 1000;
 
 /** Calibration: head-yaw at left (−90° bearing) and the span to right (+90°). */
 export interface Calibration {
@@ -43,6 +55,14 @@ export class HeadTracker {
   private rawPos = { x: 0, y: 0, z: 0 };
   private neutralPos = { x: 0, y: 0, z: 0 };
   private posInit = false;
+  // Eye-closure → immersion fade. Web derives openness from a 6-point EAR (native uses a
+  // Vision extent ratio); the debounced closed/open decision + shared thresholds live in
+  // EyeClosureCore. The open-eye baseline differs per user/camera, so we auto-calibrate it
+  // (see EYE_CAL_MS) — the core is seeded with a placeholder until then.
+  private eyes = new EyeClosureCore(calibrationFromOpen(0.3));
+  private eyeCal = new OpenEyeCalibrator();
+  private eyeCalStart = 0;
+  private eyesCalibrated = false;
 
   // calibration: head yaw at the left extreme maps to −90°, +span maps to +90°.
   yawLeft = -22.5;
@@ -161,6 +181,35 @@ export class HeadTracker {
           );
           this.engine.setLookGate(1 - downAmt);
           this.engine.setPosition(this.pos); // 6DoF: feed head translation → true motion parallax
+        }
+
+        // --- eye-closure → immersion fade ---------------------------------
+        // detectForVideo already returns the 478-pt mesh every frame. Turn it into an
+        // EAR-based openness and run the shared debounced core; closing your eyes fades the
+        // scene IN, opening it fades OUT. Auto-calibrate the open-eye baseline like the
+        // neutral-pose capture above: assume the eyes are OPEN for the first ~1 s after a
+        // face is first seen and take the median EAR as the open reference.
+        const lms = res.faceLandmarks?.[0];
+        if (lms) {
+          const raw = mediapipeOpenness(
+            lms as unknown as LM[],
+            this.video.videoWidth,
+            this.video.videoHeight,
+          );
+          const nowMs = performance.now();
+          if (!this.eyesCalibrated) {
+            if (this.eyeCalStart === 0) this.eyeCalStart = nowMs;
+            this.eyeCal.add(raw);
+            if (nowMs - this.eyeCalStart >= EYE_CAL_MS) {
+              this.eyes.setCalibration(this.eyeCal.finish());
+              this.eyesCalibrated = true;
+            }
+            // until calibrated, treat the eyes as open → never fade in
+            if (this.engine && this.live) this.engine.setEyesClosed(false);
+          } else {
+            this.eyes.update(raw, nowMs);
+            if (this.engine && this.live) this.engine.setEyesClosed(this.eyes.closed);
+          }
         }
       }
     }
