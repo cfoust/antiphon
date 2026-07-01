@@ -4,7 +4,7 @@ import SwiftUI
 struct ChamberAppMain: App {
     var body: some Scene {
         WindowGroup("Chamber") { ContentView() }
-            .defaultSize(width: 480, height: 660)
+            .defaultSize(width: 720, height: 980)
     }
 }
 
@@ -95,7 +95,7 @@ struct ContentView: View {
                 introCard
             }
         }
-        .frame(minWidth: 460, minHeight: 600)
+        .frame(minWidth: 660, minHeight: 700)
         .preferredColorScheme(.dark)
     }
 
@@ -343,10 +343,11 @@ struct EyeClosureDebug: View {
                 } else {
                     Text("OPEN → scene fades OUT").foregroundStyle(.secondary)
                 }
+                if !tracker.eyeReliable { Text("· held (turned)").foregroundStyle(.yellow) }
                 Spacer()
             }.font(.callout.monospaced())
 
-            Text(String(format: "openness %.2f   raw %.2f   immersion gain %.2f   armed %@%@",
+            Text(String(format: "openness %.2f   raw %.4f   immersion gain %.2f   armed %@%@",
                         tracker.eyeOpenness, tracker.eyeRaw, engine.immersionLevel,
                         engine.immersionArmedPub ? "yes" : "no",
                         engine.immersionInvertPub ? "   (inverted)" : ""))

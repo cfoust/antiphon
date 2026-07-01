@@ -142,11 +142,15 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     // (web uses a 6-pt EAR); the debounced decision + shared thresholds live in EyeClosureCore. The
     // open-eye baseline is per-user, so we auto-calibrate it over the first ~1 s a face is seen —
     // the core is seeded with a placeholder until then (see handle()).
-    private let eyes = EyeClosureCore(cal: .fromOpen(0.30))
+    private let eyes = EyeClosureCore(cal: .fromOpen(0.03)) // area/(width·faceH) scale; real ref auto-calibrated
     private let eyeCal = OpenEyeCalibrator()
     private var eyeCalStart = 0.0
     private var eyesCalibrated = false
     private var lastEyesClosed = false
+    // The area-based openness metric is turn-robust (validated clean out to ~66° on closed.mov), so
+    // this is just a backstop for extreme profile (>70°) where an eye is fully occluded and even the
+    // area of the picked eye can't be trusted: past it we HOLD the last committed decision.
+    private let eyeYawLimit = rad(70)
 
     override init() {
         super.init()
@@ -265,6 +269,7 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     @Published var eyeRaw = 0.0         // raw Vision extent ratio (vert/horiz), pre-normalize
     @Published var eyesClosed = false   // debounced decision (true = held closed → scene fades in)
     @Published var eyesCalibratedPub = false
+    @Published var eyeReliable = true   // false while turned too far to read the eyes (decision is held)
     @Published var leftEye01: [CGPoint] = []  // eye-contour points, normalized image coords (y-up)
     @Published var rightEye01: [CGPoint] = []
     @Published var imageAspect = 4.0 / 3.0    // capture w/h, so the overlay box matches the video exactly
@@ -396,22 +401,30 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
            let rawEye = VisionEyeOpenness.openness(
                face, imageSize: CGSize(width: imageW, height: imageH), rollRad: sRoll) {
             let tSec = CACurrentMediaTime()
-            if !eyesCalibrated {
-                if eyeCalStart == 0 { eyeCalStart = tSec }
-                eyeCal.add(rawEye)
-                if tSec - eyeCalStart >= 1.0 {
-                    eyes.setCalibration(eyeCal.finish())
-                    eyesCalibrated = true
-                }
-                // until calibrated, treat the eyes as open (never fade in)
-            } else {
-                let closed = eyes.update(rawEye, tSec)
-                if closed != lastEyesClosed {
-                    lastEyesClosed = closed
-                    onEyesClosed?(closed)
+            // Only trust the eyes near frontal; in profile the contours/roll are garbage and openness
+            // reads a false "open". Past the limit we HOLD (skip calibration + update), so turning to
+            // face an agent can't spuriously flip the fade. Gate on the INSTANTANEOUS yaw (max with
+            // the smoothed one) so the hold engages the moment you turn — the filtered sYaw lags and
+            // would let a fast turn slip the spike through before the gate closes.
+            let reliable = max(abs(yawIn), abs(sYaw)) <= eyeYawLimit
+            if reliable {
+                if !eyesCalibrated {
+                    if eyeCalStart == 0 { eyeCalStart = tSec }
+                    eyeCal.add(rawEye)
+                    if tSec - eyeCalStart >= 1.0 {
+                        eyes.setCalibration(eyeCal.finish())
+                        eyesCalibrated = true
+                    }
+                    // until calibrated, treat the eyes as open (never fade in)
+                } else {
+                    let closed = eyes.update(rawEye, tSec)
+                    if closed != lastEyesClosed {
+                        lastEyesClosed = closed
+                        onEyesClosed?(closed)
+                    }
                 }
             }
-            // publish eye-closure state + contours for the debug overlay
+            // publish eye-closure state + contours for the debug overlay (openness holds when unreliable)
             let leN = eyePoints01(face.landmarks?.leftEye)
             let reN = eyePoints01(face.landmarks?.rightEye)
             let op = eyes.openness, closedNow = eyes.closed, calib = eyesCalibrated
@@ -419,6 +432,7 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
                 self.eyeRaw = rawEye; self.eyeOpenness = op
                 self.eyesClosed = closedNow; self.eyesCalibratedPub = calib
                 self.leftEye01 = leN; self.rightEye01 = reN
+                self.eyeReliable = reliable
             }
         }
 

@@ -93,10 +93,9 @@ final class EyeClosureCore {
 // MARK: - Vision adapter (Vision eye regions → raw openness)
 
 enum VisionEyeOpenness {
-    /// Ordering-independent openness for one eye: (vertical extent / horizontal extent) of
-    /// the contour points, de-rotated by `rollRad` so head tilt doesn't inflate the height.
-    static func ratio(_ pts: [CGPoint], rollRad: Double) -> Double {
-        guard pts.count >= 3 else { return 0 }
+    /// De-rotated (by head roll) vertical and horizontal spans of one eye contour, in pixels.
+    private static func extents(_ pts: [CGPoint], rollRad: Double) -> (v: Double, h: Double) {
+        guard pts.count >= 3 else { return (0, 0) }
         let cx = pts.reduce(0) { $0 + $1.x } / CGFloat(pts.count)
         let cy = pts.reduce(0) { $0 + $1.y } / CGFloat(pts.count)
         let c = cos(-rollRad), s = sin(-rollRad)
@@ -109,19 +108,43 @@ enum VisionEyeOpenness {
             minX = min(minX, rx); maxX = max(maxX, rx)
             minY = min(minY, ry); maxY = max(maxY, ry)
         }
-        let w = maxX - minX, h = maxY - minY
-        return w > 1e-6 ? Double(h / w) : 0
+        return (v: Double(maxY - minY), h: Double(maxX - minX))
     }
 
-    /// Raw openness for a face = mean of both eyes' ratios. Pass the same `imageSize`/`roll`
-    /// already computed in FaceTracker. Returns nil if either eye region is missing.
+    /// Polygon area (shoelace) of an eye contour, px² — collapses toward 0 as the lids meet.
+    private static func polyArea(_ pts: [CGPoint]) -> Double {
+        guard pts.count >= 3 else { return 0 }
+        var a = 0.0
+        for i in 0..<pts.count { let j = (i + 1) % pts.count; a += Double(pts[i].x * pts[j].y - pts[j].x * pts[i].y) }
+        return abs(a) / 2
+    }
+
+    /// Raw openness = eye-contour AREA / (contour WIDTH · FACE HEIGHT) — the eye's effective vertical
+    /// opening, made YAW-INVARIANT. Turning the head foreshortens the eye's width: that shrinks the
+    /// area (→ false "closed") and inflates a bbox-height ratio (→ false "open"), but dividing area by
+    /// width cancels the foreshortening (area ≈ height·width, so area/width ≈ height), and /faceH makes
+    /// it scale-invariant. Validated head-to-head on closed.mov + input.mov: this is the only metric
+    /// with zero false-opens on closed-turns AND zero false-closes on open-turns. When one eye is
+    /// occluded we trust the more frontal eye (larger width). Returns nil only if neither eye detected.
     static func openness(_ face: VNFaceObservation, imageSize: CGSize, rollRad: Double) -> Double? {
-        guard let lm = face.landmarks,
-              let le = lm.leftEye?.pointsInImage(imageSize: imageSize),
-              let re = lm.rightEye?.pointsInImage(imageSize: imageSize),
-              !le.isEmpty, !re.isEmpty
-        else { return nil }
-        return 0.5 * (ratio(le, rollRad: rollRad) + ratio(re, rollRad: rollRad))
+        guard let lm = face.landmarks else { return nil }
+        let le = lm.leftEye?.pointsInImage(imageSize: imageSize) ?? []
+        let re = lm.rightEye?.pointsInImage(imageSize: imageSize) ?? []
+        let haveL = le.count >= 3, haveR = re.count >= 3
+        guard haveL || haveR else { return nil }
+        let faceH = max(1.0, Double(face.boundingBox.height) * Double(imageSize.height))
+        let lw = haveL ? extents(le, rollRad: rollRad).h : -1
+        let rw = haveR ? extents(re, rollRad: rollRad).h : -1
+        let la = haveL ? polyArea(le) : 0, ra = haveR ? polyArea(re) : 0
+        let area: Double, width: Double
+        if haveL && haveR {
+            let big = max(lw, rw), small = min(lw, rw)
+            // both roughly frontal → average (less noise); one turned away → trust the wider (frontal) eye
+            if small > 0.6 * big { area = 0.5 * (la + ra); width = 0.5 * (lw + rw) }
+            else if lw >= rw { area = la; width = lw } else { area = ra; width = rw }
+        } else if haveL { area = la; width = lw } else { area = ra; width = rw }
+        guard width > 1e-6 else { return nil }
+        return area / (width * faceH)
     }
 }
 
@@ -133,7 +156,7 @@ final class OpenEyeCalibrator {
     func add(_ raw: Double) { samples.append(raw) }
     func finish() -> EyeCalibration {
         let s = samples.sorted()
-        let openRef = s.isEmpty ? 0.3 : s[s.count / 2] // median open-eye ratio
+        let openRef = s.isEmpty ? 0.03 : s[s.count / 2] // median open-eye value (area/(width·faceH) scale)
         return .fromOpen(openRef)
     }
 }
