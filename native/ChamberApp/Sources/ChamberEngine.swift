@@ -116,6 +116,11 @@ final class ChamberEngine: ObservableObject {
     /// End-to-end motion-to-sound latency (ms): camera capture → pose → this audio block reaching
     /// the output. The latency oracle for plan 07 (target < ~60 ms).
     @Published var latencyMs = 0.0
+    /// DEBUG: current immersion envelope gain (0 = eyes-open/silent … 1 = eyes-closed/full) and
+    /// whether the fade is armed (armed only once the live experience starts).
+    @Published var immersionLevel = 1.0
+    @Published var immersionArmedPub = false
+    @Published var immersionInvertPub = false
 
     private let engine = AVAudioEngine()
     private var srcNode: AVAudioSourceNode!
@@ -144,6 +149,8 @@ final class ChamberEngine: ObservableObject {
     private var immersionTarget: Float = 1
     private var immersionGain: Float = 1
     private var immersionArmed = false
+    private var immersionInvert = false        // DEBUG: swap the eyes→fade mapping (test with audio)
+    private var lastEyesClosedState = false     // last committed eye state, so arm/invert re-evaluate now
     // One-pole coefficient for a ~0.25 s time constant (≈ 0.6–1.0 s audible fade), matching the web
     // engine's setTargetAtTime(τ=0.25). Per-sample: g += (target − g) * coef.
     private let immersionCoef: Float = 1 - expf(-1 / Float(0.25 * SAMPLE_RATE))
@@ -302,11 +309,33 @@ final class ChamberEngine: ObservableObject {
     func setLookGate(_ g: Double) { q.async { self.lookGate = max(0, min(1, g)) } }
     /// Arm the immersion fade for the live experience. Until armed the envelope stays at full so
     /// intro/calibration audio is audible; after arming, eye state drives it (see setEyesClosed).
-    func armImmersion() { q.async { self.immersionArmed = true } }
+    /// normal: eyes closed → full (1), open → silent (0). Inverted swaps it (for debug testing).
+    private func immersionTargetFor(_ closed: Bool) -> Float { (closed != immersionInvert) ? 1 : 0 }
+    /// Arm/disarm the immersion fade. Disarmed holds at full so intro/calibration/debug audio stays
+    /// audible; armed lets eye state drive it. Live calls armImmersion(); the debug view toggles this.
+    func setImmersionArmed(_ on: Bool) {
+        q.async {
+            self.immersionArmed = on
+            self.immersionTarget = on ? self.immersionTargetFor(self.lastEyesClosedState) : 1
+        }
+        DispatchQueue.main.async { self.immersionArmedPub = on }
+    }
+    func armImmersion() { setImmersionArmed(true) }
+    /// DEBUG: invert the eyes→fade mapping so eyes-OPEN fades the scene in (test the fade with audio).
+    func setImmersionInvert(_ on: Bool) {
+        q.async {
+            self.immersionInvert = on
+            if self.immersionArmed { self.immersionTarget = self.immersionTargetFor(self.lastEyesClosedState) }
+        }
+        DispatchQueue.main.async { self.immersionInvertPub = on }
+    }
     /// Eyes CLOSED → fade the scene IN to full; eyes OPEN → fade OUT to silence. The render
     /// callback ramps toward this target per sample (click-free). No-op until armed.
     func setEyesClosed(_ closed: Bool) {
-        q.async { if self.immersionArmed { self.immersionTarget = closed ? 1 : 0 } }
+        q.async {
+            self.lastEyesClosedState = closed
+            if self.immersionArmed { self.immersionTarget = self.immersionTargetFor(closed) }
+        }
     }
     /// Host-clock capture time of the most recent pose (from FaceTracker), for the latency oracle.
     func setPoseStamp(_ t: Double) { q.async { self.poseCaptureTime = t } }
@@ -452,10 +481,12 @@ final class ChamberEngine: ObservableObject {
         let o = orient, g = lookGate
         let hp = SIMD3(headX, headY, headZ)
         let lat = lastRenderLatencyMs
+        let imm = Double(immersionGain) // benign race with the audio thread — fine for a debug readout
         DispatchQueue.main.async {
             self.snapshot = vms; self.orientRad = o; self.lookGatePub = g; self.facedPub = facedIdx
             self.headPos = hp
             self.latencyMs = lat
+            self.immersionLevel = imm
         }
     }
 }

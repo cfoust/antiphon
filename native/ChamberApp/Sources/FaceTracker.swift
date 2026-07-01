@@ -260,6 +260,33 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     /// debug overlay: [nose, chin, left-eye, right-eye, mouth-L, mouth-R].
     @Published var landmarks01: [CGPoint] = []
 
+    // --- eye-closure debug (surfaced in TrackingDebugView) ---
+    @Published var eyeOpenness = 1.0    // normalized, smoothed openness [0,1] (post-calibration)
+    @Published var eyeRaw = 0.0         // raw Vision extent ratio (vert/horiz), pre-normalize
+    @Published var eyesClosed = false   // debounced decision (true = held closed → scene fades in)
+    @Published var eyesCalibratedPub = false
+    @Published var leftEye01: [CGPoint] = []  // eye-contour points, normalized image coords (y-up)
+    @Published var rightEye01: [CGPoint] = []
+    @Published var imageAspect = 4.0 / 3.0    // capture w/h, so the overlay box matches the video exactly
+    // hysteresis thresholds on the (normalized, both-eyes-mean) openness signal — live-tunable in debug.
+    @Published var eyeCloseThreshold = 0.35   // openness ≤ this ⇒ CLOSED
+    @Published var eyeOpenThreshold = 0.55    // openness ≥ this ⇒ OPEN
+    /// Update the close/open hysteresis band (from the debug sliders).
+    func setEyeThresholds(close: Double, open: Double) {
+        eyeCloseThreshold = min(close, open)
+        eyeOpenThreshold = max(close, open)
+        eyes.setThresholds(close: eyeCloseThreshold, open: eyeOpenThreshold)
+    }
+
+    /// Eye-contour points in normalized image coords (0..1, y-up) — for the debug overlay.
+    private func eyePoints01(_ region: VNFaceLandmarkRegion2D?) -> [CGPoint] {
+        guard imageW > 0, imageH > 0,
+              let pts = region?.pointsInImage(imageSize: CGSize(width: imageW, height: imageH))
+        else { return [] }
+        let w = Double(imageW), h = Double(imageH)
+        return pts.map { CGPoint(x: $0.x / w, y: $0.y / h) }
+    }
+
     /// Extract the 6 PnP model landmarks (pixels, model order), solve head pose, and publish
     /// diagnostics. Returns yaw (radians) + camera-frame position (metres), or nil to fall
     /// back. The coordinate conventions are being validated on-device via the debug overlay.
@@ -310,7 +337,8 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         }
         let dbg = String(format: "img %dx%d  PnP %@  err %.1f px\nyaw %+.0f°  pitch %+.0f°  roll %+.0f°\npos  x %+.2f  y %+.2f  z %+.2f m",
                          w, h, ok == 1 ? "ok" : "FAIL", err, ypr[0], ypr[1], ypr[2], pos[0], pos[1], pos[2])
-        DispatchQueue.main.async { self.landmarks01 = norm; self.debug = dbg }
+        let asp = Double(w) / Double(h)
+        DispatchQueue.main.async { self.landmarks01 = norm; self.debug = dbg; self.imageAspect = asp }
         guard ok == 1, err < 25 else { return nil }
         return (yaw: rad(Double(ypr[0])), pitch: rad(Double(ypr[1])),
                 pos: (Double(pos[0]), Double(pos[1]), Double(pos[2])))
@@ -382,6 +410,15 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
                     lastEyesClosed = closed
                     onEyesClosed?(closed)
                 }
+            }
+            // publish eye-closure state + contours for the debug overlay
+            let leN = eyePoints01(face.landmarks?.leftEye)
+            let reN = eyePoints01(face.landmarks?.rightEye)
+            let op = eyes.openness, closedNow = eyes.closed, calib = eyesCalibrated
+            DispatchQueue.main.async {
+                self.eyeRaw = rawEye; self.eyeOpenness = op
+                self.eyesClosed = closedNow; self.eyesCalibratedPub = calib
+                self.leftEye01 = leN; self.rightEye01 = reN
             }
         }
 

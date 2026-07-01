@@ -39,7 +39,7 @@ final class EyeClosureCore {
     private(set) var openness = 1.0   // last smoothed normalized openness [0,1]
 
     private var cal: EyeCalibration
-    private let cfg: EyeClosureConfig
+    private var cfg: EyeClosureConfig
     private var smoothed = 1.0
     private var pending: Bool?
     private var pendingSince = 0.0
@@ -50,6 +50,13 @@ final class EyeClosureCore {
     }
 
     func setCalibration(_ c: EyeCalibration) { cal = c }
+    var closeThreshold: Double { cfg.closeThreshold }
+    var openThreshold: Double { cfg.openThreshold }
+    /// Live-tune the hysteresis band (debug). `close` must stay below `open`.
+    func setThresholds(close: Double, open: Double) {
+        cfg.closeThreshold = min(close, open)
+        cfg.openThreshold = max(close, open)
+    }
 
     private func norm(_ raw: Double) -> Double {
         let span = cal.openRef - cal.closedRef
