@@ -154,6 +154,27 @@ final class ChamberEngine: ObservableObject {
     // One-pole coefficient for a ~0.25 s time constant (≈ 0.6–1.0 s audible fade), matching the web
     // engine's setTargetAtTime(τ=0.25). Per-sample: g += (target − g) * coef.
     private let immersionCoef: Float = 1 - expf(-1 / Float(0.25 * SAMPLE_RATE))
+
+    // --- attention whisper (near-field) ------------------------------------------------------
+    // A looping whisper that informs you of waiting agents while your EYES ARE OPEN. It runs in a
+    // SECOND renderer whose output is added AFTER the immersion multiply, so it stays audible exactly
+    // when the immersion-faded scene is silent. It starts ~3 m to your right and, while an agent is
+    // waiting, walks in toward your right ear over ~45 s — passing through the DVF near-field region,
+    // so it literally sounds like someone leaning in to whisper. Head-anchored (identity pose).
+    private var whisperRenderer: ChamberRenderer!
+    private var whisperSamples: [Float] = []
+    private var whisperCur = 0
+    private var whisperApproach = 0.0     // 0 = 3 m far-right … 1 = ~0.12 m at the right ear
+    private var whisperGain: Float = 0    // smoothed on/off envelope (audible ⇔ eyes open & agent waiting)
+    private let whisperRiseSec = 45.0     // 3 m → ear while a message waits
+    private let whisperFallSec = 18.0     // recede when dismissed (eyes close / nothing waiting)
+    private let whisperGainCoef: Float = 1 - expf(-1 / Float(0.4 * SAMPLE_RATE)) // ~0.4 s on/off fade
+    private var wInBuf: UnsafeMutablePointer<Float>!
+    private var wInTable: UnsafeMutablePointer<UnsafePointer<Float>?>!
+    private var wSrcArr: UnsafeMutablePointer<ChamberSource>!
+    private var wOutL: UnsafeMutablePointer<Float>!
+    private var wOutR: UnsafeMutablePointer<Float>!
+
     // latency oracle (plan 07): capture timestamp of the latest pose + measured device output
     // latency; the render callback closes the loop and stores the end-to-end number.
     private var poseCaptureTime = 0.0
@@ -215,6 +236,17 @@ final class ChamberEngine: ObservableObject {
         // close 1.3 m arc + 6 summed voices + BRIR tail is hot -> keep the master well down
         renderer.setMasterGain(0.45)
         renderer.setFreqScale(Float(freqScale)) // push the default "fit" so it's applied from the first block
+
+        // attention whisper: its OWN renderer so it bypasses the immersion fade (added post-multiply).
+        if let wr = ChamberRenderer(assetURL: assetURL, sampleRate: SAMPLE_RATE, maxSources: 1, maxBlock: maxBlock) {
+            wr.setRoom(roomIndex); wr.setMasterGain(0.9); wr.setFreqScale(Float(freqScale))
+            whisperRenderer = wr
+            whisperSamples = makeSeamlessLoop(loadMono(res.appendingPathComponent("whisper.wav")) ?? [], fade: 1440)
+            wInBuf = .allocate(capacity: maxBlock)
+            wInTable = .allocate(capacity: 1); wInTable[0] = UnsafePointer(wInBuf)
+            wSrcArr = .allocate(capacity: 1)
+            wOutL = .allocate(capacity: maxBlock); wOutR = .allocate(capacity: maxBlock)
+        }
 
         buildGraph()
         do { try engine.start() } catch { print("[chamber] engine start: \(error)"); return }
@@ -301,6 +333,36 @@ final class ChamberEngine: ObservableObject {
             outR[k] *= g
         }
         immersionGain = g
+
+        // --- attention whisper: added AFTER the immersion multiply, so it is audible while your eyes
+        // are OPEN (when the scene above is faded to silence) and recedes when you close them. ---
+        if let wr = whisperRenderer, !whisperSamples.isEmpty {
+            var anyWaiting = false
+            for a in agents where a.state == .done { anyWaiting = true; break } // an agent wants to summarize
+            // audible only during the live experience (immersionArmed), eyes open, an agent waiting.
+            let active = immersionArmed && !lastEyesClosedState && anyWaiting
+
+            let dt = Double(n) / SAMPLE_RATE
+            whisperApproach = active ? min(1, whisperApproach + dt / whisperRiseSec)
+                                     : max(0, whisperApproach - dt / whisperFallSec)
+            let gTarget: Float = active ? 0.7 : 0
+            var wg = whisperGain
+            for k in 0..<n {
+                wg += (gTarget - wg) * whisperGainCoef
+                wInBuf[k] = whisperSamples[whisperCur] * wg
+                whisperCur += 1; if whisperCur >= whisperSamples.count { whisperCur = 0 }
+            }
+            whisperGain = wg
+
+            // right side; distance 3 m → ~0.12 m as approach 0→1 (log-distance ⇒ steady "leaning in"
+            // through the DVF near-field shelf). Identity pose ⇒ head-anchored at the right ear.
+            let dist = Float(3.0 * pow(0.12 / 3.0, whisperApproach))
+            wSrcArr[0] = ChamberSource(x: dist, y: 0, z: 0, gain: 1.0, send: 0.1)
+            var wpose = ChamberPose(px: 0, py: 0, pz: 0, qw: 1, qx: 0, qy: 0, qz: 0)
+            wr.process(pose: &wpose, sources: UnsafePointer(wSrcArr), n: 1,
+                       inputs: UnsafePointer(wInTable), outL: wOutL, outR: wOutR, frames: n)
+            for k in 0..<n { outL[k] += wOutL[k]; outR[k] += wOutR[k] }
+        }
     }
 
     // MARK: inputs from the head tracker
