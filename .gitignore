@@ -18,6 +18,4 @@
 .DS_Store
 # Claude Code session data + agent worktrees
 /.claude
-input.mov
-
-video.mov
+*.mov

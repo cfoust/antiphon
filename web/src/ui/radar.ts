@@ -29,6 +29,14 @@ export function initRadar(engine: Chamber, cv: HTMLCanvasElement): void {
       R = Math.min(W, H) * 0.34;
     g.clearRect(0, 0, W, H);
 
+    // Listener offset from 6DoF head translation (world x=right, z=back → radar x, y), matching
+    // native: agents stay world-anchored on the rings; the listener dot + cone slide within them.
+    // ~one ring-radius per metre, clamped inside the radar.
+    const hp = engine.headPos;
+    const clampR = R * 0.8;
+    const lcx = cx + Math.max(-clampR, Math.min(clampR, hp.x * R));
+    const lcy = cy + Math.max(-clampR, Math.min(clampR, hp.z * R));
+
     // ambient rings
     for (let i = 1; i <= 3; i++) {
       g.beginPath();
@@ -38,9 +46,9 @@ export function initRadar(engine: Chamber, cv: HTMLCanvasElement): void {
       g.stroke();
     }
 
-    // facing cone (fades as you look down)
+    // facing cone (fades as you look down) — emanates from the listener's translated position
     g.save();
-    g.translate(cx, cy);
+    g.translate(lcx, lcy);
     g.rotate(engine.orient);
     const grad = g.createLinearGradient(0, 0, 0, -R * 1.15);
     grad.addColorStop(0, "rgba(95,208,197," + 0.22 * engine.lookGate + ")");
@@ -53,9 +61,9 @@ export function initRadar(engine: Chamber, cv: HTMLCanvasElement): void {
     g.fill();
     g.restore();
 
-    // listener head
+    // listener head (slides with head translation)
     g.save();
-    g.translate(cx, cy);
+    g.translate(lcx, lcy);
     g.rotate(engine.orient);
     g.fillStyle = "#e7ecf3";
     g.beginPath();

@@ -41,6 +41,9 @@ export class Chamber {
   lookGate = 1; // 1 = forward, 0 = looking down (everyone whispers)
   activeCount = 5;
   fit = 2.0; // HRTF "fit": warps the pinna spectral cue until a source ahead sits OUT in front
+  // Full-scale master level (see start()). The immersion envelope (setEyesClosed / setImmersion)
+  // ramps the master between this — eyes CLOSED → full — and ~0 (eyes OPEN → silent).
+  readonly masterFull = 0.42;
 
   // what drives the agents (set in start()); demo loads canned audio, live never does
   mode: ChamberMode = "demo";
@@ -200,7 +203,7 @@ export class Chamber {
     this.ctx = new Ctor({ sampleRate: 48000 });
     this.master = this.ctx.createGain();
     // close 1.3 m arc + 6 summed voices + BRIR tail is hot -> keep the master well down
-    this.master.gain.value = 0.42;
+    this.master.gain.value = this.masterFull;
     // agents play through agentBus (kept silent through calibration); system
     // clips connect to master directly so they're heard while the bus is muted.
     this.agentBus = this.ctx.createGain();
@@ -526,6 +529,23 @@ export class Chamber {
   setLookGate(v: number): void {
     this.lookGate = Math.max(0, Math.min(1, v));
     if (this.started) this.updateMix();
+  }
+
+  /** Immersion envelope: closing your eyes makes the binaural scene immersive, so eyes
+   *  CLOSED fades the master IN to full and eyes OPEN fades it OUT to silence. `imm` is a
+   *  continuous 0..1 (0 = eyes open/silent, 1 = eyes closed/full). This is an independent
+   *  master envelope multiplied on top of the graph — it does NOT touch the lookGate/whisper
+   *  mix. setTargetAtTime(τ=0.25) gives a smooth, click-free ~0.6–1.0 s fade. */
+  setImmersion(imm: number): void {
+    if (!this.master) return;
+    const target = this.masterFull * Math.max(0, Math.min(1, imm));
+    this.master.gain.setTargetAtTime(target, this.ctx.currentTime, 0.25);
+  }
+
+  /** Convenience over setImmersion for the boolean eyes-closed detector: closed → full,
+   *  open → silent (full-silence floor; change the 0 below if a small floor reads better). */
+  setEyesClosed(closed: boolean): void {
+    this.setImmersion(closed ? 1 : 0);
   }
 
   setMasterVol(v: number): void {
