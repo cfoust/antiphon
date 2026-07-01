@@ -40,6 +40,8 @@ final class ChamberRenderer {
     func setFreqScale(_ s: Float) { chamber_renderer_set_freq_scale(handle, s) }
     func setAttentionAgents(_ n: Int) { chamber_renderer_set_attention_agents(handle, UInt32(max(0, n))) }
     func setAttentionBuildMinutes(_ m: Float) { chamber_renderer_set_attention_build_minutes(handle, m) }
+    func setImmersion(_ g: Float) { chamber_renderer_set_immersion(handle, g) }
+    func immersion() -> Float { chamber_renderer_immersion(handle) }
 
     @inline(__always)
     func process(pose: UnsafePointer<ChamberPose>, sources: UnsafePointer<ChamberSource>, n: Int,
@@ -141,36 +143,21 @@ final class ChamberEngine: ObservableObject {
     private var headX = 0.0, headY = 0.0, headZ = 0.0
     private var lookGate = 1.0
 
-    // Immersion envelope (eyes closed → full, eyes open → ~silent). This is a HOST-side master
-    // envelope applied on the render output — it lives entirely here, NOT in chamber-dsp/ffi, so
-    // native↔wasm DSP parity is untouched. `immersionTarget` is written by the eye detector (0 =
-    // eyes open/silent, 1 = eyes closed/full); `immersionGain` is the per-sample-smoothed value the
-    // render callback actually multiplies in, ramped toward the target for a click-free fade.
-    // `immersionArmed` gates it to the live experience (like the web engine only fading when live):
-    // before the user starts, the envelope holds at full so calibration/intro audio is audible.
+    // Immersion envelope (eyes closed → scene full, eyes open → scene silent). Now applied
+    // PER-SOURCE inside chamber-dsp (Renderer.set_immersion): the render callback just forwards the
+    // 0/1 target and the engine smooths it (τ≈0.25 s) and crossfades the scene against the attention
+    // cue. Parity is untouched (immersion defaults to 1.0 ⇒ every source ×1.0). `immersionArmed`
+    // gates it to the live experience; before the user starts, the target holds at full so intro/
+    // calibration audio is audible. `immersionInvert` swaps the eyes→fade mapping for debug testing.
     private var immersionTarget: Float = 1
-    private var immersionGain: Float = 1
     private var immersionArmed = false
     private var immersionInvert = false        // DEBUG: swap the eyes→fade mapping (test with audio)
     private var lastEyesClosedState = false     // last committed eye state, so arm/invert re-evaluate now
-    // One-pole coefficient for a ~0.25 s time constant (≈ 0.6–1.0 s audible fade), matching the web
-    // engine's setTargetAtTime(τ=0.25). Per-sample: g += (target − g) * coef.
-    private let immersionCoef: Float = 1 - expf(-1 / Float(0.25 * SAMPLE_RATE))
 
-    // --- attention cue (near-field, in-engine) -----------------------------------------------
-    // The "an agent is waiting" cue: a soft minor-7th bloom at a RANDOM ear that BUILDS louder &
-    // faster the longer agents wait (synthesized inside chamber-dsp — see AttentionCue). It runs in
-    // a SECOND renderer whose output is added AFTER the immersion multiply, so it stays audible while
-    // your EYES ARE OPEN and ducks when you close them to attend. Head-anchored (identity pose).
-    private var whisperRenderer: ChamberRenderer!
-    private var attnGate: Float = 0       // smoothed audibility gate (eyes open & live)
-    private let whisperGainCoef: Float = 1 - expf(-1 / Float(0.4 * SAMPLE_RATE)) // ~0.4 s fade
-    private let attnBuildMinutes: Float = 10 // silent → full urgency over this many minutes; the one easy knob
-    private var wInBuf: UnsafeMutablePointer<Float>!
-    private var wInTable: UnsafeMutablePointer<UnsafePointer<Float>?>!
-    private var wSrcArr: UnsafeMutablePointer<ChamberSource>!
-    private var wOutL: UnsafeMutablePointer<Float>!
-    private var wOutR: UnsafeMutablePointer<Float>!
+    // "An agent is waiting" attention cue: synthesized + spatialized INSIDE the main renderer
+    // (chamber-dsp AttentionCue), crossfaded against the scene by the same immersion value — so it is
+    // audible eyes-open and ducks eyes-closed, with no second renderer. We only set the agent count.
+    private let attnBuildMinutes: Float = 10 // silent → full urgency over this many minutes
 
     // latency oracle (plan 07): capture timestamp of the latest pose + measured device output
     // latency; the render callback closes the loop and stores the end-to-end number.
@@ -234,17 +221,8 @@ final class ChamberEngine: ObservableObject {
         renderer.setMasterGain(0.45)
         renderer.setFreqScale(Float(freqScale)) // push the default "fit" so it's applied from the first block
 
-        // attention cue: its OWN renderer so it bypasses the immersion fade (added post-multiply).
-        // The cue is synthesized inside this renderer; we only tell it how many agents wait.
-        if let wr = ChamberRenderer(assetURL: assetURL, sampleRate: SAMPLE_RATE, maxSources: 1, maxBlock: maxBlock) {
-            wr.setRoom(roomIndex); wr.setMasterGain(0.9); wr.setFreqScale(Float(freqScale))
-            wr.setAttentionBuildMinutes(attnBuildMinutes)
-            whisperRenderer = wr
-            wInBuf = .allocate(capacity: maxBlock)
-            wInTable = .allocate(capacity: 1); wInTable[0] = UnsafePointer(wInBuf)
-            wSrcArr = .allocate(capacity: 1)
-            wOutL = .allocate(capacity: maxBlock); wOutR = .allocate(capacity: maxBlock)
-        }
+        // attention cue: synthesized + spatialized inside the MAIN renderer now (no second engine).
+        renderer.setAttentionBuildMinutes(attnBuildMinutes)
 
         buildGraph()
         do { try engine.start() } catch { print("[chamber] engine start: \(error)"); return }
@@ -311,6 +289,15 @@ final class ChamberEngine: ObservableObject {
             lastRenderLatencyMs = (CACurrentMediaTime() - poseCaptureTime) * 1000 + outputLatencyMs
         }
 
+        // Immersion (eyes) fade + attention cue both live INSIDE the renderer now (per-source), so
+        // we just forward the eyes target and the waiting-agent count before the single process()
+        // call. The cue keeps building while eyes are closed (agents still waiting) — it's just
+        // crossfaded to silence by the same immersion value, not reset.
+        renderer.setImmersion(immersionTarget)
+        var waiting = 0
+        for a in agents where a.state == .done { waiting += 1 } // agents wanting to summarize
+        renderer.setAttentionAgents(waiting)
+
         let h = 0.5 * orient
         // 6DoF is always on: feed the (filtered, neutral-relative, ±1 m-clamped) head position so
         // leaning/shifting gives true motion parallax — the strongest externalization cue.
@@ -318,44 +305,8 @@ final class ChamberEngine: ObservableObject {
                                qw: Float(cos(h)), qx: 0, qy: Float(-sin(h)), qz: 0)
         renderer.process(pose: &pose, sources: UnsafePointer(srcArr), n: agents.count,
                          inputs: UnsafePointer(inTable), outL: outL, outR: outR, frames: n)
-        // (the accept chime is now mixed into its agent's voice above, so it is spatialized.)
-
-        // Immersion envelope: ramp the whole stereo output toward the eyes-open/closed target,
-        // per sample so the fade is click-free (one-pole, ~0.25 s τ). Host-side only — the DSP
-        // block above is byte-identical to the wasm build; this multiply happens after it.
-        let target = immersionTarget
-        var g = immersionGain
-        for k in 0..<n {
-            g += (target - g) * immersionCoef
-            outL[k] *= g
-            outR[k] *= g
-        }
-        immersionGain = g
-
-        // --- attention cue: added AFTER the immersion multiply, so it is audible while your eyes
-        // are OPEN (when the scene above is faded to silence) and ducks when you close them. The cue
-        // (bloom at a random ear, building louder+faster the longer agents wait) is synthesized
-        // inside `wr` — we just set the waiting-agent count and gate audibility to eyes-open. ---
-        if let wr = whisperRenderer {
-            var waiting = 0
-            for a in agents where a.state == .done { waiting += 1 } // agents wanting to summarize
-            wr.setAttentionAgents(waiting) // 0 silences + resets the build clock; N = voices per pulse
-
-            // audibility gate: live (armed) + eyes open. The build keeps running while your eyes are
-            // closed (agents are still waiting) — we just duck the sound, we don't reset it.
-            let audible: Float = (immersionArmed && !lastEyesClosedState) ? 1 : 0
-            var wsrc = ChamberSource(x: 0, y: 0, z: 0, gain: 0, send: 0) // no external source; cue is internal
-            var wpose = ChamberPose(px: 0, py: 0, pz: 0, qw: 1, qx: 0, qy: 0, qz: 0)
-            wr.process(pose: &wpose, sources: &wsrc, n: 0,
-                       inputs: UnsafePointer(wInTable), outL: wOutL, outR: wOutR, frames: n)
-            var ag = attnGate
-            for k in 0..<n {
-                ag += (audible - ag) * whisperGainCoef
-                outL[k] += wOutL[k] * ag
-                outR[k] += wOutR[k] * ag
-            }
-            attnGate = ag
-        }
+        // Scene faded + cue crossfaded per-source inside process(); accept chime is mixed into its
+        // agent's voice above (spatialized). Nothing to post-multiply.
     }
 
     // MARK: inputs from the head tracker
@@ -536,7 +487,7 @@ final class ChamberEngine: ObservableObject {
         let o = orient, g = lookGate
         let hp = SIMD3(headX, headY, headZ)
         let lat = lastRenderLatencyMs
-        let imm = Double(immersionGain) // benign race with the audio thread — fine for a debug readout
+        let imm = Double(renderer?.immersion() ?? 1) // smoothed value from the engine; benign race — fine for a debug readout
         DispatchQueue.main.async {
             self.snapshot = vms; self.orientRad = o; self.lookGatePub = g; self.facedPub = facedIdx
             self.headPos = hp

@@ -838,6 +838,7 @@ fn run_attention(out_path: &str, agents: u32, build_min: f32, dur: f32, room: &s
     let mut r = Renderer::new(&asset, SR, 1, BLOCK);
     r.set_room(room_of(&room_names, room));
     r.set_master_gain(0.9);
+    r.set_immersion(0.0); // "eyes open" so the cue (which rides 1−immersion) is audible; no scene here
     r.set_attention_build_minutes(build_min);
     r.set_attention_agents(agents);
 

@@ -162,6 +162,13 @@ pub struct Renderer {
     freq_scale: f32,
 
     master_gain: f32,
+
+    // Eyes/immersion fade, applied PER-SOURCE inside the engine (not a master multiply): scene
+    // sources scale by `immersion`, the attention cue by `1 − immersion`. One shared reverb, so the
+    // scene's tail rings out naturally as its sends fade. Smoothed per block (τ≈0.25 s). Default 1.0
+    // ⇒ every source ×1.0 ⇒ bit-exact with the pre-immersion path (parity oracle unaffected).
+    immersion: f32,
+    immersion_target: f32,
 }
 
 impl Renderer {
@@ -229,6 +236,8 @@ impl Renderer {
             warp_r: vec![0.0; hrir_len],
             freq_scale: 1.0,
             master_gain: 1.0,
+            immersion: 1.0,
+            immersion_target: 1.0,
         }
     }
 
@@ -251,6 +260,16 @@ impl Renderer {
     /// Minutes over which the attention cue ramps from silent → full urgency (louder + faster).
     pub fn set_attention_build_minutes(&mut self, m: f32) {
         self.attn.set_build_minutes(m);
+    }
+    /// Immersion (eyes) fade target, 0..1: 1 = eyes-closed/scene full & cue silent, 0 = eyes-open/
+    /// scene silent & cue audible. Smoothed internally, applied per-source. Hosts set the target;
+    /// the crossfade between the scene and the attention cue is automatic.
+    pub fn set_immersion(&mut self, target: f32) {
+        self.immersion_target = target.clamp(0.0, 1.0);
+    }
+    /// Current (smoothed) immersion value — for host UI/debug readouts.
+    pub fn immersion(&self) -> f32 {
+        self.immersion
     }
     pub fn set_reflections_enabled(&mut self, on: bool) {
         self.reflections_enabled = on;
@@ -334,6 +353,14 @@ impl Renderer {
         let fdn = matches!(self.room.backend, ReverbBackend::Fdn);
         let send_scale = if fdn { self.fdn.send_scale() } else { 1.0 };
 
+        // Eyes/immersion fade (per-block one-pole, τ≈0.25 s). Scene sources scale by `imm`; the
+        // attention cue by `cue_gate = 1 − imm`, so opening your eyes crossfades scene→cue through
+        // the one shared reverb. `imm` defaults to 1.0 ⇒ every scene multiply is ×1.0 (bit-exact).
+        let imm_coef = 1.0 - (-(frames as f32) / (0.25 * self.sr)).exp();
+        self.immersion += (self.immersion_target - self.immersion) * imm_coef;
+        let imm = self.immersion;
+        let cue_gate = 1.0 - imm;
+
         for i in 0..n {
             let src = sources[i];
             let inp = &inputs[i][..frames];
@@ -345,7 +372,7 @@ impl Renderer {
             let dir = rel.normalized();
             self.src_dist[i] = dist;
 
-            let dgain = src.gain * distance_atten(dist);
+            let dgain = src.gain * distance_atten(dist) * imm;
             let lp_a = air_lp(dist);
             let itd = self.db.interp(dir, &mut self.hrir_l, &mut self.hrir_r);
 
@@ -370,7 +397,7 @@ impl Renderer {
                 dvf::near_field_shelf(theta_r, rho, self.sr),
                 false,
             );
-            self.direct[i].process(inp, out_l, out_r, send_slice, src.send * send_scale);
+            self.direct[i].process(inp, out_l, out_r, send_slice, src.send * send_scale * imm);
         }
 
         // deactivate unused voices (ramp to silence next block if reused)
@@ -393,7 +420,8 @@ impl Renderer {
             let local = Vec3::new(self.attn.ear_sign() * self.attn.distance(), 0.0, -0.03);
             let dist = local.len().max(1e-4);
             let dir = local.normalized();
-            let dgain = self.attn.gain() * distance_atten(dist);
+            // cue rides the INVERSE of immersion: audible when the scene is faded out (eyes open)
+            let dgain = self.attn.gain() * distance_atten(dist) * cue_gate;
             let lp_a = air_lp(dist);
             let itd = self.db.interp(dir, &mut self.hrir_l, &mut self.hrir_r);
             self.attn_voice.set_target(&self.hrir_l, &self.hrir_r, itd, dgain, lp_a, 0.0, false);
@@ -406,7 +434,7 @@ impl Renderer {
                 false,
             );
             self.attn_voice
-                .process(&self.attn_buf[..frames], out_l, out_r, send_slice, self.attn.send() * send_scale);
+                .process(&self.attn_buf[..frames], out_l, out_r, send_slice, self.attn.send() * send_scale * cue_gate);
         } else if self.attn_voice.active {
             self.attn_voice.set_target(&self.hrir_l, &self.hrir_r, 0.0, 0.0, 1.0, 0.0, false);
             self.attn_voice.active = false;
@@ -476,7 +504,7 @@ impl Renderer {
                         // equal-power fade-out as arrival crosses t_mix (late stage takes over)
                         let f = ((predelay - win_edge) / win_trans).clamp(0.0, 1.0);
                         let win = (1.0 - f).sqrt();
-                        let igain = gain * g[1] * distance_atten(idist) * win;
+                        let igain = gain * g[1] * distance_atten(idist) * win * imm;
                         let hf_tilt = if g[1] > 1e-6 { (g[2] / g[1]).clamp(0.05, 1.0) } else { 1.0 };
                         let ilp = (air_lp(idist) * hf_tilt).clamp(0.05, 1.0);
                         let rt = self.refl_taps;
