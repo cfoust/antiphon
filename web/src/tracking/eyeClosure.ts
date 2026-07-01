@@ -6,11 +6,11 @@
 // that scalar. The native side (EyeClosure.swift) runs the *same* core with the same
 // thresholds; only the adapter differs (Vision eye regions vs MediaPipe mesh).
 //
-// Why a normalized scalar and not raw EAR everywhere: the web gets a proper 6-point
-// Eye-Aspect-Ratio (indices below are canonical for the 478-pt FaceMesh), while native
-// gets an ordering-independent extent ratio from Vision's eye contour. The two raw
-// metrics are NOT numerically equal — but after per-user calibration both live in [0,1],
-// so the openThreshold/closeThreshold/dwell below are shared verbatim across hosts.
+// Both hosts now compute the SAME yaw-invariant raw metric — eye-contour area / (width · faceH)
+// — just off different landmark sources (MediaPipe mesh here, Vision eye contours on native).
+// The raw values aren't numerically identical across landmark sets, but after per-user
+// calibration both live in [0,1], so the openThreshold/closeThreshold/dwell below are shared
+// verbatim across hosts. (See mediapipeOpenness / VisionEyeOpenness.openness for the why.)
 
 /** A landmark in MediaPipe normalized image coords (x over width, y over height). */
 export interface LM {
@@ -116,28 +116,53 @@ export class EyeClosureCore {
 }
 
 // ---------------------------------------------------------------------------
-// MediaPipe adapter — 478-pt FaceMesh landmarks → raw openness (mean 6-pt EAR).
+// MediaPipe adapter — 478-pt FaceMesh landmarks → raw openness.
+//
+// openness = eye-contour AREA / (eye WIDTH · FACE HEIGHT) — the eye's effective vertical
+// opening, made YAW-INVARIANT. Turning the head foreshortens the eye's width, which shrinks
+// a plain area (→ false "closed") and inflates a vertical/width EAR (→ false "open"); dividing
+// area by width cancels the foreshortening (area ≈ height·width ⇒ area/width ≈ height), and
+// /faceH makes it scale-invariant. This mirrors EyeClosure.swift's metric, which was validated
+// head-to-head on webcam clips as the only one with zero false-opens on closed-turns AND zero
+// false-closes on open-turns.
 // ---------------------------------------------------------------------------
 
-// Canonical 6-point EAR indices for MediaPipe FaceMesh, per eye, in
-// [outerCorner, topA, topB, innerCorner, bottomB, bottomA] order (dlib-style p1..p6).
+// 6 eye-outline points for MediaPipe FaceMesh, per eye, in traversal order
+// [outerCorner, topA, topB, innerCorner, bottomB, bottomA] so the shoelace area is a valid polygon.
 const RIGHT_EYE = [33, 160, 158, 133, 153, 144];
 const LEFT_EYE = [362, 385, 387, 263, 373, 380];
 
-/** Eye-Aspect-Ratio for one eye. w,h scale normalized coords to isotropic pixels so a
- *  non-square video doesn't distort the vertical/horizontal ratio. */
-function ear(p: LM[], w: number, h: number): number {
-  const d = (a: LM, b: LM) => Math.hypot((a.x - b.x) * w, (a.y - b.y) * h);
-  const horiz = d(p[0], p[3]);
-  if (horiz < 1e-6) return 0;
-  return (d(p[1], p[5]) + d(p[2], p[4])) / (2 * horiz);
+/** Shoelace polygon area (isotropic px²) of an eye outline — collapses to ~0 when the lids meet. */
+function polyArea(p: LM[], w: number, h: number): number {
+  let a = 0;
+  for (let i = 0; i < p.length; i++) {
+    const j = (i + 1) % p.length;
+    a += p[i].x * w * (p[j].y * h) - p[j].x * w * (p[i].y * h);
+  }
+  return Math.abs(a) / 2;
 }
 
-/** Raw openness for one MediaPipe face = mean EAR of both eyes. */
+/** Raw openness for one MediaPipe face, yaw-invariant (see header). Trusts the more frontal eye
+ *  (larger width) when the head is turned enough to foreshorten one eye. */
 export function mediapipeOpenness(landmarks: LM[], videoW: number, videoH: number): number {
-  const r = ear(RIGHT_EYE.map((i) => landmarks[i]), videoW, videoH);
-  const l = ear(LEFT_EYE.map((i) => landmarks[i]), videoW, videoH);
-  return 0.5 * (r + l);
+  // face height: vertical span of the whole mesh (yaw-invariant scale)
+  let mnY = Infinity, mxY = -Infinity;
+  for (const p of landmarks) {
+    if (p.y < mnY) mnY = p.y;
+    if (p.y > mxY) mxY = p.y;
+  }
+  const faceH = Math.max(1, (mxY - mnY) * videoH);
+  const rP = RIGHT_EYE.map((i) => landmarks[i]);
+  const lP = LEFT_EYE.map((i) => landmarks[i]);
+  const d = (a: LM, b: LM) => Math.hypot((a.x - b.x) * videoW, (a.y - b.y) * videoH);
+  const rw = d(rP[0], rP[3]), lw = d(lP[0], lP[3]); // outer↔inner corner = eye width
+  const ra = polyArea(rP, videoW, videoH), la = polyArea(lP, videoW, videoH);
+  let area: number, width: number;
+  const big = Math.max(lw, rw), small = Math.min(lw, rw);
+  if (small > 0.6 * big) { area = 0.5 * (la + ra); width = 0.5 * (lw + rw); } // both frontal → average
+  else if (lw >= rw) { area = la; width = lw; } // one turned away → trust the wider (frontal) eye
+  else { area = ra; width = rw; }
+  return width > 1e-6 ? area / (width * faceH) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +180,7 @@ export class OpenEyeCalibrator {
   /** Median of the collected open-eye samples → calibration (closed via the 0.25 prior). */
   finish(): EyeCalibration {
     const s = [...this.samples].sort((a, b) => a - b);
-    const openRef = s.length ? s[Math.floor(s.length / 2)] : 0.3;
+    const openRef = s.length ? s[Math.floor(s.length / 2)] : 0.03; // area/(width·faceH) scale
     return calibrationFromOpen(openRef);
   }
 }

@@ -21,6 +21,9 @@ const DOWN_START = 8, // degrees of downward tilt where "all whisper" begins…
 // open-eye EAR baseline (mirrors the neutral-pose auto-capture). Until this completes the
 // fade never engages (eyes assumed open).
 const EYE_CAL_MS = 1000;
+// Past this head yaw the eyes go toward profile and can't be read reliably; HOLD the last decision
+// (backstop — the area/(width·faceH) metric is itself yaw-invariant across normal turns).
+const EYE_YAW_LIMIT = 70;
 
 /** Calibration: head-yaw at left (−90° bearing) and the span to right (+90°). */
 export interface Calibration {
@@ -55,11 +58,11 @@ export class HeadTracker {
   private rawPos = { x: 0, y: 0, z: 0 };
   private neutralPos = { x: 0, y: 0, z: 0 };
   private posInit = false;
-  // Eye-closure → immersion fade. Web derives openness from a 6-point EAR (native uses a
-  // Vision extent ratio); the debounced closed/open decision + shared thresholds live in
-  // EyeClosureCore. The open-eye baseline differs per user/camera, so we auto-calibrate it
-  // (see EYE_CAL_MS) — the core is seeded with a placeholder until then.
-  private eyes = new EyeClosureCore(calibrationFromOpen(0.3));
+  // Eye-closure → immersion fade. Web derives a yaw-invariant openness (area/(width·faceH)) from
+  // the MediaPipe mesh — the SAME metric native runs on Vision contours; the debounced decision +
+  // shared thresholds live in EyeClosureCore. The open-eye baseline differs per user/camera, so we
+  // auto-calibrate it (see EYE_CAL_MS) — the core is seeded with a placeholder until then.
+  private eyes = new EyeClosureCore(calibrationFromOpen(0.03));
   private eyeCal = new OpenEyeCalibrator();
   private eyeCalStart = 0;
   private eyesCalibrated = false;
@@ -197,18 +200,26 @@ export class HeadTracker {
             this.video.videoHeight,
           );
           const nowMs = performance.now();
-          if (!this.eyesCalibrated) {
-            if (this.eyeCalStart === 0) this.eyeCalStart = nowMs;
-            this.eyeCal.add(raw);
-            if (nowMs - this.eyeCalStart >= EYE_CAL_MS) {
-              this.eyes.setCalibration(this.eyeCal.finish());
-              this.eyesCalibrated = true;
+          // Reliability gate: past the yaw limit the eyes are in profile → HOLD (skip calibration +
+          // update), so turning to face an agent can't flip the fade. Use the instantaneous yaw
+          // (max with the smoothed one) so the hold engages the moment you turn.
+          const reliable =
+            Math.max(Math.abs(decodeYawDeg(m)), Math.abs(this.smoothYaw)) <= EYE_YAW_LIMIT;
+          if (reliable) {
+            if (!this.eyesCalibrated) {
+              if (this.eyeCalStart === 0) this.eyeCalStart = nowMs;
+              this.eyeCal.add(raw);
+              if (nowMs - this.eyeCalStart >= EYE_CAL_MS) {
+                this.eyes.setCalibration(this.eyeCal.finish());
+                this.eyesCalibrated = true;
+              }
+            } else {
+              this.eyes.update(raw, nowMs);
             }
-            // until calibrated, treat the eyes as open → never fade in
-            if (this.engine && this.live) this.engine.setEyesClosed(false);
-          } else {
-            this.eyes.update(raw, nowMs);
-            if (this.engine && this.live) this.engine.setEyesClosed(this.eyes.closed);
+          }
+          // push the (held) decision; until calibrated the eyes are treated as open → never fade in
+          if (this.engine && this.live) {
+            this.engine.setEyesClosed(this.eyesCalibrated ? this.eyes.closed : false);
           }
         }
       }
