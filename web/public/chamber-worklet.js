@@ -25,12 +25,13 @@ class ChamberProcessor extends AudioWorkletProcessor {
       case "src": {
         let s = this.sources.get(d.id);
         if (!s) {
-          s = { buf: null, cursor: 0, gain: 1, x: 0, y: 0, z: -1, loop: true, playing: false };
+          s = { buf: null, cursor: 0, gain: 1, x: 0, y: 0, z: -1, send: 0.3, loop: true, playing: false };
           this.sources.set(d.id, s);
         }
         if (d.samples) { s.buf = d.samples; s.cursor = 0; }
         if (d.gain !== undefined) s.gain = d.gain;
         if (d.x !== undefined) { s.x = d.x; s.y = d.y; s.z = d.z; }
+        if (d.send !== undefined) s.send = d.send;
         if (d.loop !== undefined) s.loop = d.loop;
         if (d.play) { s.cursor = 0; s.playing = true; }
         if (d.stop) s.playing = false;
@@ -54,6 +55,12 @@ class ChamberProcessor extends AudioWorkletProcessor {
         break;
       case "master":
         if (this.ready) this.ex.chamber_renderer_set_master_gain(this.r, d.gain);
+        break;
+      case "attnAgents": // "an agent is waiting" cue: number of waiting agents (0 = silent)
+        if (this.ready) this.ex.chamber_renderer_set_attention_agents(this.r, d.n >>> 0);
+        break;
+      case "attnBuild": // minutes to ramp the cue from silent -> full urgency
+        if (this.ready) this.ex.chamber_renderer_set_attention_build_minutes(this.r, d.minutes);
         break;
       case "freqScale": // HRTF "fit": warps the pinna spectral cue (dsp clamps 0.5..2.2)
         this.freqScale = d.value;
@@ -135,7 +142,7 @@ class ChamberProcessor extends AudioWorkletProcessor {
       dv.setFloat32(so + 4, s.y, true);
       dv.setFloat32(so + 8, s.z, true);
       dv.setFloat32(so + 12, 1.0, true);
-      dv.setFloat32(so + 16, 0.3, true);
+      dv.setFloat32(so + 16, s.send ?? 0.3, true);
       dv.setUint32(this.inTab + idx * 4, this.inPtrs[idx], true);
       idx++;
     }

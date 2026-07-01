@@ -104,6 +104,10 @@ export class WasmEngine {
 
   /** HRTF "fit": warps the pinna spectral cue. The dsp clamps to 0.5..2.2. */
   setFreqScale(value: number): void { this.node.port.postMessage({ type: "freqScale", value }); }
+  /** "An agent is waiting" cue: number of waiting agents (0 = silent). Voices per pulse = n. */
+  setAttentionAgents(n: number): void { this.node.port.postMessage({ type: "attnAgents", n }); }
+  /** Minutes over which the attention cue builds from silent → full urgency (louder + faster). */
+  setAttentionBuildMinutes(minutes: number): void { this.node.port.postMessage({ type: "attnBuild", minutes }); }
   setRoom(index: number): void { this.node.port.postMessage({ type: "room", index }); }
   setReflections(on: boolean): void { this.node.port.postMessage({ type: "reflections", on }); }
   setMaster(gain: number): void { this.node.port.postMessage({ type: "master", gain }); }

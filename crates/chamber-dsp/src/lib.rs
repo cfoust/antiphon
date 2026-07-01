@@ -8,12 +8,14 @@
 //! and a budget of **image-source early reflections** through the same HRTF kernel, and
 //! feed a mono send to a parametric **FDN late reverb**. Sum, limit, output stereo.
 
+pub mod attention;
 pub mod dvf;
 pub mod hrtf;
 pub mod math;
 pub mod reverb;
 pub mod voice;
 
+pub use attention::{AttentionCfg, AttentionCue};
 pub use math::{Quat, Vec3};
 
 use chamber_assets::{ChamberAsset, ReverbBackend, RoomPreset};
@@ -140,6 +142,11 @@ pub struct Renderer {
     head_pos: Vec3,
     first: bool,
 
+    // "an agent is waiting" attention cue (synthesized in-core, spatialized like a voice)
+    attn: AttentionCue,
+    attn_voice: Voice,
+    attn_buf: Vec<f32>,
+
     // preallocated scratch
     send_bus: Vec<f32>,
     rev_l: Vec<f32>,
@@ -210,6 +217,9 @@ impl Renderer {
             head: Quat::IDENTITY,
             head_pos: Vec3::default(),
             first: true,
+            attn: AttentionCue::new(sample_rate, 0x9E37_79B9, AttentionCfg::default()),
+            attn_voice: Voice::new(hrir_len, MAX_ITD_SAMPLES, 1),
+            attn_buf: vec![0.0; max_block],
             send_bus: vec![0.0; max_block],
             rev_l: vec![0.0; max_block],
             rev_r: vec![0.0; max_block],
@@ -233,6 +243,14 @@ impl Renderer {
     }
     pub fn set_master_gain(&mut self, g: f32) {
         self.master_gain = g;
+    }
+    /// Number of agents waiting for attention. 0 silences the cue and resets its build clock.
+    pub fn set_attention_agents(&mut self, n: u32) {
+        self.attn.set_agents(n);
+    }
+    /// Minutes over which the attention cue ramps from silent → full urgency (louder + faster).
+    pub fn set_attention_build_minutes(&mut self, m: f32) {
+        self.attn.set_build_minutes(m);
     }
     pub fn set_reflections_enabled(&mut self, on: bool) {
         self.reflections_enabled = on;
@@ -363,6 +381,35 @@ impl Renderer {
                 );
                 self.direct[i].active = false;
             }
+        }
+
+        // ---- "an agent is waiting" attention cue ----
+        // Synthesized in-core, then run through the SAME direct-path pipeline (near-field DVF +
+        // reverb send) as a voice. Its position is head-relative (glued to one ear), so we feed the
+        // local offset straight in as `rel` — no world→head rotation. Defaults to 0 agents (silent),
+        // so the parity oracle and existing renders are bit-unchanged.
+        if self.attn.needs_render() {
+            self.attn.render(&mut self.attn_buf[..frames], frames);
+            let local = Vec3::new(self.attn.ear_sign() * self.attn.distance(), 0.0, -0.03);
+            let dist = local.len().max(1e-4);
+            let dir = local.normalized();
+            let dgain = self.attn.gain() * distance_atten(dist);
+            let lp_a = air_lp(dist);
+            let itd = self.db.interp(dir, &mut self.hrir_l, &mut self.hrir_r);
+            self.attn_voice.set_target(&self.hrir_l, &self.hrir_r, itd, dgain, lp_a, 0.0, false);
+            let rho = dist / 0.0875;
+            let theta_r = dir.x.clamp(-1.0, 1.0).acos().to_degrees();
+            let theta_l = (-dir.x).clamp(-1.0, 1.0).acos().to_degrees();
+            self.attn_voice.set_dvf(
+                dvf::near_field_shelf(theta_l, rho, self.sr),
+                dvf::near_field_shelf(theta_r, rho, self.sr),
+                false,
+            );
+            self.attn_voice
+                .process(&self.attn_buf[..frames], out_l, out_r, send_slice, self.attn.send() * send_scale);
+        } else if self.attn_voice.active {
+            self.attn_voice.set_target(&self.hrir_l, &self.hrir_r, 0.0, 0.0, 1.0, 0.0, false);
+            self.attn_voice.active = false;
         }
 
         // ---- image-source early reflections (order 1..2, energy-ranked budget) ----

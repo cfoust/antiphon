@@ -34,7 +34,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/audio"
 cp native/ChamberApp/Info.plist "$APP/Contents/Info.plist"
 cp "$ASSET" "$APP/Contents/Resources/chamber.chamber"
 printf '%s' "$HRTF" > "$APP/Contents/Resources/hrtf.txt"
-[ -f assets/audio/whisper.wav ] && cp assets/audio/whisper.wav "$APP/Contents/Resources/whisper.wav"  # attention-whisper prototype
+# (whisper.wav prototype removed — the attention cue is now synthesized in-engine)
 if [ -d "$VOICES" ]; then
   cp "$VOICES"/*.mp3 "$APP/Contents/Resources/audio/" 2>/dev/null || true
   echo "  bundled $(ls "$APP/Contents/Resources/audio" | wc -l | tr -d ' ') voice files"
