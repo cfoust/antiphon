@@ -183,7 +183,11 @@ export class HeadTracker {
             Math.max(0, (downDeg - DOWN_START) / (DOWN_FULL - DOWN_START)),
           );
           this.engine.setLookGate(1 - downAmt);
-          this.engine.setPosition(this.pos); // 6DoF: feed head translation → true motion parallax
+          // 6DoF head translation → true motion parallax. Convert frames: the tracker reports
+          // +z = TOWARD the camera (leaning in), but the engine/radar use the chamber convention
+          // front = −z, so lean-in must be −z. Without this flip, leaning in slid you backward.
+          const hp = this.pos;
+          this.engine.setPosition({ x: hp.x, y: hp.y, z: -hp.z });
         }
 
         // --- eye-closure → immersion fade ---------------------------------
