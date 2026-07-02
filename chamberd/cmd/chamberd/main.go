@@ -69,10 +69,6 @@ func serve(args []string) {
 
 	// Provider ladder in priority order; macos-say is the free offline floor.
 	cacheDir := filepath.Join(*stateDir, "tts-cache")
-	budgets := map[string]int{}
-	if cap, err := strconv.Atoi(os.Getenv("CHAMBER_ELEVENLABS_DAILY_CHARS")); err == nil {
-		budgets["elevenlabs"] = cap
-	}
 	providers := []tts.Provider{}
 	if key := os.Getenv("ELEVENLABS_API_KEY"); key != "" {
 		providers = append(providers, tts.NewElevenLabs(key))
@@ -80,7 +76,7 @@ func serve(args []string) {
 		log.Printf("ELEVENLABS_API_KEY not set — using macOS say only")
 	}
 	providers = append(providers, tts.Say{})
-	chain := tts.NewChain(cacheDir, budgets, providers...)
+	chain := tts.NewChain(cacheDir, providers...)
 
 	h := hub.New(reg, roster, chain)
 	mux := http.NewServeMux()

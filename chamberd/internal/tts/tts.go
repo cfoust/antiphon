@@ -1,9 +1,12 @@
 // Package tts renders narration text to audio through an ordered provider
 // chain with the failure semantics the design doc pins down:
 //
-//	priority order → circuit breaker per provider → daily budget per provider
-//	→ content-addressed cache → degraded flag when a fallback spoke.
+//	priority order → circuit breaker per provider → content-addressed cache
+//	→ degraded flag when a fallback spoke.
 //
+// The breaker is what makes fallback INSTANT once a provider is down (e.g.
+// ElevenLabs credits exhausted): after a few consecutive failures the dead
+// provider is skipped without a network round-trip, then re-probed later.
 // The chain never errors the caller for provider trouble: worst case it
 // returns ErrSilent and the frame ships without audio (prototype behavior
 // when no API key was set).
@@ -80,48 +83,25 @@ func (b *breaker) record(ok bool, now time.Time) {
 	}
 }
 
-type budget struct {
-	limit int // chars/day; 0 = unlimited
-	used  int
-	day   string // YYYY-MM-DD the counter belongs to
-}
-
-func (b *budget) allow(chars int, now time.Time) bool {
-	if b.limit <= 0 {
-		return true
-	}
-	day := now.Format("2006-01-02")
-	if day != b.day {
-		b.day, b.used = day, 0
-	}
-	return b.used+chars <= b.limit
-}
-
-func (b *budget) spend(chars int) { b.used += chars }
-
 // Chain is the provider ladder.
 type Chain struct {
 	mu        sync.Mutex
 	providers []Provider
 	breakers  map[string]*breaker
-	budgets   map[string]*budget
 	cacheDir  string
 	Now       func() time.Time
 }
 
-// NewChain builds a ladder in priority order. budgets maps provider name →
-// daily character cap (0/absent = unlimited).
-func NewChain(cacheDir string, budgets map[string]int, providers ...Provider) *Chain {
+// NewChain builds a ladder in priority order.
+func NewChain(cacheDir string, providers ...Provider) *Chain {
 	c := &Chain{
 		providers: providers,
 		breakers:  map[string]*breaker{},
-		budgets:   map[string]*budget{},
 		cacheDir:  cacheDir,
 		Now:       time.Now,
 	}
 	for _, p := range providers {
 		c.breakers[p.Name()] = &breaker{}
-		c.budgets[p.Name()] = &budget{limit: budgets[p.Name()]}
 	}
 	return c
 }
@@ -151,10 +131,8 @@ func (c *Chain) Speak(ctx context.Context, p voice.Persona, text string, lowLate
 		}
 
 		c.mu.Lock()
-		now := c.Now()
 		br := c.breakers[prov.Name()]
-		bu := c.budgets[prov.Name()]
-		usable := br.available(now) && bu.allow(len(text), now)
+		usable := br.available(c.Now())
 		c.mu.Unlock()
 		if !usable {
 			continue
@@ -163,9 +141,6 @@ func (c *Chain) Speak(ctx context.Context, p voice.Persona, text string, lowLate
 		audio, ext, err := prov.Synthesize(ctx, voiceID, text, lowLatency)
 		c.mu.Lock()
 		br.record(err == nil, c.Now())
-		if err == nil {
-			bu.spend(len(text))
-		}
 		c.mu.Unlock()
 		if err != nil {
 			log.Printf("tts: %s failed (%v), falling through", prov.Name(), err)

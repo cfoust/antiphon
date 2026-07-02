@@ -35,7 +35,7 @@ func persona(providers ...string) voice.Persona {
 func TestFallsThroughToNextProviderAndFlagsDegraded(t *testing.T) {
 	primary := &fake{name: "elevenlabs", fail: true}
 	floor := &fake{name: "macos-say"}
-	c := NewChain(t.TempDir(), nil, primary, floor)
+	c := NewChain(t.TempDir(), primary, floor)
 
 	res, err := c.Speak(context.Background(), persona("elevenlabs", "macos-say"), "hello", false)
 	if err != nil {
@@ -49,7 +49,7 @@ func TestFallsThroughToNextProviderAndFlagsDegraded(t *testing.T) {
 func TestBreakerOpensAfterConsecutiveFailuresAndProbes(t *testing.T) {
 	primary := &fake{name: "elevenlabs", fail: true}
 	floor := &fake{name: "macos-say"}
-	c := NewChain(t.TempDir(), nil, primary, floor)
+	c := NewChain(t.TempDir(), primary, floor)
 	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
 	c.Now = func() time.Time { return now }
 
@@ -83,30 +83,9 @@ func TestBreakerOpensAfterConsecutiveFailuresAndProbes(t *testing.T) {
 	}
 }
 
-func TestBudgetExceededSkipsProvider(t *testing.T) {
-	primary := &fake{name: "elevenlabs"}
-	floor := &fake{name: "macos-say"}
-	c := NewChain(t.TempDir(), map[string]int{"elevenlabs": 10}, primary, floor)
-
-	// 5 chars: fits
-	res, _ := c.Speak(context.Background(), persona("elevenlabs", "macos-say"), "aaaaa", false)
-	if res.Provider != "elevenlabs" {
-		t.Fatalf("first line should use primary: %+v", res)
-	}
-	// 8 more would exceed 10 → degrade without calling primary
-	before := primary.calls
-	res, _ = c.Speak(context.Background(), persona("elevenlabs", "macos-say"), "bbbbbbbb", false)
-	if res.Provider != "macos-say" || !res.Degraded {
-		t.Fatalf("budget breach should degrade: %+v", res)
-	}
-	if primary.calls != before {
-		t.Fatal("budget breach still called the metered provider")
-	}
-}
-
 func TestCacheHitSkipsProvider(t *testing.T) {
 	p := &fake{name: "macos-say"}
-	c := NewChain(t.TempDir(), nil, p)
+	c := NewChain(t.TempDir(), p)
 	pa := persona("macos-say")
 
 	if _, err := c.Speak(context.Background(), pa, "same line", false); err != nil {
@@ -122,7 +101,7 @@ func TestCacheHitSkipsProvider(t *testing.T) {
 }
 
 func TestNoRealizationNoProviderMeansSilent(t *testing.T) {
-	c := NewChain(t.TempDir(), nil, &fake{name: "elevenlabs", fail: true})
+	c := NewChain(t.TempDir(), &fake{name: "elevenlabs", fail: true})
 	// persona only realized on a provider that keeps failing
 	if _, err := c.Speak(context.Background(), persona("elevenlabs"), "x", false); !errors.Is(err, ErrSilent) {
 		// first failure falls off the ladder end → silent

@@ -12,10 +12,11 @@ you can install and forget.
 
 A local daemon, **`chamberd`** (Go), that:
 
-1. accepts connections from coding agents (Claude Code first) which send **blips**
-   (what I'm doing now) and **summaries** (what I did),
-2. turns those into **voice lines** via a pluggable TTS layer (ElevenLabs, macOS `say`,
-   more later) with per-agent voice consistency and an articulated fallback ladder,
+1. accepts connections from coding agents (Claude Code first) which send **narration**:
+   model-authored blips + done summaries — the prototype proved models are good at
+   summarizing their own work, so narration stays model-driven,
+2. turns narration into **voice lines** via a pluggable TTS layer (ElevenLabs, macOS
+   `say`, more later) with per-agent voice consistency and failure-driven fallback,
 3. feeds the spatialized Chamber clients — the **native macOS app** (primary) and the
    web app — over the same local WebSocket protocol the prototype already speaks.
 
@@ -90,6 +91,11 @@ different kinds of agents with varying integration quality":
 POST /events  {"session":"…","kind":"opencode","type":"progress","text":"running tests"}
 ```
 
+Narration is **model-driven** (the four MCP tools: `chamber_task`, `chamber_progress`,
+`chamber_done`, `chamber_blocked`) — the prototype showed models summarize their own
+work well, and that stays the only source of spoken text. Hook events are never
+verbalized; a robot reading "running Bash: cargo test" is the wrong texture.
+
 **Management surface** (the future many-agents UX builds on this, API-first):
 
 ```
@@ -141,18 +147,16 @@ name) even when ElevenLabs credit runs out and she suddenly speaks with the macO
 Frames carry `degraded:true` so clients can whisper that fact in the UI. When the
 preferred provider recovers, realization upgrades again — persona unbroken.
 
-**The ladder**, per synthesized line:
+**The ladder is failure-driven, nothing more** — per synthesized line:
 
 1. Walk the provider priority list (config; default `elevenlabs, macos-say`) and use the
-   first provider that (a) has a realization for this voice, (b) is healthy, (c) is
-   within budget.
+   first provider that (a) has a realization for this voice and (b) is healthy.
 2. Health = circuit breaker per provider: 3 consecutive failures → open for 60 s
    (skipped without trying) → half-open single probe → close on success. This is what
-   turns "ElevenLabs API calls just started failing" from thirty seconds of latency
-   spikes into one clean degradation.
-3. Budget = daily character cap per provider (config; ElevenLabs default capped) — the
-   "ran out of credits in half an hour" guard degrades *before* the API starts failing.
-4. `macos-say` is the floor on macOS: always installed, free, offline. If even that
+   turns "ElevenLabs API calls just started failing" (credits exhausted, network down,
+   whatever) from a 30-second timeout on *every* line into one clean, instant
+   degradation — and what upgrades the voice back automatically when it recovers.
+3. `macos-say` is the floor on macOS: always installed, free, offline. If even that
    fails, the frame ships without audio and the chamber shows text silently — exactly
    the prototype's no-API-key behavior.
 
@@ -191,9 +195,9 @@ Port the prototype plugin into this repo with the runtime dependency removed:
   `chamber_blocked`), same `claude/channel` inbound path for talk-back.
 - `channel` mode sends the identity `hello` (session id from CC env, repo from git
   remote/cwd, title from the first task headline).
-- Hooks stay minimal like the prototype (SessionStart narration mandate +
-  UserPromptSubmit reminder); narration remains model-driven via tools. The optional
-  Stop-backstop stays optional.
+- Hooks do two jobs: the prototype's prompt nudges (SessionStart narration mandate +
+  UserPromptSubmit reminder) AND **PostToolUse matchers emitting cue events** (tool
+  name → cue kind, fire-and-forget). The optional Stop-backstop stays optional.
 - Everything above obeys the fail-open contract.
 
 ## Milestones
@@ -201,9 +205,8 @@ Port the prototype plugin into this repo with the runtime dependency removed:
 - **M0** — this document. ✅
 - **M1** — `chamberd serve` skeleton (this branch): registry w/ persistence + identity,
   `/agent` `/stream` `/events` `/agents` `/health` `/debug/emit`, prototype-compatible
-  frames, TTS chain (`elevenlabs` + `macos-say` + breaker + budget + cache), roster with
-  sticky voice binding. Verified against the existing web `?live` page and a headless
-  WS test.
+  frames, TTS chain (`elevenlabs` + `macos-say` + breaker + cache), roster with sticky
+  voice binding. Verified with a headless WS test.
 - **M2** — `chamberd channel` (MCP subprocess mode) + `cc-chamber/` plugin in this repo;
   end-to-end with a real Claude Code session. Fail-open verified by killing the daemon
   mid-session.
@@ -215,6 +218,11 @@ Port the prototype plugin into this repo with the runtime dependency removed:
 
 ## Open questions (parked deliberately)
 
+- **Hook-driven mechanical cues** — mapping tool activity (edits, shell calls, reads)
+  to NON-VERBAL sound texture (typing, key clacks) at the agent's position via
+  PostToolUse hooks and a `{type:"cue", kind}` event. Explicitly out of scope for now;
+  it's additive to the wire protocol whenever we want it, and like the attention cue
+  the sounds could eventually live in `chamber-dsp` itself.
 - Talk-back beyond Claude Code channels (tmux/cy injection for other agents) — the
   prototype's plan sketches this; out of scope until M4+.
 - Auth: localhost-only bind is the current stance (like the prototype). If we ever bind
