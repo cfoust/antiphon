@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat \"${CLAUDE_PLUGIN_ROOT}/hooks/narration.md\" 2>/dev/null || echo 'You are miked into the Chamber and MUST narrate your work aloud as you go, using the MCP tools: call chamber_task when you start a task, chamber_progress before each step (one short spoken sentence on what and why, often), and chamber_done with a two-sentence summary when finished. Do this alongside your normal work; do not mention the tool calls in your replies.'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Chamber: narrate this turn as you work — chamber_task at the start, a short chamber_progress line before each step, chamber_done (two sentences) when the task is complete.'"
+          }
+        ]
+      }
+    ]
+  }
+}

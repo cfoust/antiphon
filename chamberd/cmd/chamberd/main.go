@@ -1,7 +1,7 @@
 // chamberd — the Chamber agent bridge daemon. See docs/agent-bridge.md.
 //
 //	chamberd serve    run the hub (default)
-//	chamberd channel  per-session MCP subprocess for Claude Code (M2, stub)
+//	chamberd channel  per-session MCP subprocess for Claude Code (stdio ↔ hub)
 package main
 
 import (
@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cfoust/chamber/chamberd/internal/channel"
 	"github.com/cfoust/chamber/chamberd/internal/hub"
 	"github.com/cfoust/chamber/chamberd/internal/registry"
 	"github.com/cfoust/chamber/chamberd/internal/tts"
@@ -26,15 +27,20 @@ import (
 func main() {
 	args := os.Args[1:]
 	mode := "serve"
-	if len(args) > 0 && args[0] == "serve" || len(args) > 0 && args[0] == "channel" {
+	if len(args) > 0 && (args[0] == "serve" || args[0] == "channel") {
 		mode = args[0]
 		args = args[1:]
 	}
 	switch mode {
 	case "channel":
-		// M2: the per-session MCP subprocess (stdio ↔ hub WebSocket, fail-open).
-		fmt.Fprintln(os.Stderr, "chamberd channel: not implemented yet (M2 — see docs/agent-bridge.md)")
-		os.Exit(1)
+		// stdout is the MCP transport — all logging must go to stderr
+		log.SetOutput(os.Stderr)
+		fs := flag.NewFlagSet("channel", flag.ExitOnError)
+		hubURL := fs.String("hub", "", "hub /agent WebSocket URL (default $CHAMBER_HUB or ws://127.0.0.1:8787/agent)")
+		fs.Parse(args)
+		if err := channel.New(*hubURL).Run(os.Stdin, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
 	case "serve":
 		serve(args)
 	}
