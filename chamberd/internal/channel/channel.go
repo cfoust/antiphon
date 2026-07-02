@@ -13,6 +13,7 @@ package channel
 import (
 	"bufio"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -317,17 +318,22 @@ func jitter(d time.Duration) time.Duration {
 
 // ---- identity -------------------------------------------------------------------
 
-// sessionID prefers the id Claude Code exposes so reconnects (and channel
-// restarts within one session) reclaim the same registry record.
+// sessionID prefers an explicit id (env) so reconnects reclaim the same
+// registry record; otherwise it derives a stable one from the parent process
+// (the agent that spawned us) + cwd, so channel restarts within one session —
+// headless Claude restarts the MCP server — keep their identity and voice.
 func sessionID() string {
-	for _, k := range []string{"CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID"} {
+	for _, k := range []string{"CHAMBER_SESSION", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID"} {
 		if v := os.Getenv(k); v != "" {
 			return v
 		}
 	}
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return "chan-" + hex.EncodeToString(b)
+	return fmt.Sprintf("ppid-%d-%s", os.Getppid(), cwdHash())
+}
+
+func cwdHash() string {
+	h := sha256.Sum256([]byte(cwd()))
+	return hex.EncodeToString(h[:])[:8]
 }
 
 func repoName() string {

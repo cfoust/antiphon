@@ -96,6 +96,54 @@ Narration is **model-driven** (the four MCP tools: `chamber_task`, `chamber_prog
 work well, and that stays the only source of spoken text. Hook events are never
 verbalized; a robot reading "running Bash: cargo test" is the wrong texture.
 
+## Integrating a new coding agent: zero server changes, by design
+
+The server knows nothing about specific agents — `kind` is a free string, identity is
+whatever session key the client presents, and the protocol (`hello` + four narration
+events) is the whole contract. There is deliberately no per-agent code path to add.
+An agent integrates at whichever rung it can reach:
+
+1. **`chamberd emit`** — the floor. If the agent can run arbitrary commands (hooks,
+   wrappers, CI steps), it is already integrable:
+
+   ```sh
+   chamberd emit -type task -text "reworking the auth flow"
+   chamberd emit -type done -text "Tests pass; the flow uses refresh tokens now."
+   ```
+
+   Session/repo identity is derived (or passed via `-session`/`CHAMBER_SESSION`);
+   the hub is found through the discovery file, so a missing daemon costs ~10 ms and
+   nothing else. Always exits 0, never writes stdout — safe to call unconditionally
+   from any hook pipeline.
+2. **`POST /events`** — same thing over plain HTTP for agents that would rather
+   speak JSON than exec a binary.
+3. **`/agent` WebSocket** — the full-fidelity rung: persistent identity, instant
+   `bind/free` presence, and talk-back delivery. This is what `chamberd channel`
+   (the Claude Code MCP driver) uses.
+
+So yes: an agent that can administer hooks and run commands needs nothing else — for
+narration OUT. The one thing commands can't give you is talk-back IN (delivering the
+user's spoken text *into* the agent); that direction is inherently agent-specific
+(Claude Code: MCP channels; others: tmux/cy injection, an HTTP callback, …) and is
+the only part that ever needs a per-agent driver — always client-side, never in the
+server.
+
+## Adding a TTS provider
+
+One Go interface, two methods, no other integration points:
+
+```go
+type Provider interface {
+    Name() string
+    Synthesize(ctx, voiceID, text string, lowLatency bool) (audio []byte, ext string, err error)
+}
+```
+
+Register it in the ladder (priority order in `main.go`) and give personas a
+realization for it in the roster (`"name": {"realizations": {"yourprovider": "voice-id"}}`).
+Breaker, caching, degradation flags, and voice stickiness all come for free from the
+chain — a provider implementation is typically <100 lines (see `elevenlabs.go`).
+
 **Management surface** (the future many-agents UX builds on this, API-first):
 
 ```

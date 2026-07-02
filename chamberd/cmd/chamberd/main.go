@@ -2,6 +2,7 @@
 //
 //	chamberd serve    run the hub (default)
 //	chamberd channel  per-session MCP subprocess for Claude Code (stdio ↔ hub)
+//	chamberd emit     send one narration event from a hook/script (fail-open)
 package main
 
 import (
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/cfoust/chamber/chamberd/internal/channel"
+	"github.com/cfoust/chamber/chamberd/internal/emit"
 	"github.com/cfoust/chamber/chamberd/internal/hub"
 	"github.com/cfoust/chamber/chamberd/internal/registry"
 	"github.com/cfoust/chamber/chamberd/internal/tts"
@@ -27,9 +29,12 @@ import (
 func main() {
 	args := os.Args[1:]
 	mode := "serve"
-	if len(args) > 0 && (args[0] == "serve" || args[0] == "channel") {
+	if len(args) > 0 && (args[0] == "serve" || args[0] == "channel" || args[0] == "emit") {
 		mode = args[0]
 		args = args[1:]
+	}
+	if mode == "emit" {
+		os.Exit(emit.Run(args))
 	}
 	switch mode {
 	case "channel":
