@@ -26,13 +26,36 @@ Chamber not running must cost the session nothing:
 - blips during an outage are dropped; the latest done-summary is buffered
   (depth one) and delivered on reconnect.
 
+## Install
+
+The plugin needs two things: this plugin loaded into Claude Code, and the
+`chamberd` binary findable somewhere.
+
+**The plugin** — via the marketplace manifest at the repo root:
+
+```sh
+claude plugin marketplace add cfoust/chamber   # or: add /path/to/chamber (local)
+claude plugin install chamber@chamber
+```
+
+(Dev alternative: `claude --plugin-dir "$PWD/cc-chamber"`.)
+
+**The binary** — no PATH management needed in the common cases. The launcher
+searches, in order: `$CHAMBERD` → the `exe` recorded in `~/.chamber/chamberd.json`
+(i.e. whatever binary is serving right now — if the Chamber app is running, its
+bundled daemon is found automatically) → PATH → `/Applications/Chamber.app` and
+`~/Applications/Chamber.app` bundles → the repo dev build (`chamberd/bin/`) →
+`~/go/bin` (`cd chamberd && go install ./cmd/chamberd`).
+
+Hooks are gated on `~/.chamber/chamberd.json`: sessions on a machine where
+Chamber has never run get no narration mandate injected at all.
+
 ## Run
 
 ```sh
 (cd chamberd && just build)        # builds chamberd/bin/chamberd
-chamberd/bin/chamberd serve        # or: just -f chamberd/justfile serve
-claude --plugin-dir "$PWD/cc-chamber" \
-       --dangerously-load-development-channels server:chamber   # talk-back (optional)
+chamberd/bin/chamberd serve        # or just open Chamber.app (it owns the daemon)
+claude --dangerously-load-development-channels server:chamber   # talk-back (optional)
 ```
 
 Env: `CHAMBERD` (explicit binary path), `CHAMBER_HUB` (hub URL override,

@@ -125,9 +125,11 @@ func defaultStateDir() string {
 }
 
 func writeDiscovery(path string, port int) {
+	exe, _ := os.Executable() // lets the plugin launcher find THIS binary (e.g. inside Chamber.app)
 	b, _ := json.Marshal(map[string]any{
 		"port":       port,
 		"pid":        os.Getpid(),
+		"exe":        exe,
 		"started_at": time.Now().Format(time.RFC3339),
 	})
 	_ = os.WriteFile(path, b, 0o644)

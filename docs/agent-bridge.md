@@ -254,6 +254,19 @@ The seam into the agent must be invisible when Chamber isn't in use:
   running, supervise/restart. Standalone `chamberd serve` stays first-class for web/dev.
   (launchd socket activation is a possible later refinement, not a dependency.)
 
+## Install & distribution
+
+- **Plugin**: a marketplace manifest lives at the repo root
+  (`.claude-plugin/marketplace.json`), so real installs are
+  `claude plugin marketplace add cfoust/chamber` + `claude plugin install
+  chamber@chamber`; `--plugin-dir` remains the dev path. See `cc-chamber/README.md`.
+- **Binary**: nothing needs PATH. The daemon records its own executable path in the
+  discovery file, so the plugin launcher finds whatever binary is serving (e.g. the
+  copy inside Chamber.app); it also checks `/Applications`/`~/Applications` bundles,
+  the repo dev build, and `~/go/bin`. `$CHAMBERD` overrides everything.
+- **Hooks are gated** on `~/.chamber/chamberd.json` existing: machines where Chamber
+  has never run get zero prompt injection from the plugin.
+
 ## Claude Code integration (`cc-chamber`, rebuilt here)
 
 Port the prototype plugin into this repo with the runtime dependency removed:
