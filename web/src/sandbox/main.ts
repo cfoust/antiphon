@@ -188,6 +188,7 @@ async function addSource(pos: Vec3, kind?: string): Promise<void> {
   };
   sources.push(s);
   selected = s.id;
+  switchTab("source");
   await pushSource(s, true);
   refreshUI();
   saveSoon();
@@ -395,6 +396,7 @@ function renderSourceList(): void {
     };
     row.onclick = () => {
       selected = s.id;
+      switchTab("source");
       refreshUI();
     };
     row.append(swatch, name, play, del);
@@ -406,7 +408,7 @@ function renderInspector(): void {
   const host = $("inspector");
   host.innerHTML = "";
   const s = sel();
-  $("inspectorPanel").style.display = s ? "" : "none";
+  $("noSel").style.display = s ? "none" : "";
   $("arpPanel").style.display = s?.kind === "arp" ? "" : "none";
   if (!s) return;
 
@@ -722,8 +724,16 @@ function setStatus(t: string): void {
   $("status").textContent = t;
 }
 
+// editor tabs: Source / Listener / Room / Cue / Scene
+function switchTab(name: string): void {
+  document.querySelectorAll<HTMLButtonElement>("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
+  document.querySelectorAll(".tabpage").forEach((p) => p.classList.toggle("on", p.id === "tab-" + name));
+}
+document.querySelectorAll<HTMLButtonElement>("#tabbar button").forEach((b) => (b.onclick = () => switchTab(b.dataset.tab!)));
+
 view.onSelect = (id) => {
   selected = id;
+  if (id) switchTab("source");
   refreshUI();
 };
 view.onMove = (id, pos) => {

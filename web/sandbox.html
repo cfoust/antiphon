@@ -28,15 +28,22 @@
   button.on { background:var(--accent); color:#06231f; border-color:var(--accent); font-weight:650; }
   main { flex:1; display:flex; min-height:0; }
   #view { flex:1; min-width:0; display:block; width:100%; height:100%; touch-action:none; }
-  #side { width:360px; overflow-y:auto; border-left:1px solid var(--line); padding:12px; display:flex; flex-direction:column; gap:12px; }
-  fieldset { border:1px solid var(--line); border-radius:12px; background:var(--panel); margin:0; padding:10px 12px 12px; }
+  #side { width:360px; min-width:0; overflow-y:auto; border-left:1px solid var(--line); padding:12px; display:flex; flex-direction:column; gap:12px; }
+  fieldset { border:1px solid var(--line); border-radius:12px; background:var(--panel); margin:0; padding:10px 12px 12px; min-inline-size:0; }
   legend { padding:0 8px; color:var(--accent); font-weight:650; font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
+  /* editor tabs */
+  #tabbar { display:flex; gap:4px; border-bottom:1px solid var(--line); padding:0 2px; flex-shrink:0; }
+  #tabbar button { flex:1; border:1px solid transparent; border-bottom:none; border-radius:8px 8px 0 0; background:transparent; color:var(--dim); padding:7px 4px; font-weight:550; }
+  #tabbar button:hover { color:var(--ink); }
+  #tabbar button.on { background:var(--panel); border-color:var(--line); color:var(--accent); font-weight:650; }
+  .tabpage { display:none; background:var(--panel); border:1px solid var(--line); border-top:none; border-radius:0 0 12px 12px; padding:12px; min-inline-size:0; }
+  .tabpage.on { display:block; }
   .row { margin:8px 0; }
   .row label { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
   .row .name { font-weight:550; }
   .row .val { color:var(--accent); font-variant-numeric:tabular-nums; font-size:12px; }
   input[type=range] { width:100%; accent-color:var(--accent); margin-top:4px; }
-  select { width:100%; background:#11151a; color:var(--ink); border:1px solid var(--line); border-radius:7px; padding:6px; margin:6px 0; }
+  select { width:100%; max-width:100%; min-width:0; text-overflow:ellipsis; background:#11151a; color:var(--ink); border:1px solid var(--line); border-radius:7px; padding:6px; margin:6px 0; }
   .seg { display:flex; gap:6px; margin:6px 0; }
   .seg button { flex:1; padding:6px; }
   .toggle { display:flex; align-items:center; gap:8px; margin:8px 0; }
@@ -46,7 +53,7 @@
   .src-row { display:flex; align-items:center; gap:8px; padding:5px 6px; border-radius:8px; cursor:pointer; }
   .src-row:hover { background:#1d222b; }
   .src-row.sel { background:#20303a; outline:1px solid var(--accent); }
-  .src-row .src-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .src-row .src-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .src-row button { padding:2px 8px; }
   .swatch { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
   .count { min-width:80px; text-align:center; color:var(--accent); font-weight:650; }
@@ -79,36 +86,35 @@
       </div>
       <div id="sources"></div>
     </fieldset>
-    <fieldset id="inspectorPanel" style="display:none">
-      <legend>Selected source</legend>
-      <div id="inspector"></div>
-    </fieldset>
-    <fieldset id="arpPanel" style="display:none">
-      <legend>ARP synth (agent cue prototype)</legend>
-      <div id="arp"></div>
-    </fieldset>
-    <fieldset>
-      <legend>Listener · tracking · immersion</legend>
-      <div id="listenerPanelBody"></div>
-    </fieldset>
-    <fieldset>
-      <legend>Room &amp; reverb</legend>
-      <div id="roomPanelBody"></div>
-    </fieldset>
-    <fieldset>
-      <legend>Attention cue (in-engine)</legend>
-      <div id="attnPanelBody"></div>
-    </fieldset>
-    <fieldset>
-      <legend>Scene</legend>
-      <div class="btnrow">
-        <button id="export">⬇ export json</button>
-        <button id="importBtn">⬆ import</button>
-        <input type="file" id="importFile" accept="application/json" style="display:none" />
-        <button id="clear">🗑 clear</button>
+    <div>
+      <div id="tabbar">
+        <button data-tab="source" class="on">Source</button>
+        <button data-tab="listener">Listener</button>
+        <button data-tab="room">Room</button>
+        <button data-tab="cue">Cue</button>
+        <button data-tab="scene">Scene</button>
       </div>
-      <div class="hint">Autosaves to localStorage. Uploaded audio files aren't embedded in exports — re-load them after import.</div>
-    </fieldset>
+      <div class="tabpage on" id="tab-source">
+        <div id="noSel" class="hint">No source selected — click one in the list or the 3D view.</div>
+        <div id="inspector"></div>
+        <div id="arpPanel" style="display:none">
+          <div class="subhead">ARP synth (agent cue prototype)</div>
+          <div id="arp"></div>
+        </div>
+      </div>
+      <div class="tabpage" id="tab-listener"><div id="listenerPanelBody"></div></div>
+      <div class="tabpage" id="tab-room"><div id="roomPanelBody"></div></div>
+      <div class="tabpage" id="tab-cue"><div id="attnPanelBody"></div></div>
+      <div class="tabpage" id="tab-scene">
+        <div class="btnrow">
+          <button id="export">⬇ export json</button>
+          <button id="importBtn">⬆ import</button>
+          <input type="file" id="importFile" accept="application/json" style="display:none" />
+          <button id="clear">🗑 clear</button>
+        </div>
+        <div class="hint">Autosaves to localStorage. Uploaded audio files aren't embedded in exports — re-load them after import.</div>
+      </div>
+    </div>
   </div>
 </main>
 <script type="module" src="/src/sandbox/main.ts"></script>
