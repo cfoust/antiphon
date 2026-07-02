@@ -42,6 +42,14 @@ else
   echo "  WARNING: voices not found at $VOICES — the app will run silent"
 fi
 
+echo "[3.5/5] chamberd (agent bridge daemon)"
+if command -v go >/dev/null 2>&1; then
+  (cd chamberd && go build -o "../$APP/Contents/MacOS/chamberd" ./cmd/chamberd)
+  echo "  bundled chamberd (live agent bridge available)"
+else
+  echo "  WARNING: go not found — no chamberd; the app runs the canned demo only"
+fi
+
 echo "[4/5] swiftc compile + link"
 export MACOSX_DEPLOYMENT_TARGET=14.0
 swiftc -O -target "$TARGET" -parse-as-library \

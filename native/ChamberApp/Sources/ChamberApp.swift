@@ -58,6 +58,11 @@ struct ContentView: View {
                     }
                     Text("Turn to face an agent to hear it open up · look down to whisper all")
                         .font(.caption2).foregroundStyle(.tertiary)
+                    Text(engine.bridged
+                        ? "● live — agents join as they connect (chamberd)"
+                        : "○ demo — canned agents (chamberd not running)")
+                        .font(.caption2)
+                        .foregroundStyle(engine.bridged ? Color.green.opacity(0.75) : Color.secondary.opacity(0.6))
                     // Eyes-closed immersion fade: close your eyes and the scene fills in; open them and
                     // it fades to silence. User-toggleable — off holds full audio regardless of eyes.
                     Toggle(isOn: $immersionEnabled) {

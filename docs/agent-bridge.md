@@ -271,14 +271,14 @@ Port the prototype plugin into this repo with the runtime dependency removed:
 ## Milestones
 
 - **M0** — this document. ✅
-- **M1** — `chamberd serve` skeleton (this branch): registry w/ persistence + identity,
+- **M1** ✅ — `chamberd serve` skeleton (this branch): registry w/ persistence + identity,
   `/agent` `/stream` `/events` `/agents` `/health` `/debug/emit`, prototype-compatible
   frames, TTS chain (`elevenlabs` + `macos-say` + breaker + cache), roster with sticky
   voice binding. Verified with a headless WS test.
-- **M2** — `chamberd channel` (MCP subprocess mode) + `cc-chamber/` plugin in this repo;
+- **M2** ✅ — `chamberd channel` (MCP subprocess mode) + `cc-chamber/` plugin in this repo;
   end-to-end with a real Claude Code session. Fail-open verified by killing the daemon
   mid-session.
-- **M3** — native app client: WebSocket to `/stream`, live narration buffers replacing
+- **M3** ✅ — native app client: WebSocket to `/stream`, live narration buffers replacing
   the canned mp3 loops (the `AgentRuntime` mixing path already takes 48 k mono floats),
   daemon spawn/supervision, `bind/free` driving agent presence on the radar.
 - **M4** — management UX (list/evict/idle handling) on top of `GET /agents`;

@@ -293,11 +293,24 @@ func (h *Hub) handleStream(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.pages[c] = true
 	seats := make([]map[string]any, len(h.seats))
-	for i := range h.seats {
+	occupied := map[int]string{}
+	for i, id := range h.seats {
 		seats[i] = map[string]any{"seat": i, "color": h.roster.Personas[i].Color}
+		if id != "" {
+			occupied[i] = id
+		}
 	}
 	h.mu.Unlock()
 	c.send(map[string]any{"type": "hello", "seats": seats})
+	// replay current occupancy so a late-joining client (app restart mid-session)
+	// sees every agent that's already in the room
+	for seat, id := range occupied {
+		persona := h.roster.Personas[seat]
+		c.send(map[string]any{
+			"type": "bind", "seat": seat, "color": persona.Color,
+			"agent": id, "name": persona.Name, "input": h.inputKind(id),
+		})
+	}
 
 	for {
 		var msg struct {
