@@ -25,6 +25,10 @@ import (
 	"github.com/cfoust/chamber/chamberd/internal/voice"
 )
 
+// closeReplaced tells a displaced agent socket that a newer connection owns its
+// session — the client must NOT reconnect (chamberd/internal/channel honors it).
+const closeReplaced = 4000
+
 // FIELD maps event type → the frame field its text travels in (prototype contract).
 var FIELD = map[string]string{
 	"task":     "headline",
@@ -138,7 +142,14 @@ func (h *Hub) handleAgent(w http.ResponseWriter, r *http.Request) {
 	c.id = rec.ID
 	h.mu.Lock()
 	if old, ok := h.agents[rec.ID]; ok {
-		old.ws.Close() // a reconnect replaces the previous socket
+		// A reconnect replaces the previous socket. Tell the old client WHY
+		// (close code 4000 "replaced") so a lingering process for the same
+		// session stops reconnecting — otherwise two live channels fight over
+		// the session forever, each displacement triggering the other's retry.
+		deadline := time.Now().Add(time.Second)
+		_ = old.ws.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(closeReplaced, "replaced by a newer connection"), deadline)
+		old.ws.Close()
 	}
 	h.agents[rec.ID] = c
 	h.mu.Unlock()
@@ -170,15 +181,20 @@ func (h *Hub) handleAgent(w http.ResponseWriter, r *http.Request) {
 		h.emit(rec.ID, seat, persona, ev.Type, ev.Text)
 	}
 
-	// disconnect: free the seat, keep the registry record (identity survives)
+	// disconnect: free the seat ONLY if this socket still represents the agent —
+	// a reconnect (CC restarts MCP servers mid-session) replaces the socket, and
+	// the replaced connection's teardown must not free the live successor's seat.
 	h.mu.Lock()
-	if h.agents[rec.ID] == c {
+	mine := h.agents[rec.ID] == c
+	freed := -1
+	if mine {
 		delete(h.agents, rec.ID)
+		freed = h.freeSeatLocked(rec.ID)
 	}
-	freed := h.freeSeatLocked(rec.ID)
 	h.mu.Unlock()
 	if freed >= 0 {
 		h.broadcast(map[string]any{"type": "free", "seat": freed, "agent": rec.ID})
+		log.Printf("agent %s disconnected, seat %d freed", rec.ID, freed)
 	}
 	ws.Close()
 }
@@ -253,15 +269,25 @@ func (h *Hub) emit(agentID string, seat int, persona voice.Persona, typ, text st
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	res, err := h.chain.Speak(ctx, persona, text, typ == "progress")
+	voiced := "silent"
 	if err == nil {
 		if b, rerr := os.ReadFile(res.Path); rerr == nil {
 			frame["audioB64"] = base64.StdEncoding.EncodeToString(b)
 			frame["audioUrl"] = "/audio/" + filepath.Base(res.Path)
 			frame["degraded"] = res.Degraded
+			voiced = res.Provider
+			if res.Cached {
+				voiced += " (cached)"
+			}
 		}
 	} else if err != tts.ErrSilent {
 		log.Printf("tts: %v", err)
 	}
+	h.mu.Lock()
+	pages := len(h.pages)
+	h.mu.Unlock()
+	log.Printf("emit %s seat=%d agent=%s voice=%s tts=%s pages=%d text=%q",
+		typ, seat, agentID, persona.Name, voiced, pages, truncate(text, 60))
 	h.broadcast(frame)
 }
 
@@ -392,6 +418,13 @@ func orNone(s string) string {
 		return "none"
 	}
 	return s
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // ---- HTTP surfaces ---------------------------------------------------------------

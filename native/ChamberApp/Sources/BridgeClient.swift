@@ -152,33 +152,33 @@ final class BridgeClient: NSObject {
     }
 
     private func handle(_ f: Frame) {
-        guard let engine else { return }
-        switch f.type {
-        case "hello":
-            engine.bridgeConnected(true)
-        case "bind":
-            if let seat = f.seat { engine.bridgeBind(seat: seat) }
-        case "free":
-            if let seat = f.seat { engine.bridgeFree(seat: seat) }
-        case "task", "progress", "blocked", "done":
-            guard let seat = f.seat else { return }
-            let isDone = f.type == "done"
-            guard let b64 = f.audioB64 else {
-                if isDone { engine.bridgeDone(seat: seat, summary: []) }
-                return
-            }
-            let ext = (f.audioUrl as NSString?)?.pathExtension ?? "mp3"
-            decodeQ.async { [weak engine] in
-                guard let engine else { return }
-                let samples = Self.decode(b64: b64, ext: ext.isEmpty ? "mp3" : ext)
-                if isDone {
+        // EVERYTHING goes through the serial decode queue so frame effects apply in
+        // strict arrival order — a `free` must never overtake the `done` in front of
+        // it that is still decoding its audio (session exits send exactly that pair).
+        decodeQ.async { [weak self] in
+            guard let self, let engine = self.engine else { return }
+            switch f.type {
+            case "hello":
+                engine.bridgeConnected(true)
+            case "bind":
+                if let seat = f.seat { engine.bridgeBind(seat: seat) }
+            case "free":
+                if let seat = f.seat { engine.bridgeFree(seat: seat) }
+            case "task", "progress", "blocked", "done":
+                guard let seat = f.seat else { return }
+                var samples: [Float] = []
+                if let b64 = f.audioB64 {
+                    let ext = (f.audioUrl as NSString?)?.pathExtension ?? "mp3"
+                    samples = Self.decode(b64: b64, ext: ext.isEmpty ? "mp3" : ext)
+                }
+                if f.type == "done" {
                     engine.bridgeDone(seat: seat, summary: samples)
                 } else if !samples.isEmpty {
                     engine.bridgeNarration(seat: seat, samples: samples)
                 }
+            default:
+                break
             }
-        default:
-            break
         }
     }
 

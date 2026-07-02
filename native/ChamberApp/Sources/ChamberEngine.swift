@@ -99,6 +99,7 @@ final class AgentRuntime {
     // trigger pattern like ping/summary. Cap 2, drop-stale (match the web client:
     // a slow listener hears the LATEST work, not a backlog).
     var present = true // demo mode: everyone is present
+    var departed = false // session gone, but its unheard done-summary keeps it in the room
     var narrQueue: [[Float]] = []
     var narr: [Float] = []
     var narrCur = -1
@@ -438,6 +439,7 @@ final class ChamberEngine: ObservableObject {
             guard self.liveBridge, self.agents.indices.contains(seat) else { return }
             let a = self.agents[seat]
             a.present = true
+            a.departed = false
             a.state = .working
         }
     }
@@ -447,10 +449,18 @@ final class ChamberEngine: ObservableObject {
             self.boundSeats.remove(seat)
             guard self.agents.indices.contains(seat) else { return }
             let a = self.agents[seat]
-            a.present = false
-            a.state = .working
             a.narrQueue.removeAll()
-            a.gNarr = 0; a.gPing = 0; a.gSummary = 0
+            a.gNarr = 0
+            if a.state == .done || a.state == .summarizing {
+                // The session exited, but its unheard summary is the whole point of
+                // the chamber: keep the agent in the room, pinging, until it's heard.
+                // reset() (after .heard) then removes it.
+                a.departed = true
+            } else {
+                a.present = false
+                a.state = .working
+                a.gPing = 0; a.gSummary = 0
+            }
         }
     }
 
@@ -473,7 +483,10 @@ final class ChamberEngine: ObservableObject {
             let a = self.agents[seat]
             a.present = true
             if !summary.isEmpty { a.summary = summary }
-            guard a.state == .working else { return }
+            // a fresh done may also land on a .heard agent (it finished another task);
+            // only an in-flight .done/.summarizing keeps its current run
+            guard a.state == .working || a.state == .heard else { return }
+            a.heardAt = 0
             a.state = .done
             a.nextPing = self.now() + 0.15
             a.lastPingWall = 0
@@ -602,6 +615,10 @@ final class ChamberEngine: ObservableObject {
 
     private func reset(_ a: AgentRuntime) {
         a.state = .working; a.heardAt = 0; a.stCurrent = 0; a.gPing = 0
+        if a.departed { // summary heard and the session is long gone — leave the room
+            a.departed = false
+            a.present = false
+        }
     }
 
     private func publish(facedIdx: Int, at t: Double) {

@@ -270,6 +270,7 @@ func (c *Channel) hubLoop() {
 			ws.WriteJSON(pending)
 		}
 
+		replaced := false
 		for {
 			var msg struct {
 				Type string          `json:"type"`
@@ -277,6 +278,9 @@ func (c *Channel) hubLoop() {
 				Text string          `json:"text"`
 			}
 			if err := ws.ReadJSON(&msg); err != nil {
+				// close code 4000: a newer connection owns this session — stand
+				// down permanently instead of fighting it for the seat
+				replaced = websocket.IsCloseError(err, 4000)
 				break
 			}
 			switch msg.Type {
@@ -302,6 +306,10 @@ func (c *Channel) hubLoop() {
 		c.hub = nil
 		c.hubMu.Unlock()
 		ws.Close()
+		if replaced {
+			log.Printf("session replaced by a newer connection; narration disabled here")
+			return // MCP keeps serving (tools return ok); we just stop relaying
+		}
 	}
 }
 

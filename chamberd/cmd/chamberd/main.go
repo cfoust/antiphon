@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -64,6 +65,12 @@ func serve(args []string) {
 
 	if err := os.MkdirAll(*stateDir, 0o755); err != nil {
 		log.Fatalf("state dir: %v", err)
+	}
+
+	// Log to a file too — the app spawns us with stdio discarded, and a silent
+	// daemon is undebuggable. Truncated per run; this is a diagnostic, not history.
+	if f, err := os.Create(filepath.Join(*stateDir, "chamberd.log")); err == nil {
+		log.SetOutput(io.MultiWriter(os.Stderr, f))
 	}
 
 	reg, err := registry.Open(filepath.Join(*stateDir, "agents.json"))
