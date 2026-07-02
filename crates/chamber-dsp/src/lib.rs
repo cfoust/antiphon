@@ -21,7 +21,7 @@ pub use math::{Quat, Vec3};
 use chamber_assets::{ChamberAsset, ReverbBackend, RoomPreset};
 use hrtf::HrtfDb;
 use reverb::{ConvReverb, Fdn};
-use voice::Voice;
+use voice::{Decorrelator, Voice};
 
 pub const SPEED_OF_SOUND: f32 = 343.0;
 const MAX_ITD_SAMPLES: usize = 64; // ~1.3 ms @48k
@@ -33,6 +33,20 @@ const REFLECT_PER_SOURCE: usize = 8;
 /// Reflections use a shorter HRIR than the direct path — they're spectrally less critical,
 /// and this keeps the per-image cost low enough for real time (esp. WASM).
 const REFL_TAPS: usize = 64;
+/// Satellite taps rendered for a volumetric source (`extent > 0`), in addition to the centre
+/// voice. Fixed world-space tetrahedral offsets scaled by the extent radius, each fed a
+/// velvet-noise-decorrelated copy of the input, power-conserving gain split. A source with
+/// `extent == 0` skips all of this — bit-exact with the point-source path.
+const EXTENT_TAPS: usize = 4;
+/// Extent radii are clamped here; sizes the satellite pre-delay lines.
+const MAX_EXTENT: f32 = 8.0;
+/// Unit tetrahedron vertices (scaled by `extent` for the satellite offsets).
+const EXTENT_OFFSETS: [[f32; 3]; EXTENT_TAPS] = [
+    [0.577_350_3, 0.577_350_3, 0.577_350_3],
+    [0.577_350_3, -0.577_350_3, -0.577_350_3],
+    [-0.577_350_3, 0.577_350_3, -0.577_350_3],
+    [-0.577_350_3, -0.577_350_3, 0.577_350_3],
+];
 
 /// Listener head pose. Position in world metres; orientation maps body axes to world.
 #[derive(Clone, Copy, Debug)]
@@ -57,7 +71,10 @@ impl Pose {
     }
 }
 
-/// A mono point source placed in world space.
+/// A mono source placed in world space. Defaults to an omnidirectional point source;
+/// `facing`/`directivity` give it a frequency-dependent radiation pattern and `extent` a
+/// physical size. Both default off, in which case rendering is bit-exact with the legacy
+/// point-source path (the parity oracle depends on this).
 #[derive(Clone, Copy, Debug)]
 pub struct Source {
     pub position: Vec3,
@@ -65,6 +82,17 @@ pub struct Source {
     pub gain: f32,
     /// Reverb send level (0..1) into the late-reverb bus.
     pub send: f32,
+    /// World-space emission axis (need not be unit length). Zero vector ⇒ omni regardless
+    /// of `directivity`. Mirrored per-axis for image sources (correct ISM treatment).
+    pub facing: Vec3,
+    /// Radiation-pattern amount 0..1: 0 = omni, 1 = cardioid-like. Frequency-dependent —
+    /// at 1.0 the broadband rear level is −12 dB and the per-path one-pole darkens behind
+    /// the source (high frequencies beam harder than lows, like a talker or speaker).
+    pub directivity: f32,
+    /// Source radius in metres, 0 = point. Renders the direct path as the centre voice plus
+    /// [`EXTENT_TAPS`] decorrelated satellites on a tetrahedron of this radius. Reflections
+    /// and the late-reverb send keep treating the source as its centre point.
+    pub extent: f32,
 }
 impl Source {
     pub fn new(position: Vec3, gain: f32) -> Source {
@@ -72,7 +100,22 @@ impl Source {
             position,
             gain,
             send: 0.35,
+            facing: Vec3::new(0.0, 0.0, 0.0),
+            directivity: 0.0,
+            extent: 0.0,
         }
+    }
+    /// Give the source a radiation pattern: `facing` is the world-space emission axis,
+    /// `directivity` the pattern amount (0 = omni .. 1 = cardioid-like).
+    pub fn with_directivity(mut self, facing: Vec3, directivity: f32) -> Source {
+        self.facing = facing;
+        self.directivity = directivity;
+        self
+    }
+    /// Give the source a physical radius in metres (0 = point source).
+    pub fn with_extent(mut self, radius: f32) -> Source {
+        self.extent = radius;
+        self
     }
 }
 
@@ -123,6 +166,10 @@ pub struct Renderer {
 
     direct: Vec<Voice>,
     reflect: Vec<Voice>, // max_sources * REFLECT_PER_SOURCE (stable per-source slots)
+    // Volumetric-extent satellites: max_sources * EXTENT_TAPS stable slots, each with its
+    // own velvet-noise decorrelator. Idle (and free) while a source's extent is 0.
+    spread: Vec<Voice>,
+    decor: Vec<Decorrelator>,
     refl_taps: usize,
     reflections_enabled: bool,
     src_dist: Vec<f32>,
@@ -151,6 +198,7 @@ pub struct Renderer {
     send_bus: Vec<f32>,
     rev_l: Vec<f32>,
     rev_r: Vec<f32>,
+    spread_buf: Vec<f32>, // decorrelated satellite input for the current (source, tap)
     hrir_l: Vec<f32>,
     hrir_r: Vec<f32>,
     // frequency-scaled HRIR scratch (single-parameter HRTF personalization / "fit")
@@ -189,6 +237,18 @@ impl Renderer {
             reflect.push(Voice::new(refl_taps, MAX_ITD_SAMPLES, max_predelay));
         }
 
+        // Volumetric-extent satellites: full-length HRIR (direct-path timbre matters), a
+        // pre-delay line sized for the largest extent-induced path difference, and a
+        // per-slot decorrelator (~24 ms velvet noise, deterministic seed per slot).
+        let sat_predelay = (MAX_EXTENT / SPEED_OF_SOUND * sample_rate) as usize + 16;
+        let decor_span = (0.024 * sample_rate) as usize;
+        let mut spread = Vec::with_capacity(max_sources * EXTENT_TAPS);
+        let mut decor = Vec::with_capacity(max_sources * EXTENT_TAPS);
+        for i in 0..max_sources * EXTENT_TAPS {
+            spread.push(Voice::new(hrir_len, MAX_ITD_SAMPLES, sat_predelay));
+            decor.push(Decorrelator::new(0x51ED_2701 ^ (i as u32), decor_span));
+        }
+
         let mut rooms = Vec::new();
         for p in &asset.rooms {
             rooms.push(Room::from_preset(p));
@@ -211,6 +271,8 @@ impl Renderer {
             max_block,
             direct,
             reflect,
+            spread,
+            decor,
             refl_taps,
             reflections_enabled: true,
             src_dist: vec![1.0; max_sources],
@@ -230,6 +292,7 @@ impl Renderer {
             send_bus: vec![0.0; max_block],
             rev_l: vec![0.0; max_block],
             rev_r: vec![0.0; max_block],
+            spread_buf: vec![0.0; max_block],
             hrir_l: vec![0.0; hrir_len],
             hrir_r: vec![0.0; hrir_len],
             warp_l: vec![0.0; hrir_len],
@@ -372,8 +435,26 @@ impl Renderer {
             let dir = rel.normalized();
             self.src_dist[i] = dist;
 
-            let dgain = src.gain * distance_atten(dist) * imm;
-            let lp_a = air_lp(dist);
+            // Radiation pattern (omni when directivity == 0 or facing is the zero vector).
+            // Everything below multiplies by exactly 1.0 in the omni case — bit-exact.
+            let d_amt = if src.facing.len() > 1e-6 { src.directivity.clamp(0.0, 1.0) } else { 0.0 };
+            let facing = src.facing.normalized();
+            let emit = self.head_pos.sub(src.position).normalized(); // source → listener
+            let (g_dir, lp_dir) = directivity_gain(facing.dot(emit), d_amt);
+            // Keep the ROOM's energy independent of facing: the reverb send taps the dry signal
+            // post-gain (post-pattern), so divide the pattern back out of the send and apply the
+            // pattern's diffuse-field average instead. Behind a directional source the wet/dry
+            // ratio then rises — the real-world "they turned away" cue.
+            let send_comp = if d_amt > 0.0 { (1.0 - 0.42 * d_amt) / g_dir.max(0.2) } else { 1.0 };
+
+            // Volumetric extent: the centre voice and satellites split the source power.
+            let ext = src.extent.clamp(0.0, MAX_EXTENT);
+            let m = ext / (ext + 0.35); // 0 = point → 1 = large; smooth through extent = 0
+            let centre_g = (1.0 - 0.8 * m).sqrt();
+            let sat_g = (0.8 * m / EXTENT_TAPS as f32).sqrt();
+
+            let dgain = src.gain * distance_atten(dist) * imm * g_dir * centre_g;
+            let lp_a = (air_lp(dist) * lp_dir).clamp(0.05, 1.0);
             let itd = self.db.interp(dir, &mut self.hrir_l, &mut self.hrir_r);
 
             // HRTF fit: frequency-scale the direct-path HRIR. Bypassed (bit-exact) at 1.0, so the
@@ -397,7 +478,73 @@ impl Renderer {
                 dvf::near_field_shelf(theta_r, rho, self.sr),
                 false,
             );
-            self.direct[i].process(inp, out_l, out_r, send_slice, src.send * send_scale * imm);
+            self.direct[i].process(
+                inp,
+                out_l,
+                out_r,
+                send_slice,
+                src.send * send_scale * imm * send_comp,
+            );
+
+            // Satellite taps (extent > 0 only): decorrelated copies of the input, spread over
+            // a tetrahedron of radius `ext`, each with its own geometry (ITD/HRIR/DVF), a true
+            // geometric pre-delay for taps farther than the centre, and the same radiation
+            // pattern evaluated at its own emission angle.
+            for t in 0..EXTENT_TAPS {
+                let slot = i * EXTENT_TAPS + t;
+                if ext > 0.0 {
+                    let off = EXTENT_OFFSETS[t];
+                    let spos = Vec3::new(
+                        src.position.x + off[0] * ext,
+                        src.position.y + off[1] * ext,
+                        src.position.z + off[2] * ext,
+                    );
+                    let srel = inv_head.rotate(spos.sub(self.head_pos));
+                    let sdist = srel.len().max(1e-4);
+                    let sdir = srel.normalized();
+                    let semit = self.head_pos.sub(spos).normalized();
+                    let (sg_dir, slp_dir) = directivity_gain(facing.dot(semit), d_amt);
+                    let sgain = src.gain * distance_atten(sdist) * imm * sg_dir * sat_g;
+                    let slp = (air_lp(sdist) * slp_dir).clamp(0.05, 1.0);
+                    let spred = (sdist - dist).max(0.0) / SPEED_OF_SOUND * self.sr;
+                    let sitd = self.db.interp(sdir, &mut self.hrir_l, &mut self.hrir_r);
+                    let (hl, hr): (&[f32], &[f32]) = if (self.freq_scale - 1.0).abs() > 1.0e-4 {
+                        resample_hrir(&self.hrir_l, &mut self.warp_l, self.freq_scale);
+                        resample_hrir(&self.hrir_r, &mut self.warp_r, self.freq_scale);
+                        (&self.warp_l, &self.warp_r)
+                    } else {
+                        (&self.hrir_l, &self.hrir_r)
+                    };
+                    // stale decorrelator state from a previous activation must not leak in
+                    if !self.spread[slot].active {
+                        self.decor[slot].clear();
+                    }
+                    self.spread[slot].set_target(hl, hr, sitd, sgain, slp, spred, false);
+                    let srho = sdist / 0.0875;
+                    let stheta_r = sdir.x.clamp(-1.0, 1.0).acos().to_degrees();
+                    let stheta_l = (-sdir.x).clamp(-1.0, 1.0).acos().to_degrees();
+                    self.spread[slot].set_dvf(
+                        dvf::near_field_shelf(stheta_l, srho, self.sr),
+                        dvf::near_field_shelf(stheta_r, srho, self.sr),
+                        false,
+                    );
+                    for j in 0..frames {
+                        self.spread_buf[j] = self.decor[slot].tick(inp[j]);
+                    }
+                    self.spread[slot].process(
+                        &self.spread_buf[..frames],
+                        out_l,
+                        out_r,
+                        send_slice,
+                        src.send * send_scale * imm * send_comp,
+                    );
+                } else if self.spread[slot].active {
+                    // ramp to silence over one block (reflection-style click-free fade)
+                    self.spread[slot].set_target(&self.hrir_l, &self.hrir_r, 0.0, 0.0, 1.0, 0.0, false);
+                    self.spread[slot].process(&self.silence[..frames], out_l, out_r, send_slice, 0.0);
+                    self.spread[slot].active = false;
+                }
+            }
         }
 
         // deactivate unused voices (ramp to silence next block if reused)
@@ -407,6 +554,14 @@ impl Renderer {
                     &self.hrir_l, &self.hrir_r, 0.0, 0.0, 1.0, 0.0, false,
                 );
                 self.direct[i].active = false;
+            }
+            for t in 0..EXTENT_TAPS {
+                let slot = i * EXTENT_TAPS + t;
+                if self.spread[slot].active {
+                    self.spread[slot].set_target(&self.hrir_l, &self.hrir_r, 0.0, 0.0, 1.0, 0.0, false);
+                    self.spread[slot].process(&self.silence[..frames], out_l, out_r, send_slice, 0.0);
+                    self.spread[slot].active = false;
+                }
             }
         }
 
@@ -464,13 +619,39 @@ impl Renderer {
                 let gain = sources[i].gain;
                 let direct_dist = self.src_dist[i];
 
+                // Radiation pattern for this source's images: the facing axis is mirrored by
+                // the same wall reflections as the position (per-axis sign = bounce-count
+                // parity — the correct image-source treatment of a directional source).
+                let d_amt = if sources[i].facing.len() > 1e-6 {
+                    sources[i].directivity.clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let facing = sources[i].facing.normalized();
+                let mirrored = |bounces: &[u32; 6]| -> Vec3 {
+                    let sg = |a: u32, b: u32| if (a + b) & 1 == 1 { -1.0f32 } else { 1.0 };
+                    Vec3::new(
+                        facing.x * sg(bounces[0], bounces[1]),
+                        facing.y * sg(bounces[2], bounces[3]),
+                        facing.z * sg(bounces[4], bounces[5]),
+                    )
+                };
+
                 // (pos, order, per-surface bounces, energy proxy), held descending by energy.
                 let mut imgs =
                     [(Vec3::new(0.0, 0.0, 0.0), 0u32, [0u32; 6], f32::NEG_INFINITY); REFLECT_PER_SOURCE];
                 let mut count = 0usize;
                 shoebox_images(s, dims, order, |pos, ord, bounces| {
                     let g = band_gain(&surf, &bounces);
-                    let e = g[1] / pos.len().max(0.1); // mid-band, listener-independent
+                    // Directivity enters the proxy via the emission angle toward the room
+                    // CENTRE (where the listener nominally sits) — listener-independent, so
+                    // the image→slot map still never reshuffles as the head moves.
+                    let g_dir = directivity_gain(
+                        mirrored(&bounces).dot(Vec3::new(-pos.x, -pos.y, -pos.z).normalized()),
+                        d_amt,
+                    )
+                    .0;
+                    let e = g[1] * g_dir / pos.len().max(0.1); // mid-band, listener-independent
                     if count < per {
                         imgs[count] = (pos, ord, bounces, e);
                         let mut j = count;
@@ -504,9 +685,15 @@ impl Renderer {
                         // equal-power fade-out as arrival crosses t_mix (late stage takes over)
                         let f = ((predelay - win_edge) / win_trans).clamp(0.0, 1.0);
                         let win = (1.0 - f).sqrt();
-                        let igain = gain * g[1] * distance_atten(idist) * win * imm;
+                        // radiation pattern at this image's true emission angle (toward the
+                        // listener, facing mirrored by the reflection parity)
+                        let (ig_dir, ilp_dir) = directivity_gain(
+                            mirrored(&bounces).dot(head_pos.sub(pos).normalized()),
+                            d_amt,
+                        );
+                        let igain = gain * g[1] * distance_atten(idist) * win * imm * ig_dir;
                         let hf_tilt = if g[1] > 1e-6 { (g[2] / g[1]).clamp(0.05, 1.0) } else { 1.0 };
-                        let ilp = (air_lp(idist) * hf_tilt).clamp(0.05, 1.0);
+                        let ilp = (air_lp(idist) * hf_tilt * ilp_dir).clamp(0.05, 1.0);
                         let rt = self.refl_taps;
                         let iitd = self.db.interp(idir, &mut self.hrir_l, &mut self.hrir_r);
                         self.reflect[slot].set_target(
@@ -625,6 +812,24 @@ fn resample_hrir(src: &[f32], dst: &mut [f32], beta: f32) {
             *d *= g;
         }
     }
+}
+
+/// Frequency-dependent first-order radiation pattern for one propagation path.
+/// `cos_theta` = cosine of the angle between the source's facing axis and the path's
+/// emission direction; `d` = directivity amount 0..1. Returns `(broadband gain,
+/// one-pole coefficient multiplier)`. At `d == 1` the broadband rear level is −12 dB and
+/// the one-pole coefficient drops to ×0.3 behind the source (high frequencies beam harder
+/// than lows — behind a talker is quieter AND darker). Exactly `(1.0, 1.0)` at `d == 0`,
+/// so omni sources are bit-exact with the pre-directivity path.
+#[inline]
+fn directivity_gain(cos_theta: f32, d: f32) -> (f32, f32) {
+    if d <= 0.0 {
+        return (1.0, 1.0);
+    }
+    let rear = 1.0 - 0.5 * (1.0 + cos_theta.clamp(-1.0, 1.0)); // 0 on-axis → 1 behind
+    let g = 1.0 - d * rear * 0.75;
+    let lp = 1.0 - d * rear * 0.7;
+    (g, lp.clamp(0.05, 1.0))
 }
 
 #[inline]
@@ -768,6 +973,93 @@ mod tests {
         let er: f32 = rr.iter().map(|x| x * x).sum();
         assert!(l.iter().all(|x| x.is_finite()) && rr.iter().all(|x| x.is_finite()));
         assert!(er > el, "right source should be louder in the right ear: L={el} R={er}");
+    }
+
+    #[test]
+    fn directional_source_rear_is_quieter() {
+        let a = tiny_asset();
+        let energy = |facing: Vec3| -> f32 {
+            let mut r = Renderer::new(&a, 48000.0, 1, 128);
+            r.set_room(0);
+            r.set_reflections_enabled(false);
+            let inp = vec![0.3f32; 128];
+            let mut l = vec![0.0; 128];
+            let mut rr = vec![0.0; 128];
+            // source in front, either facing the listener (+z, toward origin) or away (−z)
+            let src = [Source::new(Vec3::new(0.0, 0.0, -2.0), 1.0).with_directivity(facing, 1.0)];
+            let mut e = 0.0;
+            for it in 0..40 {
+                r.process(&Pose::default(), &src, &[&inp], &mut l, &mut rr, 128);
+                if it >= 20 {
+                    e += l.iter().map(|x| x * x).sum::<f32>() + rr.iter().map(|x| x * x).sum::<f32>();
+                }
+            }
+            e
+        };
+        let toward = energy(Vec3::new(0.0, 0.0, 1.0));
+        let away = energy(Vec3::new(0.0, 0.0, -1.0));
+        assert!(toward.is_finite() && away.is_finite());
+        // −12 dB broadband + HF darkening behind ⇒ well under half the on-axis energy
+        assert!(
+            away < toward * 0.5,
+            "rear-facing should be much quieter: toward={toward} away={away}"
+        );
+    }
+
+    #[test]
+    fn omni_directivity_zero_is_bit_exact_with_default() {
+        let a = tiny_asset();
+        let render = |src: Source| -> (Vec<f32>, Vec<f32>) {
+            let mut r = Renderer::new(&a, 48000.0, 1, 128);
+            r.set_room(0);
+            let inp: Vec<f32> = (0..128).map(|i| ((i * 37) % 97) as f32 / 97.0 - 0.5).collect();
+            let mut l = vec![0.0; 128];
+            let mut rr = vec![0.0; 128];
+            for _ in 0..20 {
+                r.process(&Pose::from_yaw(0.2), &[src], &[&inp], &mut l, &mut rr, 128);
+            }
+            (l, rr)
+        };
+        // explicit facing with directivity 0 and extent 0 must not change a single bit
+        let base = render(Source::new(Vec3::new(0.7, 0.1, -1.4), 0.9));
+        let tagged = render(
+            Source::new(Vec3::new(0.7, 0.1, -1.4), 0.9)
+                .with_directivity(Vec3::new(0.0, 0.0, 1.0), 0.0)
+                .with_extent(0.0),
+        );
+        assert_eq!(base.0, tagged.0);
+        assert_eq!(base.1, tagged.1);
+    }
+
+    #[test]
+    fn extended_source_is_finite_and_energy_bounded() {
+        let a = tiny_asset();
+        let energy = |extent: f32| -> f32 {
+            let mut r = Renderer::new(&a, 48000.0, 1, 128);
+            r.set_room(0);
+            r.set_reflections_enabled(false);
+            let inp: Vec<f32> = (0..128).map(|i| ((i * 61) % 127) as f32 / 127.0 - 0.5).collect();
+            let mut l = vec![0.0; 128];
+            let mut rr = vec![0.0; 128];
+            let src = [Source::new(Vec3::new(0.0, 0.0, -2.0), 1.0).with_extent(extent)];
+            let mut e = 0.0;
+            for it in 0..60 {
+                r.process(&Pose::default(), &src, &[&inp], &mut l, &mut rr, 128);
+                assert!(l.iter().all(|x| x.is_finite()) && rr.iter().all(|x| x.is_finite()));
+                if it >= 30 {
+                    e += l.iter().map(|x| x * x).sum::<f32>() + rr.iter().map(|x| x * x).sum::<f32>();
+                }
+            }
+            e
+        };
+        let point = energy(0.0);
+        let wide = energy(1.5);
+        assert!(wide > 0.0);
+        // power-conserving split: the volumetric render stays within ~6 dB of the point source
+        assert!(
+            wide > point * 0.25 && wide < point * 4.0,
+            "extent should roughly preserve energy: point={point} wide={wide}"
+        );
     }
 
     #[test]

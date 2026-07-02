@@ -6,10 +6,9 @@ import { resolve } from "node:path";
 // (getUserMedia requires a secure context; accept the self-signed cert once).
 //
 // CHAMBER_LIVE=1  → plain HTTP for the live bridge (localhost camera still works).
-// CHAMBER_DEV=1   → enables the test harness's 3D head-view (`just harness-dev`).
+// CHAMBER_HTTP=1  → plain HTTP for the localhost-only sandbox (camera still works on
+// localhost — it's a secure context — without the self-signed-cert warning).
 const live = process.env.CHAMBER_LIVE === "1";
-// The harness is localhost-only and uses no camera, so it runs over plain HTTP (no
-// self-signed-cert warning). HTTPS stays on for the Chamber app (it needs the webcam).
 const noSsl = live || process.env.CHAMBER_HTTP === "1";
 
 export default defineConfig({
@@ -21,7 +20,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
-        test: resolve(__dirname, "test.html"),
+        sandbox: resolve(__dirname, "sandbox.html"),
       },
     },
   },

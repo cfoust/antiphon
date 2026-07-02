@@ -41,6 +41,63 @@ impl DelayLine {
     }
 }
 
+/// Sparse velvet-noise FIR decorrelator: 16 signed taps over `span` samples with
+/// exponentially decaying magnitudes, normalized to unit energy. Used to decorrelate the
+/// satellite taps of a volumetric (extent > 0) source from each other and from the centre
+/// voice. Pure FIR (no feedback) so it is denormal-safe, and the tap positions are integer
+/// samples from a fixed LCG seed, so it is deterministic across native/wasm (parity-safe).
+pub struct Decorrelator {
+    delay: DelayLine,
+    taps: [(f32, f32); DECOR_TAPS], // (integer delay in samples, signed gain)
+}
+
+const DECOR_TAPS: usize = 16;
+
+impl Decorrelator {
+    pub fn new(seed: u32, span: usize) -> Decorrelator {
+        let span = span.max(DECOR_TAPS);
+        let seg = span as f32 / DECOR_TAPS as f32;
+        // exponential magnitude decay, last tap ≈ −12 dB re first (transients stay compact)
+        let decay = 0.25f32.powf(1.0 / (DECOR_TAPS as f32 - 1.0));
+        let mut s = seed.wrapping_mul(2654435761).wrapping_add(1);
+        let mut taps = [(0.0f32, 0.0f32); DECOR_TAPS];
+        let mut energy = 0.0f32;
+        for (k, t) in taps.iter_mut().enumerate() {
+            s = s.wrapping_mul(1664525).wrapping_add(1013904223);
+            let jitter = (s >> 8) as f32 / 16_777_216.0; // [0, 1)
+            s = s.wrapping_mul(1664525).wrapping_add(1013904223);
+            let sign = if s & 0x10000 != 0 { 1.0 } else { -1.0 };
+            let d = (k as f32 * seg + jitter * (seg - 1.0)).floor();
+            let g = sign * decay.powi(k as i32);
+            energy += g * g;
+            *t = (d, g);
+        }
+        let norm = 1.0 / energy.sqrt();
+        for t in &mut taps {
+            t.1 *= norm;
+        }
+        Decorrelator {
+            delay: DelayLine::new(span + 4),
+            taps,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.delay.clear();
+    }
+
+    /// Push one input sample and return the decorrelated output.
+    #[inline]
+    pub fn tick(&mut self, x: f32) -> f32 {
+        self.delay.push(x);
+        let mut y = 0.0;
+        for &(d, g) in &self.taps {
+            y += g * self.delay.read(d);
+        }
+        y
+    }
+}
+
 /// FIR with per-sample coefficient ramping, SIMD inner loop.
 ///
 /// History is kept in a length-`2L` buffer with every sample written twice (at `wp` and

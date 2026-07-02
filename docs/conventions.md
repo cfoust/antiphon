@@ -22,6 +22,33 @@ its edge. Pin these so left/right never flips.
 - Stored per direction in **fractional samples**. `itd > 0` means the source is toward the
   **left**, so the **right** ear is delayed by `itd`; `itd < 0` delays the left ear.
 
+## Source directivity (facing / pattern)
+
+- `Source.facing` is a **world-space emission axis** (need not be unit length; the engine
+  normalizes). The **zero vector means omnidirectional** — hosts that don't care pass zeros.
+- `Source.directivity ∈ [0,1]`: 0 = omni (bit-exact with the pre-directivity engine),
+  1 = cardioid-like. The pattern is **frequency-dependent**: at 1.0 the broadband rear
+  level is −12 dB and the per-path one-pole coefficient falls to ×0.3 behind the source
+  (HF beams harder than LF). See `directivity_gain` in `chamber-dsp/src/lib.rs`.
+- **Image sources mirror the facing axis**: each axis' component flips when that axis'
+  bounce count is odd (parity of `bounces[2a]+bounces[2a+1]`) — the standard image-source
+  treatment of a directional emitter. The energy-ranking proxy evaluates the pattern toward
+  the **room centre** so it stays listener-independent (no slot reshuffles).
+- The **reverb send is facing-compensated**: the pattern gain is divided back out of the
+  send and replaced by the pattern's diffuse-field average (`1 − 0.42·d`), so total room
+  energy doesn't depend on facing — behind a directional source you hear a higher wet/dry
+  ratio, not a dead room.
+
+## Source extent (volumetric size)
+
+- `Source.extent` is a **radius in metres**, 0 = point source (bit-exact legacy path),
+  clamped to 8 m. The direct path renders as the centre voice plus 4 satellite voices on a
+  **fixed world-space tetrahedron** scaled by the radius, each fed through a deterministic
+  velvet-noise decorrelator (~24 ms sparse FIR, unit energy, no feedback → parity- and
+  denormal-safe), with a power-conserving gain split and true geometric pre-delay for
+  satellites farther than the centre. Reflections and the late-reverb send treat the source
+  as its centre point.
+
 ## Head pose from trackers
 
 - **Native (Vision `FaceTracker`)**: `onOrient` yields a front-arc angle in degrees

@@ -213,8 +213,10 @@ final class ChamberEngine: ObservableObject {
         srcArr = .allocate(capacity: n)
         for (i, a) in agents.enumerated() {
             inTable[i] = UnsafePointer(inBufs[i])
+            // fx/fy/fz zero = omnidirectional point source (legacy behaviour)
             srcArr[i] = ChamberSource(x: Float(sin(a.bearing)) * radius, y: 0,
-                                      z: Float(-cos(a.bearing)) * radius, gain: 1.0, send: 0.3)
+                                      z: Float(-cos(a.bearing)) * radius, gain: 1.0, send: 0.3,
+                                      fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
         }
         renderer.setRoom(roomIndex)
         // close 1.3 m arc + 6 summed voices + BRIR tail is hot -> keep the master well down

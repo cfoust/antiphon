@@ -217,6 +217,27 @@ fn main() {
         }, &refs);
     }
 
+    // --- Scene 11: directivity — a fixed frontal voice slowly turns in place (facing sweeps
+    // 360°). On-axis it is loud/bright/dry; facing away it drops ~12 dB, darkens, and the
+    // wet/dry ratio rises (room energy is facing-compensated). Two full turns. ---
+    render(&asset, &out_dir, "11_directivity_turn", room_of(&room_names, "room"), 12.0, |t, srcs, pose| {
+        srcs[0].position = Vec3::new(0.0, 0.0, -1.6);
+        let ang = 2.0 * PI * (t / 6.0); // one turn per 6 s
+        // ang = 0 → facing the listener (+z from the source toward the origin)
+        srcs[0].facing = Vec3::new(ang.sin(), 0.0, ang.cos());
+        srcs[0].directivity = 1.0;
+        *pose = Pose::default();
+    }, &[voice(196.0)]);
+
+    // --- Scene 12: volumetric extent — steady pink noise in front inflates from a point to a
+    // ~2 m radius volume and back (twice). The image should widen/diffuse without moving or
+    // changing loudness; at zero it must collapse back to a sharp point. ---
+    render(&asset, &out_dir, "12_extent_grow", room_of(&room_names, "room"), 12.0, |t, srcs, pose| {
+        srcs[0].position = Vec3::new(0.0, 0.0, -2.0);
+        srcs[0].extent = 2.0 * (0.5 - 0.5 * (2.0 * PI * t / 6.0).cos());
+        *pose = Pose::default();
+    }, &[steady_noise()]);
+
     println!("done. wrote demos to {}/", out_dir);
 }
 
@@ -603,8 +624,12 @@ fn run_parity(asset_path: &str) {
     .unwrap();
 
     // Near-field source (~0.36 m, to the right) so the parity oracle exercises the per-ear
-    // near-field DVF shelf — the recursive filter is the only new float state crossing to wasm.
-    let src = vec![Source::new(Vec3::new(0.3, 0.0, -0.2), 0.9)];
+    // near-field DVF shelf, with a radiation pattern + volumetric extent so the directivity
+    // math and the satellite/decorrelator path cross to wasm too. Values must match the
+    // 10-float source packed in tools/parity.mjs.
+    let src = vec![Source::new(Vec3::new(0.3, 0.0, -0.2), 0.9)
+        .with_directivity(Vec3::new(-0.4, 0.1, 0.9), 0.7)
+        .with_extent(0.5)];
     let pose = Pose::default();
     let mut out_l = vec![0.0; BLOCK];
     let mut out_r = vec![0.0; BLOCK];
@@ -922,6 +947,21 @@ fn voice(f0: f32) -> Vec<f32> {
         // syllable envelope: ~3 Hz amplitude gate with attack/decay
         let g = (0.5 - 0.5 * (2.0 * PI * 2.6 * t).cos()).powf(1.5);
         out[i] = 0.16 * s * g;
+    }
+    out
+}
+
+/// Steady pink-ish noise — the canonical signal for judging source WIDTH (extent).
+fn steady_noise() -> Vec<f32> {
+    let dur = 3.0;
+    let n = (dur * SR) as usize;
+    let mut out = vec![0.0f32; n];
+    let mut rng = Lcg(0xBEEF_CAFE);
+    let mut lp = 0.0f32;
+    for o in out.iter_mut() {
+        let white = rng.next_f();
+        lp += 0.15 * (white - lp);
+        *o = 0.35 * (0.7 * lp + 0.3 * white);
     }
     out
 }

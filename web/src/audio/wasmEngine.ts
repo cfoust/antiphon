@@ -9,6 +9,13 @@ export interface SourceOpts {
   samples?: Float32Array; // mono signal (48 kHz assumed by the asset)
   gain?: number;
   pos?: Vec3;
+  send?: number; // reverb send 0..1
+  /** World-space emission axis; {0,0,0} (default) = omnidirectional. */
+  facing?: Vec3;
+  /** Radiation-pattern amount 0..1 (0 = omni, 1 = cardioid-like; HF beams harder). */
+  directivity?: number;
+  /** Source radius in metres (0 = point source). */
+  extent?: number;
   loop?: boolean;
   play?: boolean;
 }
@@ -63,11 +70,16 @@ export class WasmEngine {
     src.connect(this.node, 0, i);
   }
 
-  /** Position/gain/send for a live-input source slot. */
-  setInputCfg(i: number, cfg: { pos: Vec3; gain?: number; send?: number }): void {
+  /** Position/gain/send (+ optional directivity/extent) for a live-input source slot. */
+  setInputCfg(
+    i: number,
+    cfg: { pos: Vec3; gain?: number; send?: number; facing?: Vec3; directivity?: number; extent?: number },
+  ): void {
     this.node.port.postMessage({
       type: "inputCfg", index: i,
       x: cfg.pos.x, y: cfg.pos.y, z: cfg.pos.z, gain: cfg.gain ?? 1, send: cfg.send ?? 0.3,
+      fx: cfg.facing?.x ?? 0, fy: cfg.facing?.y ?? 0, fz: cfg.facing?.z ?? 0,
+      directivity: cfg.directivity ?? 0, extent: cfg.extent ?? 0,
     });
   }
 
@@ -77,6 +89,10 @@ export class WasmEngine {
     if (o.samples) msg.samples = o.samples;
     if (o.gain !== undefined) msg.gain = o.gain;
     if (o.pos) { msg.x = o.pos.x; msg.y = o.pos.y; msg.z = o.pos.z; }
+    if (o.send !== undefined) msg.send = o.send;
+    if (o.facing) { msg.fx = o.facing.x; msg.fy = o.facing.y; msg.fz = o.facing.z; }
+    if (o.directivity !== undefined) msg.directivity = o.directivity;
+    if (o.extent !== undefined) msg.extent = o.extent;
     if (o.loop !== undefined) msg.loop = o.loop;
     if (o.play !== undefined) msg.play = o.play;
     const transfer = o.samples ? [o.samples.buffer] : [];
@@ -85,6 +101,8 @@ export class WasmEngine {
 
   /** Re-trigger a one-shot source from the start. */
   trigger(id: string): void { this.node.port.postMessage({ type: "src", id, play: true }); }
+  /** Stop a source (keeps its buffer/params; `trigger` restarts it). */
+  stopSource(id: string): void { this.node.port.postMessage({ type: "src", id, stop: true }); }
   removeSource(id: string): void { this.node.port.postMessage({ type: "remove", id }); }
 
   /** Listener pose. `orientYawRad` follows the app convention (forward = (sinθ,0,−cosθ)). */
@@ -112,6 +130,8 @@ export class WasmEngine {
    *  silent & cue audible). Applied per-source in-engine; the scene↔cue crossfade is automatic. */
   setImmersionEngine(target: number): void { this.node.port.postMessage({ type: "immersion", value: target }); }
   setRoom(index: number): void { this.node.port.postMessage({ type: "room", index }); }
+  /** Late-tail blend for BRIR rooms: 0 = pure parametric FDN, 1 = pure measured BRIR. */
+  setReverbBlend(value: number): void { this.node.port.postMessage({ type: "reverbBlend", value }); }
   setReflections(on: boolean): void { this.node.port.postMessage({ type: "reflections", on }); }
   setMaster(gain: number): void { this.node.port.postMessage({ type: "master", gain }); }
 }

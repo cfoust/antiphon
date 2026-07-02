@@ -93,6 +93,14 @@ pub struct ChamberSource {
     pub z: f32,
     pub gain: f32,
     pub send: f32,
+    /// World-space emission axis. All-zero ⇒ omnidirectional (ignores `directivity`).
+    pub fx: f32,
+    pub fy: f32,
+    pub fz: f32,
+    /// Radiation-pattern amount 0..1 (0 = omni, 1 = cardioid-like, HF beams harder).
+    pub directivity: f32,
+    /// Source radius in metres (0 = point source).
+    pub extent: f32,
 }
 
 pub struct Handle {
@@ -278,6 +286,9 @@ pub unsafe extern "C" fn chamber_renderer_process(
                 position: Vec3::new(ss[i].x, ss[i].y, ss[i].z),
                 gain: ss[i].gain,
                 send: ss[i].send,
+                facing: Vec3::new(ss[i].fx, ss[i].fy, ss[i].fz),
+                directivity: ss[i].directivity,
+                extent: ss[i].extent,
             });
             h.in_refs.push(ins[i]);
         }

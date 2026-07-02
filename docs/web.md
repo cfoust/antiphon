@@ -9,22 +9,30 @@ identical: native links the staticlib; web runs the wasm in an AudioWorklet.
 cd web
 just install          # bun install
 just dev              # builds wasm + serves the Chamber app (https, camera works)
-just harness          # the renderer test harness — open the /test.html URL Vite prints
-just harness-dev      # harness + the 3D dev head-view (CHAMBER_DEV=1)
+just sandbox          # THE dev tool: 3D scene editor over the engine (/sandbox.html)
 ```
 `just wasm` rebuilds `web/public/chamber_ffi.wasm` + stages the HRTF asset (run after any
 `chamber-dsp`/`chamber-ffi` change).
 
 ## Pieces
 - `public/chamber-worklet.js` — the AudioWorklet running the wasm engine. Two source kinds:
-  **live audio inputs** (Chamber: one mono input per agent) and **buffer sources** (harness).
-- `src/audio/wasmEngine.ts` — TS wrapper (pose, rooms, reflections, sources, live inputs).
+  **live audio inputs** (Chamber: one mono input per agent) and **buffer sources** (sandbox).
+  Source struct is 10 floats: `x,y,z, gain, send, fx,fy,fz, directivity, extent`.
+- `src/audio/wasmEngine.ts` — TS wrapper (pose, rooms, reflections, reverb blend, sources
+  incl. facing/directivity/extent, live inputs, attention cue, immersion).
 - `src/audio/engine.ts` — the Chamber: same state machine / mix / radar as before, but the
   per-agent audio now sums into a wasm live-input instead of a `PannerNode`; HRTF + room
   reverb happen in the engine. `ENV_ROOM` maps env names → room presets.
-- `test.html` / `src/test.ts` — the **test harness**: click/drag to place sources, pick a
-  procedural sci-fi SFX (`src/audio/sfx.ts`) or load a file, per-source volume, head yaw,
-  room + reflections + master. The dev flag adds a 3D head-view.
+- `sandbox.html` / `src/sandbox/` — the **sandbox** (replaces the old `test.html` harness,
+  `arp-lab.html` and `attention-demo.html`): a three.js scene editor. Double-click the floor
+  to add sources, drag to move, per-source volume/send/loop plus **directivity** (facing +
+  amount, with an aim-at-listener shortcut) and **volumetric extent**; sounds are procedural
+  SFX (`src/audio/sfx.ts`), the agent voices, uploaded audio files, or the **ARP synth**
+  (`src/sandbox/arp.ts`, the agent-cue prototype with the full arp-lab parameter panel);
+  room/reflections/FDN↔BRIR blend/master/HRTF-fit controls; the in-engine attention cue
+  (agents + build time); webcam head tracking with eyes-open detection and an **immersion
+  fade toggle (default off — manual immersion slider instead)**. Scenes autosave to
+  localStorage and export/import as JSON.
 - `bridge/` — the Bun MCP/WebSocket/TTS server for live mode (`just bridge`, `?live`).
 
 ## Notes

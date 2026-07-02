@@ -4,6 +4,22 @@
 // This is the shared audio core for BOTH the Chamber app and the test harness.
 
 const BLOCK = 128;
+// ChamberSource layout (must match chamber-ffi):
+// x,y,z, gain, send, fx,fy,fz (facing; 0,0,0 = omni), directivity (0..1), extent (radius m)
+const SRC_FLOATS = 10;
+
+function packSource(dv, so, x, y, z, gain, send, fx, fy, fz, directivity, extent) {
+  dv.setFloat32(so, x, true);
+  dv.setFloat32(so + 4, y, true);
+  dv.setFloat32(so + 8, z, true);
+  dv.setFloat32(so + 12, gain, true);
+  dv.setFloat32(so + 16, send, true);
+  dv.setFloat32(so + 20, fx, true);
+  dv.setFloat32(so + 24, fy, true);
+  dv.setFloat32(so + 28, fz, true);
+  dv.setFloat32(so + 32, directivity, true);
+  dv.setFloat32(so + 36, extent, true);
+}
 
 class ChamberProcessor extends AudioWorkletProcessor {
   constructor(options) {
@@ -25,24 +41,32 @@ class ChamberProcessor extends AudioWorkletProcessor {
       case "src": {
         let s = this.sources.get(d.id);
         if (!s) {
-          s = { buf: null, cursor: 0, gain: 1, x: 0, y: 0, z: -1, send: 0.3, loop: true, playing: false };
+          s = { buf: null, cursor: 0, gain: 1, x: 0, y: 0, z: -1, send: 0.3, loop: true, playing: false,
+                fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0 };
           this.sources.set(d.id, s);
         }
         if (d.samples) { s.buf = d.samples; s.cursor = 0; }
         if (d.gain !== undefined) s.gain = d.gain;
         if (d.x !== undefined) { s.x = d.x; s.y = d.y; s.z = d.z; }
         if (d.send !== undefined) s.send = d.send;
+        if (d.fx !== undefined) { s.fx = d.fx; s.fy = d.fy; s.fz = d.fz; }
+        if (d.directivity !== undefined) s.directivity = d.directivity;
+        if (d.extent !== undefined) s.extent = d.extent;
         if (d.loop !== undefined) s.loop = d.loop;
         if (d.play) { s.cursor = 0; s.playing = true; }
         if (d.stop) s.playing = false;
-        if (s.loop && s.buf) s.playing = true;
+        // fresh samples on a looping source start it (param-only updates leave a paused
+        // source paused; explicit stop always wins)
+        else if (d.samples && s.loop && s.buf) s.playing = true;
         break;
       }
       case "remove":
         this.sources.delete(d.id);
         break;
       case "inputCfg":
-        this.inputCfg[d.index] = { x: d.x, y: d.y, z: d.z, gain: d.gain ?? 1, send: d.send ?? 0.3 };
+        this.inputCfg[d.index] = { x: d.x, y: d.y, z: d.z, gain: d.gain ?? 1, send: d.send ?? 0.3,
+                                   fx: d.fx ?? 0, fy: d.fy ?? 0, fz: d.fz ?? 0,
+                                   directivity: d.directivity ?? 0, extent: d.extent ?? 0 };
         break;
       case "pose":
         this.pose = d;
@@ -65,6 +89,9 @@ class ChamberProcessor extends AudioWorkletProcessor {
       case "immersion": // eyes fade target 0..1 (1 = scene full/cue silent), applied per-source in-engine
         if (this.ready) this.ex.chamber_renderer_set_immersion(this.r, d.value);
         break;
+      case "reverbBlend": // BRIR rooms: 0 = pure parametric FDN late tail, 1 = pure measured BRIR
+        if (this.ready) this.ex.chamber_renderer_set_reverb_blend(this.r, d.value);
+        break;
       case "freqScale": // HRTF "fit": warps the pinna spectral cue (dsp clamps 0.5..2.2)
         this.freqScale = d.value;
         if (this.ready) this.ex.chamber_renderer_set_freq_scale(this.r, d.value);
@@ -86,7 +113,7 @@ class ChamberProcessor extends AudioWorkletProcessor {
     this.inPtrs = [];
     for (let i = 0; i < this.maxSources; i++) this.inPtrs.push(ex.chamber_alloc(BLOCK * 4));
     this.inTab = ex.chamber_alloc(this.maxSources * 4);
-    this.srcArr = ex.chamber_alloc(this.maxSources * 5 * 4);
+    this.srcArr = ex.chamber_alloc(this.maxSources * SRC_FLOATS * 4);
     this.outL = ex.chamber_alloc(BLOCK * 4);
     this.outR = ex.chamber_alloc(BLOCK * 4);
     this.poseP = ex.chamber_alloc(7 * 4);
@@ -111,12 +138,9 @@ class ChamberProcessor extends AudioWorkletProcessor {
       const inBase = this.inPtrs[idx] / 4;
       const g = cfg.gain;
       for (let k = 0; k < n; k++) heap[inBase + k] = ch[k] * g;
-      const so = this.srcArr + idx * 5 * 4;
-      dv.setFloat32(so, cfg.x, true);
-      dv.setFloat32(so + 4, cfg.y, true);
-      dv.setFloat32(so + 8, cfg.z, true);
-      dv.setFloat32(so + 12, 1.0, true);
-      dv.setFloat32(so + 16, cfg.send, true);
+      const so = this.srcArr + idx * SRC_FLOATS * 4;
+      packSource(dv, so, cfg.x, cfg.y, cfg.z, 1.0, cfg.send,
+                 cfg.fx ?? 0, cfg.fy ?? 0, cfg.fz ?? 0, cfg.directivity ?? 0, cfg.extent ?? 0);
       dv.setUint32(this.inTab + idx * 4, this.inPtrs[idx], true);
       idx++;
     }
@@ -139,13 +163,10 @@ class ChamberProcessor extends AudioWorkletProcessor {
       }
       s.cursor = c;
       if (finished) s.playing = false;
-      // source struct: x,y,z,gain(=1, already applied),send
-      const so = this.srcArr + idx * 5 * 4;
-      dv.setFloat32(so, s.x, true);
-      dv.setFloat32(so + 4, s.y, true);
-      dv.setFloat32(so + 8, s.z, true);
-      dv.setFloat32(so + 12, 1.0, true);
-      dv.setFloat32(so + 16, s.send ?? 0.3, true);
+      // source struct (gain = 1: per-source gain already applied to the samples above)
+      const so = this.srcArr + idx * SRC_FLOATS * 4;
+      packSource(dv, so, s.x, s.y, s.z, 1.0, s.send ?? 0.3,
+                 s.fx ?? 0, s.fy ?? 0, s.fz ?? 0, s.directivity ?? 0, s.extent ?? 0);
       dv.setUint32(this.inTab + idx * 4, this.inPtrs[idx], true);
       idx++;
     }

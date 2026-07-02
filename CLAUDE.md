@@ -35,7 +35,11 @@ path + separate fractional-delay ITD + distance/air-absorption → order-2 shoeb
 early reflections (per-surface 3-band absorption; the loudest images kept per source via an
 energy-ranked, listener-independent top-K budget, 8 images/source) → late reverb (16-line FDN *or*
 partitioned BRIR convolution, selectable per room preset). Coefficients ramp per block for
-click-free motion.
+click-free motion. Sources optionally have a **radiation pattern** (`facing` + `directivity`:
+frequency-dependent cardioid-like, mirrored correctly onto image sources, diffuse-compensated
+reverb send) and a **volumetric extent** (radius in metres: centre voice + 4 velvet-noise-
+decorrelated satellite taps on a tetrahedron, power-conserving). Both default off and are
+bit-exact no-ops at 0 — see `docs/conventions.md` before touching them.
 
 ### Invariants that are easy to break
 
@@ -74,7 +78,8 @@ bash native/ChamberApp/make.sh && open native/ChamberApp/Chamber.app
 
 # Web (wasm) app. build-web.sh rebuilds wasm + stages the best HRTF asset into web/public/.
 bash tools/build-web.sh && python3 -m http.server -d web 8080
-# Or from web/ with just: `just dev` (https, camera), `just harness` (test harness), `just wasm`.
+# Or from web/ with just: `just dev` (https, camera), `just sandbox` (the 3D scene-editor
+# dev tool: sources + directivity/extent + ARP synth + attention cue + tracking), `just wasm`.
 ```
 
 ### Parity test (run after any dsp/ffi change)

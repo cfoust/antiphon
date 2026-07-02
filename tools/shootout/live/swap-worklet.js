@@ -87,7 +87,7 @@ class SwapProcessor extends AudioWorkletProcessor {
       ex, r,
       inPtr: ex.chamber_alloc(BLOCK * 4),
       inTab: ex.chamber_alloc(4),
-      srcArr: ex.chamber_alloc(5 * 4),
+      srcArr: ex.chamber_alloc(10 * 4),
       outL: ex.chamber_alloc(BLOCK * 4),
       outR: ex.chamber_alloc(BLOCK * 4),
       poseP: ex.chamber_alloc(7 * 4),
@@ -119,6 +119,8 @@ class SwapProcessor extends AudioWorkletProcessor {
     dv.setFloat32(so + 8, this.src.z, true);
     dv.setFloat32(so + 12, 1.0, true);
     dv.setFloat32(so + 16, this.src.send, true);
+    // facing/directivity/extent: zero = omni point source (struct is 10 floats now)
+    for (let i = 5; i < 10; i++) dv.setFloat32(so + i * 4, 0, true);
     dv.setUint32(eng.inTab, eng.inPtr, true);
     const p = this.pose;
     const pv = [p.px, p.py, p.pz, p.qw, p.qx, p.qy, p.qz];

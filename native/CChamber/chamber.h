@@ -19,6 +19,9 @@ typedef struct ChamberSource {
     float x, y, z;        /* source position (world metres) */
     float gain;           /* linear pre-gain */
     float send;           /* reverb send 0..1 */
+    float fx, fy, fz;     /* emission axis (world); all-zero = omnidirectional */
+    float directivity;    /* radiation pattern 0..1 (0 = omni, 1 = cardioid-like) */
+    float extent;         /* source radius in metres (0 = point source) */
 } ChamberSource;
 
 /* Opaque handle. */

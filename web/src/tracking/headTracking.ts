@@ -114,6 +114,20 @@ export class HeadTracker {
     return this.smoothPitch;
   }
 
+  /** Debounced eye state (true = closed). False until the open-eye baseline is calibrated —
+   *  the same "assume open until we know better" rule the attached (live) path uses. */
+  get eyesClosed(): boolean {
+    return this.eyesCalibrated ? this.eyes.closed : false;
+  }
+  /** Smoothed, normalized eye openness in [0,1] — for a live meter. */
+  get eyeOpenness(): number {
+    return this.eyes.openness;
+  }
+  /** True once the open-eye baseline auto-calibration has finished (~1 s after first face). */
+  get eyesReady(): boolean {
+    return this.eyesCalibrated;
+  }
+
   /** Head position (metres-ish) relative to the captured neutral pose. Right-handed,
    *  un-mirrored: +x = head moved to your right, +y = up, +z = toward the camera. */
   get pos(): { x: number; y: number; z: number } {

@@ -44,9 +44,9 @@ const total = input.length;
 const inPtr = ex.chamber_alloc(BLOCK * 4);
 const outLPtr = ex.chamber_alloc(BLOCK * 4);
 const outRPtr = ex.chamber_alloc(BLOCK * 4);
-// pose (7 floats) + source (5 floats) + input-pointer table (1 ptr)
+// pose (7 floats) + source (10 floats) + input-pointer table (1 ptr)
 const posePtr = ex.chamber_alloc(7 * 4);
-const srcPtr = ex.chamber_alloc(5 * 4);
+const srcPtr = ex.chamber_alloc(10 * 4);
 const inTabPtr = ex.chamber_alloc(4);
 
 // identity pose
@@ -54,10 +54,12 @@ const inTabPtr = ex.chamber_alloc(4);
   const dv = mem();
   for (let i = 0; i < 7; i++) dv.setFloat32(posePtr + i * 4, i === 3 ? 1 : 0, true); // qw=1
 }
-// near-field source (~0.36 m, right) so the DVF shelf is exercised — matches run_parity()
+// near-field source (~0.36 m, right) so the DVF shelf is exercised, with a radiation
+// pattern (facing/directivity) + volumetric extent so the new paths cross to wasm too —
+// x,y,z, gain, send, fx,fy,fz, directivity, extent; matches run_parity()
 {
   const dv = mem();
-  const s = [0.3, 0.0, -0.2, 0.9, 0.35];
+  const s = [0.3, 0.0, -0.2, 0.9, 0.35, -0.4, 0.1, 0.9, 0.7, 0.5];
   s.forEach((v, i) => dv.setFloat32(srcPtr + i * 4, v, true));
   dv.setUint32(inTabPtr, inPtr, true); // inputs[0] = inPtr
 }
