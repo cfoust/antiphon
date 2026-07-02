@@ -354,7 +354,7 @@ function refreshUI(): void {
 function syncView(): void {
   view.sync(
     sources.map((s) => ({
-      id: s.id, pos: s.pos, color: s.color, directivity: s.directivity,
+      id: s.id, name: s.name, pos: s.pos, color: s.color, directivity: s.directivity,
       facing: facingVec(s), extent: s.extent, playing: s.playing,
     })),
   );
@@ -425,10 +425,12 @@ function renderInspector(): void {
   };
   host.append(soundSel);
 
+  const heightRow = slider({ label: "Height (y)", min: -2, max: 2.5, step: 0.01, value: s.pos.y, fmt: (v) => v.toFixed(2) + " m", onInput: (v) => { s.pos = { ...s.pos, y: v }; void pushSource(s); syncView(); saveSoon(); } });
+  (heightRow.querySelector("input") as HTMLInputElement).id = "heightSlider";
   host.append(
     slider({ label: "Volume", min: 0, max: 1.5, step: 0.01, value: s.gain, onInput: (v) => { s.gain = v; void pushSource(s); saveSoon(); } }),
     slider({ label: "Reverb send", min: 0, max: 1, step: 0.01, value: s.send, onInput: (v) => { s.send = v; void pushSource(s); saveSoon(); } }),
-    slider({ label: "Height (y)", min: -2, max: 2.5, step: 0.05, value: s.pos.y, fmt: (v) => v.toFixed(2) + " m", onInput: (v) => { s.pos = { ...s.pos, y: v }; void pushSource(s); syncView(); saveSoon(); } }),
+    heightRow,
   );
 
   // loop + trigger
@@ -730,11 +732,45 @@ view.onMove = (id, pos) => {
   s.pos = pos;
   engine?.setSource(id, { pos });
   syncView();
-  const ro = document.getElementById("posReadout");
-  if (ro && s.id === selected) ro.textContent = `position: x ${pos.x.toFixed(2)}  y ${pos.y.toFixed(2)}  z ${pos.z.toFixed(2)} (drag in the 3D view)`;
+  if (s.id === selected) {
+    const ro = document.getElementById("posReadout");
+    if (ro) ro.textContent = `position: x ${pos.x.toFixed(2)}  y ${pos.y.toFixed(2)}  z ${pos.z.toFixed(2)} (drag in the 3D view)`;
+    // keep the inspector's Height slider live while the up/down handle is dragged
+    const hs = document.getElementById("heightSlider") as HTMLInputElement | null;
+    if (hs) {
+      hs.value = String(pos.y);
+      const val = hs.parentElement?.querySelector(".val");
+      if (val) val.textContent = pos.y.toFixed(2) + " m";
+    }
+  }
   saveSoon();
 };
 view.onAdd = (pos) => void addSource(pos);
+
+// hover tooltip over 3D objects
+const tip = document.createElement("div");
+tip.id = "tooltip";
+document.body.append(tip);
+view.onHover = (id, x, y) => {
+  const s = id ? sources.find((v) => v.id === id) : null;
+  if (!s) {
+    tip.style.display = "none";
+    return;
+  }
+  const bits = [
+    `<b>${s.name}</b>`,
+    `x ${s.pos.x.toFixed(2)} · y ${s.pos.y.toFixed(2)} · z ${s.pos.z.toFixed(2)}`,
+    `vol ${s.gain.toFixed(2)} · send ${s.send.toFixed(2)}${s.loop ? " · loop" : ""}${s.playing ? "" : " · ⏸"}`,
+  ];
+  if (s.directivity > 0) bits.push(`directivity ${s.directivity.toFixed(2)} @ yaw ${s.facingYaw.toFixed(0)}°`);
+  if (s.extent > 0) bits.push(`extent ${s.extent.toFixed(2)} m`);
+  if (s.id === selected) bits.push(`<span class="dim">drag ◆ to move up/down</span>`);
+  tip.innerHTML = bits.join("<br>");
+  tip.style.display = "block";
+  const pad = 14;
+  tip.style.left = Math.min(x + pad, innerWidth - tip.offsetWidth - 8) + "px";
+  tip.style.top = Math.min(y + pad, innerHeight - tip.offsetHeight - 8) + "px";
+};
 
 ($("start") as HTMLButtonElement).onclick = async () => {
   if ((await ensureStarted()) && sources.length === 0) {
@@ -786,6 +822,13 @@ function fillNewSound(): void {
   selEl.value = cur && [...selEl.options].some((op) => op.value === cur) ? cur : "sfx:6"; // drone bed
 }
 fillNewSound();
+
+// debug/automation hook (headless smoke tests drive the editor through this)
+(window as unknown as Record<string, unknown>).__sandbox = {
+  view,
+  sources,
+  selectedId: () => selected,
+};
 
 // restore autosaved scene (sources start once the engine starts)
 try {
