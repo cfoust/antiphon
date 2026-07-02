@@ -122,11 +122,31 @@ An agent integrates at whichever rung it can reach:
    (the Claude Code MCP driver) uses.
 
 So yes: an agent that can administer hooks and run commands needs nothing else — for
-narration OUT. The one thing commands can't give you is talk-back IN (delivering the
-user's spoken text *into* the agent); that direction is inherently agent-specific
-(Claude Code: MCP channels; others: tmux/cy injection, an HTTP callback, …) and is
-the only part that ever needs a per-agent driver — always client-side, never in the
-server.
+narration OUT *and*, in most real setups, for talk-back IN too (see below).
+
+## Talk-back: the input ladder
+
+Delivering the user's words INTO an agent uses a per-agent **input target**, reported
+in the `hello`/`/events` payload (`"input": {kind, target, socket?}`), persisted on the
+registry record, and used by the hub to route `say`. Kinds form a quality ladder:
+
+1. **`http`** — the agent has a real programmatic API (OpenCode does; aider and pi
+   likely too): `target` is a URL accepting `POST {"text":"…"}`. Agents whose native
+   API shape differs front it with a tiny local shim. Most precise, no terminal side
+   effects — preferred when reported.
+2. **`tmux` / `cy`** — the generic floor: type the text + Enter into the pane the
+   agent lives in (`tmux send-keys -l` so nothing is interpreted). The beauty is that
+   ANY subprocess of the agent inherits the multiplexer env (`$TMUX_PANE`, `$CY`), so
+   `chamberd channel` and even a hook-level `chamberd emit` discover the pane
+   automatically — a hooks-only integration is *bidirectional* for free when it runs
+   under a mux. (cy detection is in; its injector is a seam awaiting the right CLI.)
+3. **MCP channel** — Claude-Code-specific fallback for socket-connected agents outside
+   any known pane (requires the channels research preview).
+
+**Reachability is user-visible**: `bind` frames and `GET /agents` carry
+`"input": "http"|"tmux"|"cy"|"channel"|""` — empty means the session can be heard but
+not spoken to, and clients should indicate that. A failed injection (pane died)
+clears the stored target so the flag stays honest.
 
 ## Adding a TTS provider
 
@@ -271,8 +291,7 @@ Port the prototype plugin into this repo with the runtime dependency removed:
   PostToolUse hooks and a `{type:"cue", kind}` event. Explicitly out of scope for now;
   it's additive to the wire protocol whenever we want it, and like the attention cue
   the sounds could eventually live in `chamber-dsp` itself.
-- Talk-back beyond Claude Code channels (tmux/cy injection for other agents) — the
-  prototype's plan sketches this; out of scope until M4+.
+- The cy injector (detection is done; needs the right cy CLI incantation).
 - Auth: localhost-only bind is the current stance (like the prototype). If we ever bind
   beyond loopback, a bearer token in `chamberd.json` is the shape.
 - Audio transport for very long lines: current model is whole-line render; streaming TTS

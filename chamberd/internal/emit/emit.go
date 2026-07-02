@@ -21,6 +21,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/cfoust/chamber/chamberd/internal/input"
 )
 
 const timeout = 500 * time.Millisecond
@@ -71,13 +73,17 @@ func Run(args []string) int {
 	if !ok {
 		return 0 // hub not running: silently do nothing
 	}
-	body, _ := json.Marshal(map[string]string{
+	payload := map[string]any{
 		"session": session,
 		"kind":    kind,
 		"repo":    repoName(),
 		"type":    typ,
 		"text":    text,
-	})
+	}
+	if inp := input.Detect(); inp != nil {
+		payload["input"] = inp // talk-back target: hooks inherit the mux env
+	}
+	body, _ := json.Marshal(payload)
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Post(
 		fmt.Sprintf("http://127.0.0.1:%d/events", port),

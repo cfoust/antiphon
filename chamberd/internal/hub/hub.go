@@ -19,6 +19,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/cfoust/chamber/chamberd/internal/input"
 	"github.com/cfoust/chamber/chamberd/internal/registry"
 	"github.com/cfoust/chamber/chamberd/internal/tts"
 	"github.com/cfoust/chamber/chamberd/internal/voice"
@@ -87,12 +88,13 @@ func (h *Hub) Routes(mux *http.ServeMux, audioDir string) {
 // ---- agent side ---------------------------------------------------------------
 
 type agentHello struct {
-	Type    string `json:"type"`
-	Session string `json:"session"`
-	Kind    string `json:"kind"`
-	Repo    string `json:"repo"`
-	Cwd     string `json:"cwd"`
-	Title   string `json:"title"`
+	Type    string      `json:"type"`
+	Session string      `json:"session"`
+	Kind    string      `json:"kind"`
+	Repo    string      `json:"repo"`
+	Cwd     string      `json:"cwd"`
+	Title   string      `json:"title"`
+	Input   *input.Info `json:"input"` // talk-back target (tmux pane etc.)
 }
 
 type agentEvent struct {
@@ -127,6 +129,9 @@ func (h *Hub) handleAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rec := h.reg.Upsert(hello.Session, hello.Kind, hello.Repo, hello.Title)
+	if hello.Input != nil {
+		h.reg.SetInput(rec.ID, hello.Input.Kind, hello.Input.Target, hello.Input.Socket)
+	}
 	persona := h.bindPersona(rec.ID)
 	seat := h.claimSeat(rec.ID, persona)
 
@@ -142,8 +147,12 @@ func (h *Hub) handleAgent(w http.ResponseWriter, r *http.Request) {
 		"type": "seat", "seat": seat, "color": persona.Color,
 		"agent": rec.ID, "voice": persona.Name,
 	})
-	h.broadcast(map[string]any{"type": "bind", "seat": seat, "color": persona.Color, "agent": rec.ID, "name": persona.Name})
-	log.Printf("agent %s (%s, %s) bound to seat %d as %s", rec.ID, hello.Kind, hello.Repo, seat, persona.Name)
+	h.broadcast(map[string]any{
+		"type": "bind", "seat": seat, "color": persona.Color,
+		"agent": rec.ID, "name": persona.Name, "input": h.inputKind(rec.ID),
+	})
+	log.Printf("agent %s (%s, %s) bound to seat %d as %s (input: %s)",
+		rec.ID, hello.Kind, hello.Repo, seat, persona.Name, orNone(h.inputKind(rec.ID)))
 
 	if pendingEvent != nil {
 		h.emit(rec.ID, seat, persona, pendingEvent.Type, pendingEvent.Text)
@@ -302,25 +311,74 @@ func (h *Hub) handleStream(w http.ResponseWriter, r *http.Request) {
 		if msg.Type != "say" || msg.Text == "" {
 			continue
 		}
-		// talk-back: relay to whichever agent occupies the seat
 		h.mu.Lock()
-		var target *conn
+		var id string
 		if msg.Seat >= 0 && msg.Seat < len(h.seats) {
-			if id := h.seats[msg.Seat]; id != "" {
-				target = h.agents[id]
-			}
+			id = h.seats[msg.Seat]
 		}
 		h.mu.Unlock()
-		if target != nil {
-			target.send(map[string]any{"type": "channel", "text": msg.Text})
-		} else {
+		if id == "" {
 			log.Printf("say → seat %d: no agent", msg.Seat)
+			continue
 		}
+		go h.deliverSay(id, msg.Text)
 	}
 	h.mu.Lock()
 	delete(h.pages, c)
 	h.mu.Unlock()
 	ws.Close()
+}
+
+// deliverSay routes the user's words into an agent. Multiplexer injection
+// first — it is generic (works for any agent kind, connected or not) and
+// user-visible as ordinary typed input. The MCP channel notification is the
+// fallback for socket-connected agents outside a known pane. A dead pane
+// clears the stored target so reachability reporting stays honest.
+func (h *Hub) deliverSay(id, text string) {
+	rec, ok := h.reg.Get(id)
+	if !ok {
+		return
+	}
+	if rec.InputKind != "" {
+		inj := input.Info{Kind: rec.InputKind, Target: rec.InputTarget, Socket: rec.InputSocket}
+		if err := inj.Inject(text); err == nil {
+			return
+		} else {
+			log.Printf("say → %s: %s injection failed (%v), clearing target", id, rec.InputKind, err)
+			h.reg.SetInput(id, "", "", "")
+		}
+	}
+	h.mu.Lock()
+	target := h.agents[id]
+	h.mu.Unlock()
+	if target != nil {
+		target.send(map[string]any{"type": "channel", "text": text})
+		return
+	}
+	log.Printf("say → %s: unreachable (no input target, not connected)", id)
+}
+
+// inputKind reports how (whether) an agent can receive talk-back:
+// its mux target kind, "channel" when only the socket path exists, "" = none.
+func (h *Hub) inputKind(id string) string {
+	rec, ok := h.reg.Get(id)
+	if ok && rec.InputKind != "" {
+		return rec.InputKind
+	}
+	h.mu.Lock()
+	_, connected := h.agents[id]
+	h.mu.Unlock()
+	if connected {
+		return "channel"
+	}
+	return ""
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
 }
 
 // ---- HTTP surfaces ---------------------------------------------------------------
@@ -346,6 +404,9 @@ func (h *Hub) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec := h.reg.Upsert(ev.Session, ev.Kind, ev.Repo, ev.Title)
+	if ev.Input != nil {
+		h.reg.SetInput(rec.ID, ev.Input.Kind, ev.Input.Target, ev.Input.Socket)
+	}
 	persona := h.bindPersona(rec.ID)
 	seat := h.claimSeat(rec.ID, persona)
 	h.emit(rec.ID, seat, persona, ev.EventType, ev.Text)
@@ -357,8 +418,9 @@ func (h *Hub) handleAgents(w http.ResponseWriter, r *http.Request) {
 	cors(w)
 	type row struct {
 		registry.Record
-		Connected bool `json:"connected"`
-		Seat      int  `json:"seat"`
+		Connected bool   `json:"connected"`
+		Seat      int    `json:"seat"`
+		Input     string `json:"input"` // talk-back capability kind; "" = unreachable
 	}
 	h.mu.Lock()
 	seatOf := map[string]int{}
@@ -378,7 +440,7 @@ func (h *Hub) handleAgents(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			seat = -1
 		}
-		rows = append(rows, row{Record: rec, Connected: connected[rec.ID], Seat: seat})
+		rows = append(rows, row{Record: rec, Connected: connected[rec.ID], Seat: seat, Input: h.inputKind(rec.ID)})
 	}
 	w.Header().Set("content-type", "application/json")
 	json.NewEncoder(w).Encode(rows)

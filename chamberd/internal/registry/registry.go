@@ -27,6 +27,12 @@ type Record struct {
 	Title   string `json:"title"`
 	Voice   string `json:"voice"` // persona name; sticky for the record's lifetime
 
+	// Talk-back target (see internal/input): where typed text can reach this
+	// agent. Persisted — an emit-only agent in a known pane stays reachable.
+	InputKind   string `json:"input_kind,omitempty"`
+	InputTarget string `json:"input_target,omitempty"`
+	InputSocket string `json:"input_socket,omitempty"`
+
 	CreatedAt   time.Time `json:"created_at"`
 	LastSeenAt  time.Time `json:"last_seen_at"`  // any traffic (connect, ping)
 	LastEventAt time.Time `json:"last_event_at"` // last meaningful narration event
@@ -123,6 +129,16 @@ func (r *Registry) Touch(id string, event bool) {
 		rec.LastEventAt = now
 	}
 	r.save()
+}
+
+// SetInput records (or clears, with empty kind) the agent's talk-back target.
+func (r *Registry) SetInput(id, kind, target, socket string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rec, ok := r.recs[id]; ok {
+		rec.InputKind, rec.InputTarget, rec.InputSocket = kind, target, socket
+		r.save()
+	}
 }
 
 // SetTitle records the latest task headline as the agent's display title.

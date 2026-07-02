@@ -29,6 +29,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/cfoust/chamber/chamberd/internal/input"
 )
 
 const (
@@ -248,10 +250,14 @@ func (c *Channel) hubLoop() {
 		delay = retryMin
 		log.Printf("connected to hub %s", c.hubURL)
 
-		ws.WriteJSON(map[string]any{
+		hello := map[string]any{
 			"type": "hello", "session": c.session, "kind": "claude-code",
 			"repo": c.repo, "cwd": cwd(),
-		})
+		}
+		if inp := input.Detect(); inp != nil {
+			hello["input"] = inp // talk-back target (tmux pane etc.)
+		}
+		ws.WriteJSON(hello)
 		c.hubMu.Lock()
 		c.hub = ws
 		var pending *event
