@@ -191,6 +191,9 @@ final class ChamberEngine: ObservableObject {
     /// Seats currently bound at the hub — tracked independently of `agents` so binds
     /// that arrive before setup() (hub replays occupancy on connect) aren't lost.
     private var boundSeats = Set<Int>()
+    /// Done-summaries that arrived before setup() allocated the agents. Blips are
+    /// ephemeral and may drop in that window; a done is durable state and must not.
+    private var pendingDone: [Int: [Float]] = [:]
 
     // preallocated FFI scratch (no allocation in the render callback)
     private var inBufs: [UnsafeMutablePointer<Float>] = []
@@ -210,7 +213,7 @@ final class ChamberEngine: ObservableObject {
     }
 
     func setup() {
-        guard let res = Bundle.main.resourceURL else { return }
+        guard !started, let res = Bundle.main.resourceURL else { return }
         let assetURL = res.appendingPathComponent("chamber.chamber")
         guard let r = ChamberRenderer(assetURL: assetURL, sampleRate: SAMPLE_RATE,
                                       maxSources: AGENTS.count, maxBlock: maxBlock) else {
@@ -250,8 +253,10 @@ final class ChamberEngine: ObservableObject {
                                       fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
         }
         renderer.setRoom(roomIndex)
-        // close 1.3 m arc + 6 summed voices + BRIR tail is hot -> keep the master well down
-        renderer.setMasterGain(0.45)
+        // Muted until the user enters the room (openRoom). setup() now runs at app
+        // LAUNCH so live-bridge state (binds, dones) accumulates correctly from
+        // second zero; the intro click just turns the speakers on.
+        renderer.setMasterGain(0.0)
         renderer.setFreqScale(Float(freqScale)) // push the default "fit" so it's applied from the first block
 
         // attention cue: synthesized + spatialized inside the MAIN renderer now (no second engine).
@@ -270,6 +275,12 @@ final class ChamberEngine: ObservableObject {
         // the bridge may have entered live mode before the agents existed
         q.async { if self.liveBridge { self.applyLiveMode() } }
         DispatchQueue.main.async { self.ready = true }
+    }
+
+    /// The user entered the room (intro click): un-mute. The close 1.3 m arc + 6
+    /// summed voices + BRIR tail is hot → keep the master well down.
+    func openRoom() {
+        q.async { self.renderer?.setMasterGain(0.45) }
     }
 
     private func buildGraph() {
@@ -422,6 +433,12 @@ final class ChamberEngine: ObservableObject {
             a.clear = []; a.whisper = [] // live agents speak narration, not loops
             a.gClear = 0; a.gWhisper = 0; a.gStat = 0; a.gPing = 0
         }
+        // replay dones that arrived before the room existed
+        for (seat, summary) in pendingDone where agents.indices.contains(seat) {
+            NSLog("[bridge] applying buffered done for seat=%d", seat)
+            applyDone(agents[seat], summary: summary)
+        }
+        pendingDone.removeAll()
         DispatchQueue.main.async { self.bridged = true; self.autoFinish = false }
     }
 
@@ -479,18 +496,31 @@ final class ChamberEngine: ObservableObject {
     /// done flow (pings from its bearing, linger-to-hear, attention cue counting).
     func bridgeDone(seat: Int, summary: [Float]) {
         q.async {
-            guard self.agents.indices.contains(seat) else { return }
-            let a = self.agents[seat]
-            a.present = true
-            if !summary.isEmpty { a.summary = summary }
-            // a fresh done may also land on a .heard agent (it finished another task);
-            // only an in-flight .done/.summarizing keeps its current run
-            guard a.state == .working || a.state == .heard else { return }
-            a.heardAt = 0
-            a.state = .done
-            a.nextPing = self.now() + 0.15
-            a.lastPingWall = 0
+            guard self.agents.indices.contains(seat) else {
+                // the room doesn't exist yet (setup pending) — hold the done for it
+                NSLog("[bridge] done seat=%d buffered (room not set up yet)", seat)
+                self.pendingDone[seat] = summary
+                return
+            }
+            self.applyDone(self.agents[seat], summary: summary)
         }
+    }
+
+    /// Runs on `q`. The done flow shared by live frames and the pre-setup buffer.
+    private func applyDone(_ a: AgentRuntime, summary: [Float]) {
+        a.present = true
+        if !summary.isEmpty { a.summary = summary }
+        // a fresh done may also land on a .heard agent (it finished another task);
+        // only an in-flight .done/.summarizing keeps its current run
+        guard a.state == .working || a.state == .heard else {
+            NSLog("[bridge] done seat=%d: already \(a.state), summary updated only", a.idx)
+            return
+        }
+        a.heardAt = 0
+        a.state = .done
+        a.nextPing = now() + 0.15
+        a.lastPingWall = 0
+        NSLog("[bridge] done seat=%d -> .done (summary %d samples)", a.idx, a.summary.count)
     }
 
     // MARK: the loop

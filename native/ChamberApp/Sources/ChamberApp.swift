@@ -102,6 +102,9 @@ struct ContentView: View {
         }
         .frame(minWidth: 660, minHeight: 700)
         .preferredColorScheme(.dark)
+        // the room exists (muted) from launch so live-bridge state — binds, narration,
+        // done-summaries — accumulates correctly before the user clicks in
+        .onAppear { engine.setup() }
     }
 
     private var introCard: some View {
@@ -155,7 +158,7 @@ struct ContentView: View {
     }
 
     private func enable() {
-        engine.setup()
+        engine.openRoom() // setup() already ran at launch; this un-mutes
         // No sign flip: the two-point calibration below resolves the camera's yaw direction
         // (the uncalibrated default is what was inverted). 6DoF position from the bbox estimate.
         tracker.onOrient = { [weak engine] d in engine?.setOrient(deg: d) }

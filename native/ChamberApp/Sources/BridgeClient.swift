@@ -159,11 +159,18 @@ final class BridgeClient: NSObject {
             guard let self, let engine = self.engine else { return }
             switch f.type {
             case "hello":
+                NSLog("[bridge] hello — entering live mode")
                 engine.bridgeConnected(true)
             case "bind":
-                if let seat = f.seat { engine.bridgeBind(seat: seat) }
+                if let seat = f.seat {
+                    NSLog("[bridge] bind seat=%d", seat)
+                    engine.bridgeBind(seat: seat)
+                }
             case "free":
-                if let seat = f.seat { engine.bridgeFree(seat: seat) }
+                if let seat = f.seat {
+                    NSLog("[bridge] free seat=%d", seat)
+                    engine.bridgeFree(seat: seat)
+                }
             case "task", "progress", "blocked", "done":
                 guard let seat = f.seat else { return }
                 var samples: [Float] = []
@@ -171,6 +178,7 @@ final class BridgeClient: NSObject {
                     let ext = (f.audioUrl as NSString?)?.pathExtension ?? "mp3"
                     samples = Self.decode(b64: b64, ext: ext.isEmpty ? "mp3" : ext)
                 }
+                NSLog("[bridge] %@ seat=%d decoded=%d samples", f.type, seat, samples.count)
                 if f.type == "done" {
                     engine.bridgeDone(seat: seat, summary: samples)
                 } else if !samples.isEmpty {
