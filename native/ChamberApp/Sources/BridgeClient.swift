@@ -117,6 +117,9 @@ final class BridgeClient: NSObject {
         guard !stopped else { return }
         guard let url = URL(string: "ws://127.0.0.1:\(port)/stream") else { return }
         let t = session.webSocketTask(with: url)
+        // The default cap is 1 MiB — a long done-summary's inline base64 audio
+        // exceeds it, which kills the receive (and the frame) with a reconnect.
+        t.maximumMessageSize = 64 << 20
         task = t
         t.resume()
         receive(on: t)
@@ -173,11 +176,19 @@ final class BridgeClient: NSObject {
                 }
             case "task", "progress", "blocked", "done":
                 guard let seat = f.seat else { return }
-                var samples: [Float] = []
-                if let b64 = f.audioB64 {
-                    let ext = (f.audioUrl as NSString?)?.pathExtension ?? "mp3"
-                    samples = Self.decode(b64: b64, ext: ext.isEmpty ? "mp3" : ext)
+                // Prefer fetching the cached line over the inline base64 — smaller
+                // frames, no message-size cliffs, same bytes (localhost).
+                var ext = "mp3"
+                var data: Data?
+                if let path = f.audioUrl, let url = URL(string: "http://127.0.0.1:\(self.port)\(path)") {
+                    ext = url.pathExtension.isEmpty ? ext : url.pathExtension
+                    data = Self.fetch(url)
                 }
+                if data == nil, let b64 = f.audioB64 {
+                    data = Data(base64Encoded: b64)
+                }
+                var samples: [Float] = []
+                if let data { samples = Self.decode(data: data, ext: ext) }
                 NSLog("[bridge] %@ seat=%d decoded=%d samples", f.type, seat, samples.count)
                 if f.type == "done" {
                     engine.bridgeDone(seat: seat, summary: samples)
@@ -190,10 +201,22 @@ final class BridgeClient: NSObject {
         }
     }
 
+    /// Synchronous localhost fetch of a cached voice line (runs on decodeQ).
+    private static func fetch(_ url: URL) -> Data? {
+        var out: Data?
+        let sem = DispatchSemaphore(value: 0)
+        let task = URLSession.shared.dataTask(with: url) { data, resp, _ in
+            if let http = resp as? HTTPURLResponse, http.statusCode == 200 { out = data }
+            sem.signal()
+        }
+        task.resume()
+        _ = sem.wait(timeout: .now() + 10)
+        return out
+    }
+
     /// Decode compressed audio bytes to 48 kHz mono floats. AVAudioFile wants a
     /// real file, so round-trip through a temp path (cheap; lines are seconds long).
-    private static func decode(b64: String, ext: String) -> [Float] {
-        guard let data = Data(base64Encoded: b64) else { return [] }
+    private static func decode(data: Data, ext: String) -> [Float] {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("chamber-line-\(UUID().uuidString).\(ext)")
         defer { try? FileManager.default.removeItem(at: tmp) }
