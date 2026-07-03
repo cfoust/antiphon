@@ -129,21 +129,28 @@ func makeToolNote(_ freq: Float, sr: Double = 48_000) -> [Float] {
     return y
 }
 
-/// The working drone: a seamless 4 s loop of the chord root, breathing at
-/// 0.5 Hz with a 0.25 Hz two-oscillator beat. All components complete whole
-/// cycles over the loop so it can run forever without a click.
+/// The working drone: a low rumble of the chord's three lower tones (root,
+/// minor third, fifth — the same register the tool notes walk through), each
+/// undulating on its own slow rate so the whole thing rolls rather than
+/// pulses. Seamless 4 s loop: every carrier and undulation completes whole
+/// cycles.
 func makeDrone(_ ping: Float, sr: Double = 48_000) -> [Float] {
     let dur = 4.0
     let n = Int(sr * dur)
-    // quantize the carrier to whole cycles over the loop (seamless)
-    let f = (Double(ping) / 2 * dur).rounded() / dur
-    let f2 = f + 1.0 / dur // exactly one extra cycle → a slow, warm beat
+    let root = (Double(ping) / 2 * dur).rounded() / dur
+    let tones = [1.0, pow(2, 3.0 / 12), pow(2, 7.0 / 12)].map { (root * $0 * dur).rounded() / dur }
+    let amps = [0.5, 0.26, 0.24] // root-heavy — it should sit low
+    let rates = [0.25, 0.5, 0.75] // whole cycles over the loop
+    let phases = [0.0, 2.1, 4.2]
     var y = [Float](repeating: 0, count: n)
     for i in 0..<n {
         let t = Double(i) / sr
-        let breathe = 0.62 + 0.38 * sin(2 * .pi * 0.5 * t - .pi / 2)
-        let s = sin(2 * .pi * f * t) * 0.6 + sin(2 * .pi * f2 * t) * 0.4
-        y[i] = Float(s * breathe * 0.16)
+        var s = 0.0
+        for k in 0..<3 {
+            let roll = 0.7 + 0.3 * sin(2 * .pi * rates[k] * t + phases[k])
+            s += sin(2 * .pi * tones[k] * t) * amps[k] * roll
+        }
+        y[i] = Float(s * 0.16)
     }
     return y
 }
