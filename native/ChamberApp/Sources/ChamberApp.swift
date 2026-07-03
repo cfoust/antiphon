@@ -27,7 +27,6 @@ struct ContentView: View {
     /// `.calibrate` alone.
     private enum OnboardStep { case none, camera, calibrate, fit }
     @State private var step: OnboardStep = .none
-    @State private var immersionEnabled = true // eyes-closed → scene fills in (toggle in Settings)
     @State private var menuBar = MenuBarController()
     @ObservedObject private var i18n = I18n.shared
 
@@ -124,7 +123,7 @@ struct ContentView: View {
                 }
             case .fit:
                 FitStepView(engine: engine) {
-                    engine.setImmersionArmed(immersionEnabled)
+                    engine.armImmersion() // eyes-closed presence IS the app
                     live = true
                     step = .none
                 }
@@ -206,7 +205,7 @@ struct ContentView: View {
                 // Only reached with a restored calibration — a fresh user went
                 // straight into onboarding when the camera came up.
                 Button(L("Start")) {
-                    engine.setImmersionArmed(immersionEnabled)
+                    engine.armImmersion()
                     live = true
                 }
                 .buttonStyle(.borderedProminent)

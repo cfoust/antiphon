@@ -195,12 +195,6 @@ private let TBL: [String: (String, String, String)] = [
     "General": ("Основные", "通用", "一般"),
     "Voices": ("Голоса", "语音", "語音"),
     "Sound": ("Звук", "声音", "聲音"),
-    "Presence": ("Присутствие", "沉浸", "沉浸"),
-    "Immersion fade": ("Эффект погружения", "沉浸淡入", "沉浸淡入"),
-    "Close your eyes and the scene fills in; open them and it recedes":
-        ("Закройте глаза — сцена проявится; откройте — отступит",
-         "闭上眼睛场景浮现，睁开眼睛场景退去",
-         "閉上眼睛場景浮現，睜開眼睛場景退去"),
     "Tracking": ("Трекинг", "追踪", "追蹤"),
     "Calibration": ("Калибровка", "校准", "校準"),
     "Re-run the look-left / look-right sweep in the main window":

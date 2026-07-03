@@ -183,14 +183,6 @@ private struct GeneralPane: View {
             }
         }
 
-        card(L("Presence")) {
-            labeledRow(L("Immersion fade"), L("Close your eyes and the scene fills in; open them and it recedes")) {
-                Toggle("", isOn: Binding(get: { engine.immersionArmedPub },
-                                         set: { engine.setImmersionArmed($0) }))
-                    .labelsHidden().toggleStyle(.switch)
-            }
-        }
-
         card(L("Tracking")) {
             labeledRow(L("Calibration"), L("Re-run the look-left / look-right sweep in the main window")) {
                 Button(L("Recalibrate")) {
