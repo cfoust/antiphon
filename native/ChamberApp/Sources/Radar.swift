@@ -73,12 +73,13 @@ struct RadarView: View {
                 // The Antiphon eye, monochrome: inner disc, thick iris band, a
                 // bold ring, then hairline outer rings. World-anchored on the
                 // calibrated neutral — the pupil (you) drifts inside it.
+                // kept just above the threshold of noticing — texture, not a boundary
                 ctx.fill(Path(ellipseIn: CGRect(x: cx - 0.5 * s, y: cy - 0.5 * s, width: s, height: s)),
-                         with: .color(.white.opacity(0.035 * mul)))
-                ring(0.72 * s, at: c, alpha: 0.06, width: 0.26 * s) // the iris band
-                ring(0.95 * s, at: c, alpha: 0.16, width: 2.5)      // the bold ring
-                ring(1.30 * s, at: c, alpha: 0.055)                 // hairline, agents' arc
-                ring(1.62 * s, at: c, alpha: 0.04)                  // outermost hairline
+                         with: .color(.white.opacity(0.02 * mul)))
+                ring(0.72 * s, at: c, alpha: 0.03, width: 0.26 * s) // the iris band
+                ring(0.95 * s, at: c, alpha: 0.07, width: 1.5)      // the bold ring
+                ring(1.30 * s, at: c, alpha: 0.03)                  // hairline, agents' arc
+                ring(1.62 * s, at: c, alpha: 0.022)                 // outermost hairline
 
                 // facing cone (only while watching — the pose is frozen asleep)
                 if !muted {

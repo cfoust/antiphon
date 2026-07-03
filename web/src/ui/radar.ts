@@ -120,14 +120,15 @@ export function initRadar(engine: Chamber, cv: HTMLCanvasElement): void {
       g.lineWidth = width;
       g.stroke();
     };
+    // kept just above the threshold of noticing — texture, not a boundary
     g.beginPath();
     g.arc(cx, cy, 0.5 * s, 0, TAU);
-    g.fillStyle = "rgba(255,255,255,0.035)";
+    g.fillStyle = "rgba(255,255,255,0.02)";
     g.fill();
-    ring(0.72 * s, 0.06, 0.26 * s); // the iris band
-    ring(0.95 * s, 0.16, 2.5); // the bold ring
-    ring(1.3 * s, 0.055); // hairline, agents' arc
-    ring(1.62 * s, 0.04); // outermost hairline
+    ring(0.72 * s, 0.03, 0.26 * s); // the iris band
+    ring(0.95 * s, 0.07, 1.5); // the bold ring
+    ring(1.3 * s, 0.03); // hairline, agents' arc
+    ring(1.62 * s, 0.022); // outermost hairline
 
     // facing cone (emanates from the listener's current position)
     g.beginPath();
