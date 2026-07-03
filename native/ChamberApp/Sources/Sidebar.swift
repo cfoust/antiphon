@@ -33,7 +33,13 @@ struct AgentSidebar: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 4) {
+                    // Plain VStack on purpose: LazyVStack cached row views across
+                    // the two ForEach blocks (same seat ids), so a row moved to
+                    // the snoozed section kept its stale vm — its moon then kept
+                    // calling "snooze" instead of "wake". Handfuls of rows don't
+                    // need laziness; the per-row .id below forces a remount when
+                    // a row changes sections.
+                    VStack(spacing: 4) {
                         ForEach(active) { vm in row(vm) }
                         if !snoozed.isEmpty {
                             HStack(spacing: 8) {
@@ -64,6 +70,9 @@ struct AgentSidebar: View {
         AgentRowView(vm: vm,
                      onHover: { over in engine.setHovered(over ? vm.id : -1) },
                      onSnooze: { engine.setSnoozed(vm.id, !vm.snoozed) })
+            // section membership is part of the view's identity — moving between
+            // active/snoozed must rebuild the row (fresh vm, fresh closures)
+            .id("\(vm.id)-\(vm.snoozed ? "z" : "a")")
     }
 }
 
