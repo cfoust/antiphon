@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -48,8 +49,13 @@ func Detect() *Info {
 		}
 		return info
 	}
-	if sock := os.Getenv("CY"); sock != "" {
-		return &Info{Kind: "cy", Target: sock}
+	if v := os.Getenv("CY"); v != "" {
+		// CY = "<socket>(:<node-id>)?" — only a pane context (id present) is a
+		// typeable target; a socket-only CY (e.g. `cy exec` children) is not.
+		if i := strings.IndexByte(v, ':'); i > 0 {
+			return &Info{Kind: "cy", Socket: v[:i], Target: v[i+1:]}
+		}
+		return nil
 	}
 	return nil
 }
@@ -78,23 +84,54 @@ func (i *Info) Inject(text string) error {
 			args = append(args, "-S", i.Socket)
 		}
 		send := append(args, "send-keys", "-t", i.Target, "-l", "--", text)
-		if out, err := command("tmux", send...); err != nil {
+		if out, err := command(nil, "tmux", send...); err != nil {
 			return fmt.Errorf("tmux send-keys: %w (%s)", err, out)
 		}
 		enter := append(args, "send-keys", "-t", i.Target, "Enter")
-		if out, err := command("tmux", enter...); err != nil {
+		if out, err := command(nil, "tmux", enter...); err != nil {
 			return fmt.Errorf("tmux Enter: %w (%s)", err, out)
 		}
 		return nil
 	case "cy":
-		return fmt.Errorf("cy injection not implemented yet")
+		// (pane/send-text id "…") types the text; (pane/send-keys id @["enter"])
+		// submits it — delivered via `cy exec` against the agent's socket. The id
+		// must be numeric (it crosses the wire from agents; no Janet injection).
+		if _, err := strconv.Atoi(i.Target); err != nil {
+			return fmt.Errorf("cy: bad pane id %q", i.Target)
+		}
+		code := fmt.Sprintf(`(pane/send-text %s %s)(pane/send-keys %s @["enter"])`,
+			i.Target, janetString(text), i.Target)
+		args := []string{"exec", "-c", code}
+		if i.Socket != "" {
+			args = append([]string{"-L", i.Socket}, args...)
+		}
+		// strip our own $CY so the explicit socket flag wins over env context
+		env := []string{}
+		for _, e := range os.Environ() {
+			if !strings.HasPrefix(e, "CY=") {
+				env = append(env, e)
+			}
+		}
+		if out, err := command(env, "cy", args...); err != nil {
+			return fmt.Errorf("cy exec: %w (%s)", err, out)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown input kind %q", i.Kind)
 	}
 }
 
-func command(name string, args ...string) (string, error) {
+// janetString renders text as a Janet string literal.
+func janetString(s string) string {
+	r := strings.NewReplacer("\\", "\\\\", "\"", "\\\"", "\n", "\\n", "\r", "\\r", "\t", "\\t")
+	return "\"" + r.Replace(s) + "\""
+}
+
+func command(env []string, name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
+	if env != nil {
+		cmd.Env = env
+	}
 	done := make(chan struct{})
 	var out []byte
 	var err error

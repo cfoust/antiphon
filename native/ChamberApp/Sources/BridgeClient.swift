@@ -148,9 +148,32 @@ final class BridgeClient: NSObject {
         let delay = min(30.0, 1.0 * pow(1.6, Double(min(retry, 8))))
         DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, !self.stopped else { return }
-            // the daemon may have moved ports / been restarted by hand
-            if let p = ChamberDaemon.discover() { self.port = p }
+            if let p = ChamberDaemon.discover() {
+                // the daemon may have moved ports / been restarted by hand
+                self.port = p
+            } else if self.retry >= 2 {
+                // the daemon is gone (killed, crashed, adopted one exited) — the
+                // app owns it, so supervise: bring a fresh one up
+                self.respawnIfNeeded()
+            }
             self.connect()
+        }
+    }
+
+    private func respawnIfNeeded() {
+        if let d = daemon, d.isRunning { return } // alive; it may still be starting up
+        guard let bin = ChamberDaemon.findBinary() else { return }
+        let proc = Process()
+        proc.executableURL = bin
+        proc.arguments = ["serve"]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            daemon = proc
+            NSLog("[bridge] respawned chamberd (%@)", bin.path)
+        } catch {
+            NSLog("[bridge] chamberd respawn failed: %@", "\(error)")
         }
     }
 

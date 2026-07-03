@@ -139,7 +139,11 @@ registry record, and used by the hub to route `say`. Kinds form a quality ladder
    ANY subprocess of the agent inherits the multiplexer env (`$TMUX_PANE`, `$CY`), so
    `chamberd channel` and even a hook-level `chamberd emit` discover the pane
    automatically — a hooks-only integration is *bidirectional* for free when it runs
-   under a mux. (cy detection is in; its injector is a seam awaiting the right CLI.)
+   under a mux. cy: `$CY = <socket>:<node-id>` identifies the pane; injection is
+   `cy -L <socket> exec` running `(pane/send-text id …)` + `(pane/send-keys id
+   @["enter"])`, with `$CY` STRIPPED from the exec's environment — cy's CLI prefers
+   the env context over `-L`, so a daemon living inside a cy pane would otherwise
+   hijack itself to its own server.
 3. **MCP channel** — Claude-Code-specific fallback for socket-connected agents outside
    any known pane (requires the channels research preview).
 
@@ -304,7 +308,6 @@ Port the prototype plugin into this repo with the runtime dependency removed:
   PostToolUse hooks and a `{type:"cue", kind}` event. Explicitly out of scope for now;
   it's additive to the wire protocol whenever we want it, and like the attention cue
   the sounds could eventually live in `chamber-dsp` itself.
-- The cy injector (detection is done; needs the right cy CLI incantation).
 - Auth: localhost-only bind is the current stance (like the prototype). If we ever bind
   beyond loopback, a bearer token in `chamberd.json` is the shape.
 - Audio transport for very long lines: current model is whole-line render; streaming TTS
