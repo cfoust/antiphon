@@ -110,14 +110,24 @@ export function initRadar(engine: Chamber, cv: HTMLCanvasElement): void {
     const lcx = cx + Math.max(-lim, Math.min(lim, hp.x * s));
     const lcy = cy + Math.max(-lim, Math.min(lim, hp.z * s));
 
-    // ambient range rings (0.65 / 1.3 / 1.95 m)
-    for (let i = 1; i <= 3; i++) {
+    // The Antiphon eye, monochrome (mirrors native RadarView): inner disc,
+    // thick iris band, bold ring, hairline outer rings. World-anchored on
+    // the calibrated neutral — the pupil (you) drifts inside it.
+    const ring = (r: number, alpha: number, width = 1) => {
       g.beginPath();
-      g.arc(cx, cy, (s * 1.3 * i) / 3, 0, TAU);
-      g.strokeStyle = "rgba(255,255,255,0.05)";
-      g.lineWidth = 1;
+      g.arc(cx, cy, r, 0, TAU);
+      g.strokeStyle = `rgba(255,255,255,${alpha})`;
+      g.lineWidth = width;
       g.stroke();
-    }
+    };
+    g.beginPath();
+    g.arc(cx, cy, 0.5 * s, 0, TAU);
+    g.fillStyle = "rgba(255,255,255,0.035)";
+    g.fill();
+    ring(0.72 * s, 0.06, 0.26 * s); // the iris band
+    ring(0.95 * s, 0.16, 2.5); // the bold ring
+    ring(1.3 * s, 0.055); // hairline, agents' arc
+    ring(1.62 * s, 0.04); // outermost hairline
 
     // facing cone (emanates from the listener's current position)
     g.beginPath();
@@ -133,10 +143,14 @@ export function initRadar(engine: Chamber, cv: HTMLCanvasElement): void {
     g.fillStyle = `rgba(${TEAL},${0.13 * dim})`;
     g.fill();
 
-    // listener
+    // the pupil: you, glint and all
     g.beginPath();
-    g.arc(lcx, lcy, 4.5, 0, TAU);
+    g.arc(lcx, lcy, 9, 0, TAU);
     g.fillStyle = "#fff";
+    g.fill();
+    g.beginPath();
+    g.arc(lcx - 9 * 0.42, lcy - 9 * 0.42, 2.4, 0, TAU);
+    g.fillStyle = "#0a0c10";
     g.fill();
 
     const facedId = engine.facedAgent()?.id ?? null;
