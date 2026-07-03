@@ -94,14 +94,13 @@ final class AgentRuntime {
     var whisper: [Float] = []
     var summary: [Float] = []
     var ping: [Float] = []
-    var stat: [Float] = []
 
     // render-thread cursors (loop beds always advance; one-shots idle at -1)
-    var clearCur = 0, whisperCur = 0, statCur = 0
+    var clearCur = 0, whisperCur = 0
     var summaryCur = -1, pingCur = -1
 
     // gains: written by the 60 Hz state machine, read by the render thread (benign races)
-    var gClear: Float = 0, gWhisper: Float = 0, gStat: Float = 0
+    var gClear: Float = 0, gWhisper: Float = 0
     var gPing: Float = 0, gSummary: Float = 0
 
     // one-shot triggers (atomic-enough Int counters)
@@ -113,7 +112,6 @@ final class AgentRuntime {
     // state-machine fields
     var state: AgentState = .working
     var nextPing = 0.0, lastPingWall = 0.0, heardAt = 0.0
-    var stNextMod = 0.0, stCurrent: Float = 0
 
     // live-bridge fields: presence (a bound chamberd seat) + the narration queue.
     // Queue is mutated only on the state queue; render plays via the one-shot
@@ -325,7 +323,6 @@ final class ChamberEngine: ObservableObject {
         // load voices + synthesize earcons
         let base = res.appendingPathComponent("audio")
         chime = makeChime()
-        let sharedStatic = makeStatic()
         for (i, def) in AGENTS.enumerated() {
             let a = AgentRuntime(def: def, idx: i)
             let work = loadMono(base.appendingPathComponent("\(def.id).mp3")) ?? []
@@ -333,7 +330,6 @@ final class ChamberEngine: ObservableObject {
             a.whisper = work.isEmpty ? [] : whispered(work)
             a.summary = loadMono(base.appendingPathComponent("\(def.id)_done.mp3")) ?? []
             a.ping = makePing(PING_FREQS[i % PING_FREQS.count])
-            a.stat = sharedStatic
             a.bloom = makeBloom(PING_FREQS[i % PING_FREQS.count])
             let pf = PING_FREQS[i % PING_FREQS.count]
             a.toolNotes = toolNoteFreqs(pf).map { makeToolNote($0) }
@@ -454,14 +450,13 @@ final class ChamberEngine: ObservableObject {
             if a.narrTrig != a.narrSeen { a.narrSeen = a.narrTrig; a.narrCur = 0 }
             if a.toolTrig != a.toolSeen { a.toolSeen = a.toolTrig; a.toolCur = 0 }
             let buf = inBufs[ai]
-            let gc = a.gClear, gw = a.gWhisper, gs = a.gStat, gp = a.gPing, gsum = a.gSummary, gn = a.gNarr
+            let gc = a.gClear, gw = a.gWhisper, gp = a.gPing, gsum = a.gSummary, gn = a.gNarr
             let gb = a.gBloom, gd = a.gDrone, gpl = a.gPulse
             let humOn = gb > 0.001 // loop bed: advances only while audible
             for k in 0..<n {
                 var s: Float = 0
                 if !a.clear.isEmpty { s += a.clear[a.clearCur] * gc; a.clearCur = (a.clearCur + 1) % a.clear.count }
                 if !a.whisper.isEmpty { s += a.whisper[a.whisperCur] * gw; a.whisperCur = (a.whisperCur + 1) % a.whisper.count }
-                if !a.stat.isEmpty { s += a.stat[a.statCur] * gs; a.statCur = (a.statCur + 1) % a.stat.count }
                 if a.pingCur >= 0 { s += a.ping[a.pingCur] * gp; a.pingCur += 1; if a.pingCur >= a.ping.count { a.pingCur = -1 } }
                 // accept chime: spatialized through this agent's voice (was a centred, in-head one-shot)
                 if a.chimeCur >= 0 { s += chime[a.chimeCur] * CHIME_GAIN; a.chimeCur += 1; if a.chimeCur >= chime.count { a.chimeCur = -1 } }
@@ -733,7 +728,7 @@ final class ChamberEngine: ObservableObject {
             a.present = boundSeats.contains(i)
             a.state = .working
             a.clear = []; a.whisper = [] // live agents speak narration, not loops
-            a.gClear = 0; a.gWhisper = 0; a.gStat = 0; a.gPing = 0
+            a.gClear = 0; a.gWhisper = 0; a.gPing = 0
         }
         // replay dones that arrived before the room existed
         for (seat, summary) in pendingDone where agents.indices.contains(seat) {
@@ -914,10 +909,6 @@ final class ChamberEngine: ObservableObject {
                 if a.summaryDone { a.summaryDone = false; a.state = .heard; a.heardAt = t; a.gSummary = 0 }
             case .heard:
                 if a.heardAt != 0, t - a.heardAt > RECYCLE_SECS { reset(a) }
-                else if t >= a.stNextMod {
-                    a.stNextMod = t + 0.12 + Double.random(in: 0...0.38)
-                    a.stCurrent = Double.random(in: 0...1) < 0.45 ? 0 : Float.random(in: 0.25...1.0)
-                }
             default: break
             }
         }
@@ -1061,12 +1052,11 @@ final class ChamberEngine: ObservableObject {
             if a.snoozed { // silent in the world, state machine untouched
                 a.gClear += (0 - a.gClear) * 0.15
                 a.gWhisper += (0 - a.gWhisper) * 0.15
-                a.gStat += (0 - a.gStat) * 0.15
                 continue
             }
             let faced = i == facedIdx
             let front = (cos(angdiff(a.bearing, orient)) + 1) / 2
-            var clear: Float = 0, whisper: Float = 0, stat: Float = 0
+            var clear: Float = 0, whisper: Float = 0
             switch a.state {
             case .working:
                 let murmur = 0.06, g = lookGate
@@ -1077,13 +1067,10 @@ final class ChamberEngine: ObservableObject {
                 } else {
                     whisper = Float(murmur * (0.82 + 0.18 * front))
                 }
-            case .heard:
-                stat = faced ? Float(0.1 * lookGate) * a.stCurrent : 0
-            default: break
+            default: break // .heard rests silently until it recycles
             }
             a.gClear += (clear - a.gClear) * 0.15
             a.gWhisper += (whisper - a.gWhisper) * 0.15
-            a.gStat += (stat - a.gStat) * 0.15
         }
     }
 
@@ -1116,7 +1103,7 @@ final class ChamberEngine: ObservableObject {
     }
 
     private func reset(_ a: AgentRuntime) {
-        a.state = .working; a.heardAt = 0; a.stCurrent = 0; a.gPing = 0
+        a.state = .working; a.heardAt = 0; a.gPing = 0
         if a.departed { // summary heard and the session is long gone — leave the room
             a.departed = false
             a.present = false
