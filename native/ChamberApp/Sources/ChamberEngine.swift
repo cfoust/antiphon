@@ -1062,9 +1062,10 @@ final class ChamberEngine: ObservableObject {
         agents.filter { $0.present }.map { a in
             let meta = seatMeta[a.idx]
             let last = seatLines[a.idx]?.last
+            // a locale-independent CODE — the sidebar localizes it (L10n.swift)
             let status: String
             switch a.state {
-            case .done: status = a.departed ? "finished — summary waiting" : "finished — waiting to report"
+            case .done: status = a.departed ? "waiting.gone" : "waiting"
             case .summarizing: status = "reporting"
             case .heard: status = "resting"
             case .working:

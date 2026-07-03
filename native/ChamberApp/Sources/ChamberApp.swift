@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var calText = ""
     @State private var immersionEnabled = true // eyes-closed → scene fills in (toggle in Settings)
     @State private var menuBar = MenuBarController()
+    @ObservedObject private var i18n = I18n.shared
 
     var body: some View {
         ZStack {
@@ -43,7 +44,7 @@ struct ContentView: View {
                     VStack(alignment: .trailing, spacing: 10) {
                         HStack(spacing: 10) {
                             if !engine.watching {
-                                Label("asleep", systemImage: "eye.slash")
+                                Label(L("asleep"), systemImage: "eye.slash")
                                     .font(.caption).foregroundStyle(.white.opacity(0.45))
                             }
                             Button {
@@ -57,7 +58,7 @@ struct ContentView: View {
                                     .overlay(Circle().stroke(.white.opacity(0.07)))
                             }
                             .buttonStyle(.plain)
-                            .help("Chamber settings")
+                            .help(L("Chamber settings"))
                         }
                         AgentSidebar(engine: engine)
                         Spacer(minLength: 0)
@@ -66,7 +67,7 @@ struct ContentView: View {
                 }
 
                 // discreet status, bottom-left
-                Text(engine.bridged ? "● live" : "○ demo")
+                Text(engine.bridged ? L("● live") : L("○ demo"))
                     .font(.caption2)
                     .foregroundStyle(engine.bridged ? Color.green.opacity(0.55) : .white.opacity(0.3))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
@@ -124,31 +125,31 @@ struct ContentView: View {
 
     private var introCard: some View {
         VStack(spacing: 18) {
-            Text("Agent Chamber").font(.system(size: 28, weight: .bold))
-            Text("A team of agents, working around you in space. You hear them murmur as they work, and chime when they finish — turn to face one to listen.")
+            Text("Chamber").font(.system(size: 28, weight: .bold))
+            Text(L("A team of agents, working around you in space. You hear them murmur as they work, and chime when they finish — turn to face one to listen."))
                 .font(.callout).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 12) {
-                req("🎧", "Headphones required", "The audio is positioned in 3D — it only works over headphones.")
-                req("📷", "Camera access", "Turn your head to face agents. Video never leaves your device.")
+                req("🎧", L("Headphones required"), L("The audio is positioned in 3D — it only works over headphones."))
+                req("📷", L("Camera access"), L("Turn your head to face agents. Video never leaves your device."))
             }
             if !enabled {
-                Button("Enable camera & continue") { enable() }.buttonStyle(.borderedProminent)
+                Button(L("Enable camera & continue")) { enable() }.buttonStyle(.borderedProminent)
             } else {
                 // Skip the two-point flow if a calibration was restored from a previous session.
-                Button(tracker.hasSavedCalibration ? "Start" : "Calibrate & start") {
+                Button(tracker.hasSavedCalibration ? L("Start") : L("Calibrate & start")) {
                     if tracker.hasSavedCalibration { engine.setImmersionArmed(immersionEnabled); live = true } else { runCalibration() }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!tracker.faceFound)
-                Text(tracker.faceFound ? (tracker.hasSavedCalibration ? "Calibration restored" : "Head tracking ready")
-                                       : "Looking for your face…")
+                Text(tracker.faceFound ? (tracker.hasSavedCalibration ? L("Calibration restored") : L("Head tracking ready"))
+                                       : L("Looking for your face…"))
                     .font(.caption).foregroundStyle(tracker.faceFound ? .green : .secondary)
                 if tracker.hasSavedCalibration {
-                    Button("Recalibrate") { runCalibration() }
+                    Button(L("Recalibrate")) { runCalibration() }
                         .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
                 }
-                Button("Debug tracking →") { showDebug = true }
+                Button(L("Debug tracking →")) { showDebug = true }
                     .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
             }
             if !engine.hrtfName.isEmpty {
@@ -193,16 +194,16 @@ struct ContentView: View {
     /// Voice-less two-point calibration: look fully left, then fully right.
     private func runCalibration() {
         Task { @MainActor in
-            calArrow = "←"; calText = "Look all the way left… and hold"
+            calArrow = "←"; calText = L("Look all the way left… and hold")
             try? await Task.sleep(nanoseconds: 2_600_000_000)
             let yl = tracker.yaw, pl = tracker.pitch
-            calArrow = "→"; calText = "Now all the way right… and hold"
+            calArrow = "→"; calText = L("Now all the way right… and hold")
             try? await Task.sleep(nanoseconds: 2_600_000_000)
             let yr = tracker.yaw, pr = tracker.pitch
             tracker.calibrate(yawLeftRad: yl, yawRightRad: yr, neutralPitchRad: (pl + pr) / 2)
             tracker.resetNeutral() // capture the 6DoF neutral at a comfortable resting pose
             tracker.persistCalibration() // remember it so we don't recalibrate next launch
-            calArrow = "✓"; calText = "Calibrated"
+            calArrow = "✓"; calText = L("Calibrated")
             try? await Task.sleep(nanoseconds: 900_000_000)
             calText = ""; calArrow = ""
             engine.setImmersionArmed(immersionEnabled) // arm the eyes-closed immersion fade (if enabled) as the live experience begins

@@ -6,6 +6,7 @@ import SwiftUI
 
 struct AgentSidebar: View {
     @ObservedObject var engine: ChamberEngine
+    @ObservedObject private var i18n = I18n.shared
 
     var body: some View {
         let rows = engine.agentList
@@ -13,7 +14,7 @@ struct AgentSidebar: View {
         let snoozed = rows.filter { $0.snoozed }
 
         VStack(alignment: .leading, spacing: 0) {
-            Text("IN THE ROOM")
+            Text(L("IN THE ROOM"))
                 .font(.caption2.weight(.semibold))
                 .kerning(1.2)
                 .foregroundStyle(.white.opacity(0.35))
@@ -23,8 +24,8 @@ struct AgentSidebar: View {
 
             if rows.isEmpty {
                 Text(engine.bridged
-                    ? "No agents yet — sessions appear here as they join."
-                    : "Waiting for chamberd — running the canned demo.")
+                    ? L("No agents yet — sessions appear here as they join.")
+                    : L("Waiting for chamberd — running the canned demo."))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.4))
                     .padding(.horizontal, 14)
@@ -37,7 +38,7 @@ struct AgentSidebar: View {
                         if !snoozed.isEmpty {
                             HStack(spacing: 8) {
                                 Rectangle().fill(.white.opacity(0.1)).frame(height: 1)
-                                Text("SNOOZED")
+                                Text(L("SNOOZED"))
                                     .font(.system(size: 9, weight: .semibold))
                                     .kerning(1.1)
                                     .foregroundStyle(.white.opacity(0.3))
@@ -106,7 +107,7 @@ private struct AgentRowView: View {
                         .lineLimit(1)
                 }
                 HStack(spacing: 5) {
-                    Text(vm.status)
+                    Text(LStatus(vm.status))
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(statusColor.opacity(vm.snoozed ? 0.5 : 1))
                     if !vm.lastLine.isEmpty {
@@ -125,7 +126,7 @@ private struct AgentRowView: View {
                         .foregroundStyle(.white.opacity(0.6))
                 }
                 .buttonStyle(.plain)
-                .help(vm.snoozed ? "Wake — back into the room" : "Snooze — out of the room, keeps updating")
+                .help(vm.snoozed ? L("Wake — back into the room") : L("Snooze — out of the room, keeps updating"))
                 .padding(.top, 3)
             }
         }
@@ -142,10 +143,10 @@ private struct AgentRowView: View {
     }
 
     private var statusColor: Color {
-        switch vm.status {
+        switch vm.status { // locale-independent codes from the engine
         case "working": return Color(hex: "#7D9F77")            // sage — alive
         case "reporting": return Color(hex: "#5fd0c5")
-        case let s where s.hasPrefix("finished"): return Color(hex: "#ffce6b")
+        case let s where s.hasPrefix("waiting"): return Color(hex: "#ffce6b")
         default: return .white.opacity(0.45)                    // idle / resting
         }
     }

@@ -5,8 +5,6 @@ import SwiftUI
 // Voices (TTS providers + the discovered voice pool, served by chamberd's
 // /config + /voices endpoints). Warm paper, SF Rounded — the letter's skin.
 
-let ROOM_NAMES = ["dry", "room (FDN)", "hall (FDN)", "cathedral (FDN)", "room (BRIR)", "hall (BRIR)"]
-
 // MARK: - daemon settings client (localhost HTTP)
 
 struct ProviderStatus: Decodable, Equatable {
@@ -69,18 +67,19 @@ enum SettingsClient {
 
 struct SettingsView: View {
     @ObservedObject var engine: ChamberEngine
+    @ObservedObject private var i18n = I18n.shared
     @State private var pane = "general"
 
     var body: some View {
         HStack(spacing: 0) {
             // left rail
             VStack(alignment: .leading, spacing: 4) {
-                Text("SETTINGS")
+                Text(L("SETTINGS"))
                     .font(.caption2.weight(.semibold)).kerning(1.2)
                     .foregroundStyle(TB.faint)
                     .padding(.bottom, 6)
-                navItem("general", icon: "slider.horizontal.3", label: "General")
-                navItem("voices", icon: "waveform", label: "Voices")
+                navItem("general", icon: "slider.horizontal.3", label: L("General"))
+                navItem("voices", icon: "waveform", label: L("Voices"))
                 Spacer()
                 Text("Chamber")
                     .font(.caption2).foregroundStyle(TB.faint)
@@ -132,20 +131,22 @@ struct SettingsView: View {
 
 private struct GeneralPane: View {
     @ObservedObject var engine: ChamberEngine
+    @ObservedObject private var i18n = I18n.shared
 
     var body: some View {
-        Text("General").font(.title2.weight(.semibold)).foregroundStyle(TB.ink)
+        Text(L("General")).font(.title2.weight(.semibold)).foregroundStyle(TB.ink)
 
-        card("Sound") {
-            labeledRow("Room", "The acoustic the agents live in") {
+        card(L("Sound")) {
+            labeledRow(L("Room"), L("The acoustic the agents live in")) {
                 Picker("", selection: Binding(get: { engine.roomIndex }, set: { engine.setRoom($0) })) {
-                    ForEach(ROOM_NAMES.indices, id: \.self) { Text(ROOM_NAMES[$0]).tag($0) }
+                    let names = localizedRoomNames()
+                    ForEach(names.indices, id: \.self) { Text(names[$0]).tag($0) }
                 }
                 .labelsHidden().frame(width: 170)
             }
             if engine.roomIndex >= 4 {
                 divider()
-                labeledRow("Reverb tail", "Blend the parametric tail with the measured one") {
+                labeledRow(L("Reverb tail"), L("Blend the parametric tail with the measured one")) {
                     HStack(spacing: 8) {
                         Text("FDN").font(.caption2).foregroundStyle(TB.sub)
                         Slider(value: Binding(get: { engine.reverbBlend },
@@ -156,7 +157,7 @@ private struct GeneralPane: View {
                 }
             }
             divider()
-            labeledRow("HRTF fit", "Dial until a voice straight ahead sits out in front at ear level") {
+            labeledRow(L("HRTF fit"), L("Dial until a voice straight ahead sits out in front at ear level")) {
                 HStack(spacing: 8) {
                     Slider(value: Binding(get: { engine.freqScale },
                                           set: { engine.setFreqScale($0) }), in: 0.7...2.2)
@@ -167,25 +168,34 @@ private struct GeneralPane: View {
             }
         }
 
-        card("Presence") {
-            labeledRow("Immersion fade", "Close your eyes and the scene fills in; open them and it recedes") {
+        card(L("Presence")) {
+            labeledRow(L("Immersion fade"), L("Close your eyes and the scene fills in; open them and it recedes")) {
                 Toggle("", isOn: Binding(get: { engine.immersionArmedPub },
                                          set: { engine.setImmersionArmed($0) }))
                     .labelsHidden().toggleStyle(.switch)
             }
         }
 
-        card("Tracking") {
-            labeledRow("Calibration", "Re-run the look-left / look-right sweep in the main window") {
-                Button("Recalibrate") {
+        card(L("Tracking")) {
+            labeledRow(L("Calibration"), L("Re-run the look-left / look-right sweep in the main window")) {
+                Button(L("Recalibrate")) {
                     NotificationCenter.default.post(name: .init("chamber.recalibrate"), object: nil)
                 }
             }
             divider()
-            labeledRow("Diagnostics", "Landmarks, latency and the eye-closure signal, live") {
-                Button("Open tracking debug") {
+            labeledRow(L("Diagnostics"), L("Landmarks, latency and the eye-closure signal, live")) {
+                Button(L("Open tracking debug")) {
                     NotificationCenter.default.post(name: .init("chamber.showDebug"), object: nil)
                 }
+            }
+        }
+
+        card(L("Language")) {
+            labeledRow(L("Language"), L("For spot-checking the translations")) {
+                Picker("", selection: Binding(get: { i18n.lang }, set: { i18n.lang = $0 })) {
+                    ForEach(AppLang.allCases) { l in Text(l.label).tag(l) }
+                }
+                .labelsHidden().frame(width: 150)
             }
         }
     }
@@ -194,6 +204,7 @@ private struct GeneralPane: View {
 // MARK: - Voices
 
 private struct VoicesPane: View {
+    @ObservedObject private var i18n = I18n.shared
     @State private var providers: [String: ProviderStatus] = [:]
     @State private var counts: [String: Int] = [:]
     @State private var errors: [String: String] = [:]
@@ -210,14 +221,14 @@ private struct VoicesPane: View {
     ]
 
     var body: some View {
-        Text("Voices").font(.title2.weight(.semibold)).foregroundStyle(TB.ink)
-        Text("Each agent draws a voice at random from the pool below when it first joins, and keeps it for the life of the session.")
+        Text(L("Voices")).font(.title2.weight(.semibold)).foregroundStyle(TB.ink)
+        Text(L("Each agent draws a voice at random from the pool below when it first joins, and keeps it for the life of the session."))
             .font(.callout).foregroundStyle(TB.sub)
             .fixedSize(horizontal: false, vertical: true)
 
         if !daemonUp {
             card("") {
-                Text("chamberd isn't running — start the app's live mode and come back.")
+                Text(L("chamberd isn't running — start the app's live mode and come back."))
                     .font(.callout).foregroundStyle(TB.clay)
             }
         } else if loading {
@@ -226,20 +237,20 @@ private struct VoicesPane: View {
             // pool summary
             HStack(spacing: 8) {
                 Image(systemName: "person.wave.2").foregroundStyle(TB.coral)
-                Text("\(total) voices in the pool")
+                Text(LVoicePool(total))
                     .font(.callout.weight(.medium)).foregroundStyle(TB.ink)
                 Spacer()
                 Button {
                     Task { await load(refresh: true) }
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise").font(.caption)
+                    Label(L("Refresh"), systemImage: "arrow.clockwise").font(.caption)
                 }
             }
             .padding(14)
             .background(TB.paper, in: RoundedRectangle(cornerRadius: 12))
 
             ForEach(order, id: \.id) { p in
-                providerCard(p.id, label: p.label, blurb: p.blurb)
+                providerCard(p.id, label: p.label, blurb: L(p.blurb))
             }
 
             HStack {
@@ -247,7 +258,7 @@ private struct VoicesPane: View {
                 Button {
                     Task { await apply() }
                 } label: {
-                    Text(applying ? "Applying…" : "Apply")
+                    Text(applying ? L("Applying…") : L("Apply"))
                         .frame(minWidth: 80)
                 }
                 .buttonStyle(.borderedProminent)
@@ -275,8 +286,8 @@ private struct VoicesPane: View {
             }
             if st?.needsKey == true {
                 divider()
-                labeledRow("API key", st?.keySet == true ? "A key is saved — enter a new one to replace it" : "No key yet") {
-                    SecureField(st?.keySet == true ? "••••••••" : "paste key", text: Binding(
+                labeledRow(L("API key"), st?.keySet == true ? L("A key is saved — enter a new one to replace it") : L("No key yet")) {
+                    SecureField(st?.keySet == true ? "••••••••" : L("paste key"), text: Binding(
                         get: { keyDrafts[id] ?? "" },
                         set: { keyDrafts[id] = $0 }))
                         .textFieldStyle(.roundedBorder)
@@ -288,11 +299,11 @@ private struct VoicesPane: View {
 
     private func statusLine(_ id: String, _ st: ProviderStatus?) -> String {
         guard let st else { return "" }
-        if let err = errors[id] { return "discovery failed: \(err)" }
-        if !st.enabled { return "off" }
-        if st.needsKey && !st.keySet { return "needs an API key" }
-        if let n = counts[id] { return "\(n) voices" }
-        return st.active ? "active" : "inactive"
+        if let err = errors[id] { return Lf("discovery failed: %@", err) }
+        if !st.enabled { return L("off") }
+        if st.needsKey && !st.keySet { return L("needs an API key") }
+        if let n = counts[id] { return LVoiceCount(n) }
+        return st.active ? L("active") : L("inactive")
     }
 
     private func load(refresh: Bool) async {
