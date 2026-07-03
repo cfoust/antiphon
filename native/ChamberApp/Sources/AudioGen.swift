@@ -129,15 +129,15 @@ func makeToolNote(_ freq: Float, sr: Double = 48_000) -> [Float] {
     return y
 }
 
-/// The working drone: a low rumble of the chord's three lower tones (root,
-/// minor third, fifth — the same register the tool notes walk through), each
-/// undulating on its own slow rate so the whole thing rolls rather than
-/// pulses. Seamless 4 s loop: every carrier and undulation completes whole
-/// cycles.
+/// The working drone: a machine hum at the very bottom of the agent's
+/// register — the chord's root, minor third and fifth dropped three octaves
+/// below the ping (≈50–110 Hz), each tone with a touch of second harmonic so
+/// the hum reads through headphones down there, and each rolling on its own
+/// slow rate so it turns over instead of pulsing. Seamless 4 s loop.
 func makeDrone(_ ping: Float, sr: Double = 48_000) -> [Float] {
     let dur = 4.0
     let n = Int(sr * dur)
-    let root = (Double(ping) / 2 * dur).rounded() / dur
+    let root = (Double(ping) / 8 * dur).rounded() / dur
     let tones = [1.0, pow(2, 3.0 / 12), pow(2, 7.0 / 12)].map { (root * $0 * dur).rounded() / dur }
     let amps = [0.5, 0.26, 0.24] // root-heavy — it should sit low
     let rates = [0.25, 0.5, 0.75] // whole cycles over the loop
@@ -148,7 +148,8 @@ func makeDrone(_ ping: Float, sr: Double = 48_000) -> [Float] {
         var s = 0.0
         for k in 0..<3 {
             let roll = 0.7 + 0.3 * sin(2 * .pi * rates[k] * t + phases[k])
-            s += sin(2 * .pi * tones[k] * t) * amps[k] * roll
+            let tone = sin(2 * .pi * tones[k] * t) + 0.35 * sin(2 * .pi * tones[k] * 2 * t)
+            s += tone * amps[k] * roll
         }
         y[i] = Float(s * 0.16)
     }
