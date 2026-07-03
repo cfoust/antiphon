@@ -27,6 +27,12 @@ type Record struct {
 	Title   string `json:"title"`
 	Voice   string `json:"voice"` // persona name; sticky for the record's lifetime
 
+	// The spoken voice: a random pick from the discovered pool across every
+	// enabled TTS provider, assigned at first bind and sticky like the persona.
+	TTSProvider  string `json:"tts_provider,omitempty"`
+	TTSVoice     string `json:"tts_voice,omitempty"`
+	TTSVoiceName string `json:"tts_voice_name,omitempty"`
+
 	// Talk-back target (see internal/input): where typed text can reach this
 	// agent. Persisted — an emit-only agent in a known pane stays reachable.
 	InputKind   string `json:"input_kind,omitempty"`
@@ -113,6 +119,22 @@ func (r *Registry) BindVoice(id, voice string) string {
 		r.save()
 	}
 	return rec.Voice
+}
+
+// BindTTS assigns the spoken voice ONLY if the record has none yet (sticky,
+// mirroring BindVoice). Returns the effective (provider, voiceID).
+func (r *Registry) BindTTS(id, provider, voiceID, voiceName string) (string, string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec, ok := r.recs[id]
+	if !ok {
+		return provider, voiceID
+	}
+	if rec.TTSProvider == "" && provider != "" {
+		rec.TTSProvider, rec.TTSVoice, rec.TTSVoiceName = provider, voiceID, voiceName
+		r.save()
+	}
+	return rec.TTSProvider, rec.TTSVoice
 }
 
 // Touch updates last_seen (and last_event when event=true).

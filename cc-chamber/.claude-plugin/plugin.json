@@ -1,7 +1,7 @@
 {
   "name": "chamber",
   "description": "Narrate this session into Chamber, the spatial-audio agent monitor. Requires chamberd (see docs/agent-bridge.md); silently inert when it isn't running.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "Caleb Foust"
   }

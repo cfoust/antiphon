@@ -33,6 +33,17 @@ type Provider interface {
 	// Synthesize renders text with the provider-specific voice id and returns
 	// (audio bytes, file extension without dot).
 	Synthesize(ctx context.Context, voiceID, text string, lowLatency bool) ([]byte, string, error)
+	// Voices lists the provider's available voices, discovered at runtime
+	// where the provider supports it (API listing, `say -v ?` parsing) and
+	// static where it doesn't. Agents are assigned a random voice from the
+	// union of every enabled provider's list.
+	Voices(ctx context.Context) ([]Voice, error)
+}
+
+// Voice is one selectable voice of a provider.
+type Voice struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // ErrSilent means every provider was unavailable; ship the frame without audio.

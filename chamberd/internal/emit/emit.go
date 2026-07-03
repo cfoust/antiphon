@@ -52,8 +52,9 @@ func Run(args []string) int {
 			stateDir = next()
 		}
 	}
-	if typ == "" || text == "" {
-		fmt.Fprintln(os.Stderr, "usage: chamberd emit -type task|progress|done|blocked -text \"…\" [-session id] [-kind name]")
+	// "tool" is a textless blip (one per tool call an agent makes)
+	if typ == "" || (text == "" && typ != "tool") {
+		fmt.Fprintln(os.Stderr, "usage: chamberd emit -type task|progress|done|blocked|tool [-text \"…\"] [-session id] [-kind name]")
 		return 0 // fail-open even for misuse: never break a hook pipeline
 	}
 	if session == "" {
