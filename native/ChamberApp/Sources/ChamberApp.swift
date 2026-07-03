@@ -22,8 +22,11 @@ struct ContentView: View {
     @State private var enabled = false
     @State private var live = false
     @State private var showDebug = false
-    @State private var calArrow = ""
-    @State private var calText = ""
+    /// Onboarding: camera choice → voice-guided calibration → fit. `.none` =
+    /// intro (pre-live) or the chamber itself (live). Recalibrate re-enters
+    /// `.calibrate` alone.
+    private enum OnboardStep { case none, camera, calibrate, fit }
+    @State private var step: OnboardStep = .none
     @State private var immersionEnabled = true // eyes-closed → scene fills in (toggle in Settings)
     @State private var menuBar = MenuBarController()
     @ObservedObject private var i18n = I18n.shared
@@ -111,16 +114,22 @@ struct ContentView: View {
                 }
             }
 
-            // calibration overlay
-            if !calText.isEmpty {
-                VStack(spacing: 10) {
-                    Text(calArrow).font(.system(size: 76, weight: .thin))
-                    Text(calText).font(.title3)
+            // onboarding steps (calibrate also serves recalibration over the live radar)
+            switch step {
+            case .camera:
+                CameraStepView(tracker: tracker) { step = .calibrate }
+            case .calibrate:
+                CalibrationStepView(tracker: tracker, engine: engine, standalone: live) {
+                    step = live ? .none : .fit
                 }
-                .foregroundStyle(.white)
-                .padding(40)
-                .background(.black.opacity(0.55))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+            case .fit:
+                FitStepView(engine: engine) {
+                    engine.setImmersionArmed(immersionEnabled)
+                    live = true
+                    step = .none
+                }
+            case .none:
+                EmptyView()
             }
 
             if showDebug {
@@ -128,7 +137,7 @@ struct ContentView: View {
             }
 
             // intro gate
-            if !live && calText.isEmpty && !showDebug {
+            if !live && step == .none && !showDebug {
                 introCard
             }
         }
@@ -171,7 +180,10 @@ struct ContentView: View {
         }
         // Settings buttons act here — calibration needs this window's overlay.
         .onReceive(NotificationCenter.default.publisher(for: .init("chamber.recalibrate"))) { _ in
-            if enabled { runCalibration() }
+            if enabled {
+                withAnimation(.easeOut(duration: 0.15)) { showSettings = false }
+                step = .calibrate
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .init("chamber.showDebug"))) { _ in
             if enabled { showDebug = true }
@@ -191,19 +203,18 @@ struct ContentView: View {
             if !enabled {
                 Button(L("Enable camera & continue")) { enable() }.buttonStyle(.borderedProminent)
             } else {
-                // Skip the two-point flow if a calibration was restored from a previous session.
-                Button(tracker.hasSavedCalibration ? L("Start") : L("Calibrate & start")) {
-                    if tracker.hasSavedCalibration { engine.setImmersionArmed(immersionEnabled); live = true } else { runCalibration() }
+                // Only reached with a restored calibration — a fresh user went
+                // straight into onboarding when the camera came up.
+                Button(L("Start")) {
+                    engine.setImmersionArmed(immersionEnabled)
+                    live = true
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!tracker.faceFound)
-                Text(tracker.faceFound ? (tracker.hasSavedCalibration ? L("Calibration restored") : L("Head tracking ready"))
-                                       : L("Looking for your face…"))
+                Text(tracker.faceFound ? L("Calibration restored") : L("Looking for your face…"))
                     .font(.caption).foregroundStyle(tracker.faceFound ? .green : .secondary)
-                if tracker.hasSavedCalibration {
-                    Button(L("Recalibrate")) { runCalibration() }
-                        .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
-                }
+                Button(L("Set up again")) { step = .camera }
+                    .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
                 Button(L("Debug tracking →")) { showDebug = true }
                     .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
             }
@@ -242,6 +253,8 @@ struct ContentView: View {
         tracker.onEyesClosed = { [weak engine] closed in engine?.setEyesClosed(closed) }
         tracker.start()
         enabled = true
+        // fresh users go straight into onboarding; returning ones get the fast path
+        if !tracker.hasSavedCalibration { step = .camera }
     }
 
     private func startDebug() { showDebug = true }
@@ -254,25 +267,6 @@ struct ContentView: View {
         menuBar.sync(on)
     }
 
-    /// Voice-less two-point calibration: look fully left, then fully right.
-    private func runCalibration() {
-        Task { @MainActor in
-            calArrow = "←"; calText = L("Look all the way left… and hold")
-            try? await Task.sleep(nanoseconds: 2_600_000_000)
-            let yl = tracker.yaw, pl = tracker.pitch
-            calArrow = "→"; calText = L("Now all the way right… and hold")
-            try? await Task.sleep(nanoseconds: 2_600_000_000)
-            let yr = tracker.yaw, pr = tracker.pitch
-            tracker.calibrate(yawLeftRad: yl, yawRightRad: yr, neutralPitchRad: (pl + pr) / 2)
-            tracker.resetNeutral() // capture the 6DoF neutral at a comfortable resting pose
-            tracker.persistCalibration() // remember it so we don't recalibrate next launch
-            calArrow = "✓"; calText = L("Calibrated")
-            try? await Task.sleep(nanoseconds: 900_000_000)
-            calText = ""; calArrow = ""
-            engine.setImmersionArmed(immersionEnabled) // arm the eyes-closed immersion fade (if enabled) as the live experience begins
-            live = true
-        }
-    }
 }
 
 /// Live PnP-tracking diagnostics — record this screen while moving your head so the

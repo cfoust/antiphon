@@ -119,18 +119,35 @@ private let TBL: [String: (String, String, String)] = [
          "转头面向智能体。视频不会离开你的设备。",
          "轉頭面向智能體。影片不會離開你的裝置。"),
     "Enable camera & continue": ("Включить камеру и продолжить", "启用摄像头并继续", "啟用攝影機並繼續"),
-    "Calibrate & start": ("Откалибровать и начать", "校准并开始", "校準並開始"),
     "Start": ("Начать", "开始", "開始"),
     "Calibration restored": ("Калибровка восстановлена", "已恢复校准", "已恢復校準"),
     "Head tracking ready": ("Трекинг головы готов", "头部追踪已就绪", "頭部追蹤已就緒"),
     "Looking for your face…": ("Ищем ваше лицо…", "正在寻找你的面部…", "正在尋找你的臉部…"),
     "Recalibrate": ("Перекалибровать", "重新校准", "重新校準"),
+    "Set up again": ("Настроить заново", "重新设置", "重新設定"),
     "Debug tracking →": ("Отладка трекинга →", "追踪调试 →", "追蹤除錯 →"),
 
-    // ---- calibration overlay ----
-    "Look all the way left… and hold": ("Посмотрите до упора влево… и задержитесь", "把头转到最左边…保持不动", "把頭轉到最左邊…保持不動"),
-    "Now all the way right… and hold": ("Теперь до упора вправо… и задержитесь", "再转到最右边…保持不动", "再轉到最右邊…保持不動"),
-    "Calibrated": ("Откалибровано", "校准完成", "校準完成"),
+    // ---- onboarding (on-screen copy matches the spoken cues 1:1 —
+    //      tools/gen-onboarding-voices.py keeps the same texts) ----
+    "Camera": ("Камера", "摄像头", "攝影機"),
+    "Pick the camera that watches you.": ("Выберите камеру, которая будет за вами наблюдать.", "选择用来观察你的摄像头。", "選擇用來觀察你的攝影機。"),
+    "Continue": ("Продолжить", "继续", "繼續"),
+    "Skip": ("Пропустить", "跳过", "跳過"),
+    "Turn your head all the way to the left… and hold still.":
+        ("Поверните голову до упора влево… и замрите.", "把头一直转到最左边……保持不动。", "把頭一直轉到最左邊……保持不動。"),
+    "Now all the way to the right… and hold still.":
+        ("Теперь до упора вправо… и замрите.", "现在转到最右边……保持不动。", "現在轉到最右邊……保持不動。"),
+    "Done. You're calibrated.": ("Готово. Калибровка завершена.", "好了，校准完成。", "好了，校準完成。"),
+    "Hold still…": ("Замрите…", "保持不动……", "保持不動……"),
+    "Fit": ("Подгонка", "适配", "適配"),
+    "Move the slider until my voice sits just ahead of you, out in the room.":
+        ("Двигайте ползунок, пока мой голос не окажется прямо перед вами, в глубине комнаты.",
+         "移动滑块，直到我的声音悬在你正前方的空间里。",
+         "移動滑塊，直到我的聲音懸在你正前方的空間裡。"),
+    "Adjust until my voice sits straight ahead of you":
+        ("Настраивайте, пока мой голос не окажется прямо перед вами",
+         "调节直到我的声音位于你的正前方",
+         "調節直到我的聲音位於你的正前方"),
 
     // ---- main window ----
     "Wake": ("Разбудить", "唤醒", "喚醒"),
@@ -178,24 +195,6 @@ private let TBL: [String: (String, String, String)] = [
     "General": ("Основные", "通用", "一般"),
     "Voices": ("Голоса", "语音", "語音"),
     "Sound": ("Звук", "声音", "聲音"),
-    "Room": ("Комната", "房间", "房間"),
-    "The acoustic the agents live in": ("Акустика, в которой живут агенты", "智能体所在的声学空间", "智能體所在的聲學空間"),
-    "room.dry": ("сухая", "无混响", "無混響"),
-    "room.fdn": ("комната (FDN)", "房间 (FDN)", "房間 (FDN)"),
-    "hall.fdn": ("зал (FDN)", "大厅 (FDN)", "大廳 (FDN)"),
-    "cathedral.fdn": ("собор (FDN)", "大教堂 (FDN)", "大教堂 (FDN)"),
-    "room.brir": ("комната (BRIR)", "房间 (BRIR)", "房間 (BRIR)"),
-    "hall.brir": ("зал (BRIR)", "大厅 (BRIR)", "大廳 (BRIR)"),
-    "Reverb tail": ("Хвост реверберации", "混响尾音", "混響尾音"),
-    "Blend the parametric tail with the measured one":
-        ("Смешение параметрического хвоста с измеренным",
-         "在参数化尾音与实测尾音之间混合",
-         "在參數化尾音與實測尾音之間混合"),
-    "HRTF fit": ("Подгонка HRTF", "HRTF 适配", "HRTF 適配"),
-    "Dial until a voice straight ahead sits out in front at ear level":
-        ("Крутите, пока голос прямо перед вами не окажется впереди, на уровне ушей",
-         "调节直到正前方的声音真正悬在耳平线前方",
-         "調節直到正前方的聲音真正懸在耳平線前方"),
     "Presence": ("Присутствие", "沉浸", "沉浸"),
     "Immersion fade": ("Эффект погружения", "沉浸淡入", "沉浸淡入"),
     "Close your eyes and the scene fills in; open them and it recedes":
@@ -266,18 +265,6 @@ private let TBL: [String: (String, String, String)] = [
     "tag.done": ("ГОТОВО", "完成", "完成"),
     "tag.blocked": ("БЛОК", "受阻", "受阻"),
     "tag.tool": ("ИНСТР.", "工具", "工具"),
-]
-
-/// Localized room-preset names, index-aligned with the engine's rooms.
-func localizedRoomNames() -> [String] {
-    ["room.dry", "room.fdn", "hall.fdn", "cathedral.fdn", "room.brir", "hall.brir"].map {
-        I18n.shared.lang == .en ? ROOM_NAMES_EN[$0] ?? $0 : L($0)
-    }
-}
-
-private let ROOM_NAMES_EN: [String: String] = [
-    "room.dry": "dry", "room.fdn": "room (FDN)", "hall.fdn": "hall (FDN)",
-    "cathedral.fdn": "cathedral (FDN)", "room.brir": "room (BRIR)", "hall.brir": "hall (BRIR)",
 ]
 
 /// Sidebar status text from the engine's locale-independent code.

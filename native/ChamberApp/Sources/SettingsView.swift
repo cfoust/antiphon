@@ -166,27 +166,9 @@ private struct GeneralPane: View {
         Text(L("General")).font(.title2.weight(.semibold)).foregroundStyle(SD.ink)
 
         card(L("Sound")) {
-            labeledRow(L("Room"), L("The acoustic the agents live in")) {
-                Picker("", selection: Binding(get: { engine.roomIndex }, set: { engine.setRoom($0) })) {
-                    let names = localizedRoomNames()
-                    ForEach(names.indices, id: \.self) { Text(names[$0]).tag($0) }
-                }
-                .labelsHidden().frame(width: 170)
-            }
-            if engine.roomIndex >= 4 {
-                divider()
-                labeledRow(L("Reverb tail"), L("Blend the parametric tail with the measured one")) {
-                    HStack(spacing: 8) {
-                        Text("FDN").font(.caption2).foregroundStyle(SD.sub)
-                        Slider(value: Binding(get: { engine.reverbBlend },
-                                              set: { engine.setReverbBlend($0) }), in: 0...1)
-                            .frame(width: 150)
-                        Text("BRIR").font(.caption2).foregroundStyle(SD.sub)
-                    }
-                }
-            }
-            divider()
-            labeledRow(L("HRTF fit"), L("Dial until a voice straight ahead sits out in front at ear level")) {
+            // hovering the row takes over the room: the guide voice loops from
+            // ahead-and-slightly-right until it sits truly in front of you
+            labeledRow(L("Fit"), L("Adjust until my voice sits straight ahead of you")) {
                 HStack(spacing: 8) {
                     Slider(value: Binding(get: { engine.freqScale },
                                           set: { engine.setFreqScale($0) }), in: 0.7...2.2)
@@ -194,6 +176,10 @@ private struct GeneralPane: View {
                     Text(String(format: "%.2f", engine.freqScale))
                         .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
                 }
+            }
+            .onHover { over in
+                if over { engine.onboardPlay("fit", loop: true, bearingDeg: 15) }
+                else { engine.onboardStop() }
             }
         }
 

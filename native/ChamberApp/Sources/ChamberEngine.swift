@@ -251,6 +251,17 @@ final class ChamberEngine: ObservableObject {
     /// Drone gate: how long after the last sign of life "working" keeps humming.
     private let droneHoldSecs = 45.0
 
+    // The audition source: a dedicated extra source slot (index agents.count)
+    // for onboarding cues and the fit loop. While it speaks it takes the room
+    // over — agents duck against gAud and the eye fade is held open.
+    private var audSlot = 0
+    private var audBuf: [Float] = []
+    private var audCur = -1
+    private var audLoop = false
+    private var audTrig = 0, audSeen = 0
+    private var audTarget: Float = 0
+    private var gAud: Float = 0
+
     // live bridge (chamberd): when connected, agents exist only as bound seats and
     // speak real narration; the canned demo loops and auto-finish stay off.
     @Published var bridged = false
@@ -300,11 +311,16 @@ final class ChamberEngine: ObservableObject {
     func setup() {
         guard !started, let res = Bundle.main.resourceURL else { return }
         let assetURL = res.appendingPathComponent("chamber.chamber")
+        // +1: the audition source (onboarding cues, fit loop)
         guard let r = ChamberRenderer(assetURL: assetURL, sampleRate: SAMPLE_RATE,
-                                      maxSources: AGENTS.count, maxBlock: maxBlock) else {
+                                      maxSources: AGENTS.count + 1, maxBlock: maxBlock) else {
             print("[chamber] failed to load renderer/asset"); return
         }
         renderer = r
+        // the fit is personal — restore it (the slider lives in onboarding + settings)
+        if UserDefaults.standard.object(forKey: "fit.freqScale") != nil {
+            freqScale = UserDefaults.standard.double(forKey: "fit.freqScale")
+        }
         DispatchQueue.main.async { self.hrtfName = (try? String(contentsOf: res.appendingPathComponent("hrtf.txt"))) ?? "" }
 
         // load voices + synthesize earcons
@@ -342,10 +358,10 @@ final class ChamberEngine: ObservableObject {
             a.bearing = atan2(Double(a.posX), Double(-a.posZ))
         }
 
-        // preallocate FFI scratch
-        for _ in 0..<n { inBufs.append(.allocate(capacity: maxBlock)) }
-        inTable = .allocate(capacity: n)
-        srcArr = .allocate(capacity: n)
+        // preallocate FFI scratch (+1 = the audition source)
+        for _ in 0..<(n + 1) { inBufs.append(.allocate(capacity: maxBlock)) }
+        inTable = .allocate(capacity: n + 1)
+        srcArr = .allocate(capacity: n + 1)
         for (i, a) in agents.enumerated() {
             inTable[i] = UnsafePointer(inBufs[i])
             // fx/fy/fz zero = omnidirectional point source (legacy behaviour)
@@ -353,6 +369,10 @@ final class ChamberEngine: ObservableObject {
                                       z: a.posZ, gain: 1.0, send: 0.3,
                                       fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
         }
+        audSlot = n
+        inTable[audSlot] = UnsafePointer(inBufs[audSlot])
+        srcArr[audSlot] = ChamberSource(x: 0, y: 0, z: -radius, gain: 1.0, send: 0.3,
+                                        fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
         renderer.setRoom(roomIndex)
         // Muted until the user enters the room (openRoom). setup() now runs at app
         // LAUNCH so live-bridge state (binds, dones) accumulates correctly from
@@ -426,6 +446,8 @@ final class ChamberEngine: ObservableObject {
     // MARK: render callback (audio thread)
 
     private func render(outL: UnsafeMutablePointer<Float>, outR: UnsafeMutablePointer<Float>, n: Int) {
+        // while the audition voice speaks, the agents step back
+        let duck = 1 - 0.85 * gAud
         // mix each agent's active signals into its mono input buffer
         for (ai, a) in agents.enumerated() {
             if a.pingTrig != a.pingSeen { a.pingSeen = a.pingTrig; a.pingCur = 0 }
@@ -466,7 +488,23 @@ final class ChamberEngine: ObservableObject {
                 if !a.drone.isEmpty { s += a.drone[a.droneCur] * gd; a.droneCur = (a.droneCur + 1) % a.drone.count }
                 // drag audition pulse (reverb send is bumped while dragging)
                 if !a.pulse.isEmpty { s += a.pulse[a.pulseCur] * gpl; a.pulseCur = (a.pulseCur + 1) % a.pulse.count }
-                buf[k] = s
+                buf[k] = s * duck
+            }
+        }
+
+        // the audition source (onboarding cues / fit loop)
+        if started {
+            if audTrig != audSeen { audSeen = audTrig; audCur = 0 }
+            let abuf = inBufs[audSlot]
+            let ga = gAud
+            for k in 0..<n {
+                var s: Float = 0
+                if audCur >= 0, audCur < audBuf.count {
+                    s = audBuf[audCur] * ga
+                    audCur += 1
+                    if audCur >= audBuf.count { audCur = audLoop ? 0 : -1 }
+                }
+                abuf[k] = s
             }
         }
 
@@ -482,8 +520,8 @@ final class ChamberEngine: ObservableObject {
         // we just forward the eyes target and the waiting-agent count before the single process()
         // call. The cue keeps building while eyes are closed (agents still waiting) — it's just
         // crossfaded to silence by the same immersion value, not reset.
-        // A drag audition holds the scene fully in regardless of eye state.
-        renderer.setImmersion(immersionHold ? 1 : immersionTarget)
+        // A drag or voice audition holds the scene fully in regardless of eye state.
+        renderer.setImmersion((immersionHold || audTarget > 0) ? 1 : immersionTarget)
         var waiting = 0
         for a in agents where a.state == .done && !a.snoozed { waiting += 1 } // agents wanting to summarize
         renderer.setAttentionAgents(waiting)
@@ -493,7 +531,7 @@ final class ChamberEngine: ObservableObject {
         // leaning/shifting gives true motion parallax — the strongest externalization cue.
         var pose = ChamberPose(px: Float(headX), py: Float(headY), pz: Float(headZ),
                                qw: Float(cos(h)), qx: 0, qy: Float(-sin(h)), qz: 0)
-        renderer.process(pose: &pose, sources: UnsafePointer(srcArr), n: agents.count,
+        renderer.process(pose: &pose, sources: UnsafePointer(srcArr), n: agents.count + 1,
                          inputs: UnsafePointer(inTable), outL: outL, outR: outR, frames: n)
         // Scene faded + cue crossfaded per-source inside process(); accept chime is mixed into its
         // agent's voice above (spatialized). Nothing to post-multiply.
@@ -556,9 +594,48 @@ final class ChamberEngine: ObservableObject {
         DispatchQueue.main.async { self.reverbBlend = b }
     }
     /// HRTF "fit": frequency-scale the HRTF to better match the listener's pinna (front-back cue).
+    /// Personal — persisted, set during onboarding and adjustable in Settings.
     func setFreqScale(_ s: Double) {
         q.async { self.renderer?.setFreqScale(Float(s)) }
+        UserDefaults.standard.set(s, forKey: "fit.freqScale")
         DispatchQueue.main.async { self.freqScale = s }
+    }
+
+    // MARK: onboarding / fit audition (the dedicated extra source)
+
+    /// Speak a bundled onboarding cue (onboarding/<name>_<lang>.mp3, falling
+    /// back to English) from `bearingDeg`. While it plays, agents duck and the
+    /// eye fade holds open. `loop` repeats with a breath of silence (the fit
+    /// loop); one-shots just end.
+    func onboardPlay(_ name: String, loop: Bool = false, bearingDeg: Double = 0) {
+        let lang = I18n.shared.lang.rawValue
+        guard let res = Bundle.main.resourceURL else { return }
+        var url = res.appendingPathComponent("onboarding/\(name)_\(lang).mp3")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            url = res.appendingPathComponent("onboarding/\(name)_en.mp3")
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self, var samples = loadMono(url), !samples.isEmpty else { return }
+            if loop { samples.append(contentsOf: [Float](repeating: 0, count: Int(SAMPLE_RATE * 1.1))) }
+            self.q.async {
+                guard self.started else { return }
+                let b = rad(bearingDeg)
+                self.srcArr[self.audSlot].x = Float(sin(b)) * self.radius
+                self.srcArr[self.audSlot].z = Float(-cos(b)) * self.radius
+                self.audBuf = samples
+                self.audLoop = loop
+                self.audTarget = 1
+                self.audTrig += 1
+            }
+        }
+    }
+
+    /// Let the audition voice go (fades out; a finished one-shot is a no-op).
+    func onboardStop() {
+        q.async {
+            self.audTarget = 0
+            self.audLoop = false
+        }
     }
 
     // MARK: sidebar + radar interactions
@@ -815,6 +892,9 @@ final class ChamberEngine: ObservableObject {
                 a.gNarr += (target - a.gNarr) * 0.15
             }
         }
+
+        // audition voice fade (onboarding cues / fit loop)
+        gAud += (audTarget - gAud) * 0.12
 
         // chord drone: a quiet breathing root while the agent is actively working
         // (live mode only — recent tool call/narration keeps it alive), plus the

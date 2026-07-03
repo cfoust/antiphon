@@ -41,6 +41,13 @@ if [ -d "$VOICES" ]; then
 else
   echo "  WARNING: voices not found at $VOICES — the app will run silent"
 fi
+# onboarding voice cues (calibration + fit), all UI languages — committed to the
+# repo; regenerate with tools/gen-onboarding-voices.py
+if [ -d native/ChamberApp/Resources/onboarding ]; then
+  mkdir -p "$APP/Contents/Resources/onboarding"
+  cp native/ChamberApp/Resources/onboarding/*.mp3 "$APP/Contents/Resources/onboarding/"
+  echo "  bundled $(ls "$APP/Contents/Resources/onboarding" | wc -l | tr -d ' ') onboarding cues"
+fi
 
 echo "[3.5/5] chamberd (agent bridge daemon)"
 if command -v go >/dev/null 2>&1; then
