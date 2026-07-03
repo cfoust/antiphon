@@ -98,7 +98,7 @@ func makeBloom(_ freq: Float, sr: Double = 48_000) -> [Float] {
         let env = p * p * (3 - 2 * p) // smoothstep swell
         let s = sin(2 * .pi * f * t) * 0.62
               + sin(2 * .pi * (f + 0.7) * t) * 0.38 // slow beat — warm, not static
-        y[i] = Float(s * env * 0.14)
+        y[i] = Float(s * env * 0.07)
     }
     return y
 }
@@ -118,7 +118,7 @@ func makeLockCrest(_ freq: Float, sr: Double = 48_000) -> [Float] {
         let s = sin(2 * .pi * f * t) * 0.60
               + sin(2 * .pi * f * 0.5 * t) * 0.22 // sub-octave body
               + sin(2 * .pi * f * 1.4983 * t) * 0.12 // a whisper of fifth
-        y[i] = Float(s * env * 0.20)
+        y[i] = Float(s * env * 0.10)
     }
     return y
 }
