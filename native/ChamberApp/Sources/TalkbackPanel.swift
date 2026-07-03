@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 // TalkbackPanel — the talk-back surface (docs/agent-bridge.md, "Talk-back").
@@ -6,10 +7,14 @@ import SwiftUI
 // A Spotlight-class NSPanel: non-activating, floating, key-without-activating — it
 // takes the keyboard the moment the dwell locks (so a dictation tool types into it
 // with your eyes still closed) while your editor stays the active app, and dismissing
-// it puts the caret back exactly where it was. Two faces, one window:
-//   lantern (eyes closed) — big, warm, peekable: who + what they're doing
-//   letter  (eyes open)   — header, mini-transcript, focused field, keycap footer
-// Enter sends via the hub's say flow; Escape or clicking anywhere else lets go.
+// it puts the caret back exactly where it was. One face: the letter — header,
+// mini-transcript, focused field, keycap footer — summoned while the eyes are still
+// closed so it's already the input when they open. (There is deliberately no separate
+// eyes-closed visual: the user can't see it.)
+//
+// Leaving: Enter sends via the hub's say flow; Escape or clicking anywhere else lets
+// go; and a check-in costs nothing — with an empty field, the panel dismisses itself
+// a few seconds after the eyes open. Text in the field holds it indefinitely.
 
 // MARK: - data
 
@@ -71,6 +76,11 @@ final class TalkbackController: NSObject, NSWindowDelegate {
     private var panel: KeyablePanel?
     private var hosting: NSHostingController<TalkbackRoot>?
     private var dismissing = false
+    /// Check-ins are free: with an empty field, the panel lets itself go this long
+    /// after the eyes open. Any text in the field (typed or dictated) holds it.
+    private let graceSecs = 4.0
+    private var graceTimer: DispatchWorkItem?
+    private var draftSub: AnyCancellable?
 
     func present(info: TalkbackAgentInfo, eyesClosed: Bool) {
         model.info = info
@@ -78,6 +88,7 @@ final class TalkbackController: NSObject, NSWindowDelegate {
         if panel == nil { buildPanel() }
         layout()
         panel?.makeKeyAndOrderFront(nil)
+        updateGrace()
         if let p = panel {
             NSLog("[talkback] present frame=%@ visible=%d key=%d screen=%@ info=%@",
                   NSStringFromRect(p.frame), p.isVisible ? 1 : 0, p.isKeyWindow ? 1 : 0,
@@ -106,11 +117,27 @@ final class TalkbackController: NSObject, NSWindowDelegate {
         layout()
     }
 
-    /// lantern (closed) ↔ letter (open); the window morphs in place, keyboard kept.
+    /// Eye state only gates the grace countdown now — the view is the letter either way.
     func setEyesClosed(_ closed: Bool) {
         guard panel?.isVisible == true, model.eyesClosed != closed else { return }
         model.eyesClosed = closed
-        layout()
+        updateGrace()
+    }
+
+    /// (Re)arm or cancel the auto-dismiss: runs only while the panel is up, the eyes
+    /// are open, and the field is empty. `draft` carries the in-flight value from the
+    /// Combine willSet hook (model.draft still holds the previous keystroke there).
+    private func updateGrace(draft: String? = nil) {
+        graceTimer?.cancel()
+        graceTimer = nil
+        guard panel?.isVisible == true, !model.eyesClosed,
+              (draft ?? model.draft).isEmpty else { return }
+        let w = DispatchWorkItem { [weak self] in
+            NSLog("[talkback] grace expired — letting go")
+            self?.dismiss(notify: true)
+        }
+        graceTimer = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + graceSecs, execute: w)
     }
 
     func submit() {
@@ -128,6 +155,8 @@ final class TalkbackController: NSObject, NSWindowDelegate {
         guard !dismissing, let p = panel, p.isVisible else { return }
         dismissing = true
         NSLog("[talkback] dismiss notify=%d", notify ? 1 : 0)
+        graceTimer?.cancel()
+        graceTimer = nil
         model.draft = ""
         p.orderOut(nil)
         dismissing = false
@@ -161,6 +190,8 @@ final class TalkbackController: NSObject, NSWindowDelegate {
         p.onCancel = { [weak self] in self?.cancel() }
         panel = p
         hosting = hc
+        // typing (or clearing) the field re-evaluates the grace countdown per keystroke
+        draftSub = model.$draft.sink { [weak self] text in self?.updateGrace(draft: text) }
     }
 
     /// Spotlight placement: centered on the screen with the mouse, upper third.
@@ -309,11 +340,7 @@ struct TalkbackRoot: View {
     var body: some View {
         Group {
             if let info = model.info {
-                if model.eyesClosed {
-                    LanternView(info: info, model: model, controller: controller)
-                } else {
-                    LetterView(info: info, model: model, controller: controller)
-                }
+                LetterView(info: info, model: model, controller: controller)
             }
         }
         .preferredColorScheme(.light) // warm paper, whatever the system theme
@@ -349,10 +376,9 @@ private struct InputRow: View {
     let info: TalkbackAgentInfo
     @ObservedObject var model: TalkbackModel
     let controller: TalkbackController
-    var quiet = false // lantern: no coral ring until there's something in it
 
     var body: some View {
-        let live = info.reachable && (!quiet || !model.draft.isEmpty)
+        let live = info.reachable
         HStack(spacing: 10) {
             PanelField(
                 text: $model.draft,
@@ -478,55 +504,3 @@ private struct LetterView: View {
     }
 }
 
-/// Eyes closed: big, warm, peekable — who, what they're doing, how to proceed. The
-/// quiet field is live underneath so a dictation key already lands words here.
-private struct LanternView: View {
-    let info: TalkbackAgentInfo
-    @ObservedObject var model: TalkbackModel
-    let controller: TalkbackController
-    @State private var breathe = false
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Circle().fill(Color(hexString: info.colorHex))
-                .frame(width: 74, height: 74)
-                .shadow(color: Color(hexString: info.colorHex).opacity(0.55), radius: 26)
-                .overlay(Circle().stroke(Color(hexString: info.colorHex).opacity(0.18), lineWidth: 10)
-                    .frame(width: 94, height: 94))
-                .scaleEffect(breathe ? 1.05 : 1.0)
-                .padding(.bottom, 6)
-                .onAppear {
-                    guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-                    withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                        breathe = true
-                    }
-                }
-            Text(info.name)
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .foregroundColor(TB.ink)
-            Text([prettyKind(info.kind), info.title].filter { !$0.isEmpty }.joined(separator: " · "))
-                .font(.system(size: 13.5, weight: .medium, design: .rounded))
-                .foregroundColor(TB.sub)
-            if let last = info.lines.last {
-                Text("“\(last.text)”")
-                    .font(.system(size: 17, design: .rounded))
-                    .foregroundColor(TB.ink)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
-                    .frame(maxWidth: 440)
-            }
-            InputRow(info: info, model: model, controller: controller, quiet: true)
-                .frame(maxWidth: 440)
-                .padding(.top, 4)
-            Text(info.reachable
-                ? "keep facing to stay with \(info.name) · open your eyes to write"
-                : "\(info.name) can’t hear you · open your eyes for details")
-                .font(.system(size: 12.5, design: .rounded))
-                .foregroundColor(TB.faint)
-                .padding(.top, 4)
-        }
-        .padding(.horizontal, 36).padding(.top, 40).padding(.bottom, 30)
-        .frame(width: 560)
-        .modifier(Paper(radius: 24))
-    }
-}
