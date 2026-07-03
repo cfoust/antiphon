@@ -167,7 +167,7 @@ private struct GeneralPane: View {
 
         card(L("Sound")) {
             // hovering the row takes over the room: the guide voice loops from
-            // ahead-and-slightly-right until it sits truly in front of you
+            // straight ahead until it sits truly out in front of you
             labeledRow(L("Fit"), L("Adjust until my voice sits straight ahead of you")) {
                 HStack(spacing: 8) {
                     Slider(value: Binding(get: { engine.freqScale },
@@ -178,7 +178,7 @@ private struct GeneralPane: View {
                 }
             }
             .onHover { over in
-                if over { engine.onboardPlay("fit", loop: true, bearingDeg: 15) }
+                if over { engine.onboardPlay("fit", loop: true, bearingDeg: 0) }
                 else { engine.onboardStop() }
             }
         }

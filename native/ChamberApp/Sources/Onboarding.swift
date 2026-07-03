@@ -89,8 +89,6 @@ struct CalibrationStepView: View {
     private let turnMin = rad(10) // must actually turn away from the start pose
     private let stillTol = rad(2.5) // "within reason" — the 1€ filter helps
 
-    private let tick = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
-
     var body: some View {
         VStack(spacing: 16) {
             if !standalone { stepDots(2) }
@@ -121,7 +119,11 @@ struct CalibrationStepView: View {
             yaw0 = tracker.yaw
             engine.onboardPlay("cal_left")
         }
-        .onReceive(tick) { _ in step() }
+        // Driven by the pose stream itself — NOT a view-owned Timer: observing
+        // the tracker re-renders this view at camera rate, and a re-created
+        // Timer.publish would be re-subscribed (and its pending tick killed)
+        // on every render, so it never fires even once.
+        .onReceive(tracker.$yaw) { _ in step() }
     }
 
     private var arrow: String {
@@ -219,8 +221,9 @@ struct FitStepView: View {
                 .buttonStyle(.borderedProminent)
         }
         .modifier(OnboardCard())
-        // the guide voice loops from ahead-and-slightly-right the whole step
-        .onAppear { engine.onboardPlay("fit", loop: true, bearingDeg: 15) }
+        // the guide voice loops from straight ahead the whole step — the fit is
+        // right when it sits out in front, so ahead IS the reference
+        .onAppear { engine.onboardPlay("fit", loop: true, bearingDeg: 0) }
         .onDisappear { engine.onboardStop() }
     }
 }
