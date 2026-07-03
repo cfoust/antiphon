@@ -33,20 +33,21 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            Color(red: 0.04, green: 0.047, blue: 0.063).ignoresSafeArea()
+            // asleep = the room grays out (camera off, silent)
+            (engine.watching
+                ? Color(red: 0.04, green: 0.047, blue: 0.063)
+                : Color(white: 0.18))
+                .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.35), value: engine.watching)
 
             if live {
                 RadarView(engine: engine).ignoresSafeArea()
 
-                // right rail: gear over the residents' list
+                // right rail: eye + gear over the residents' list
                 HStack(spacing: 0) {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 10) {
                         HStack(spacing: 10) {
-                            if !engine.watching {
-                                Label(L("asleep"), systemImage: "eye.slash")
-                                    .font(.caption).foregroundStyle(.white.opacity(0.45))
-                            }
                             // same eye as the menu bar — notched Macs hide
                             // overflowing status items, so it lives here too
                             Button {
@@ -54,7 +55,7 @@ struct ContentView: View {
                             } label: {
                                 Image(systemName: engine.watching ? "eye" : "eye.slash")
                                     .font(.system(size: 15))
-                                    .foregroundStyle(.white.opacity(engine.watching ? 0.55 : 0.35))
+                                    .foregroundStyle(.white.opacity(engine.watching ? 0.55 : 0.4))
                                     .padding(7)
                                     .background(.black.opacity(0.42), in: Circle())
                                     .overlay(Circle().stroke(.white.opacity(0.07)))
@@ -82,13 +83,24 @@ struct ContentView: View {
                     .padding(16)
                 }
 
-                // discreet status, bottom-left
-                Text(engine.bridged ? L("● live") : L("○ demo"))
-                    .font(.caption2)
-                    .foregroundStyle(engine.bridged ? Color.green.opacity(0.55) : .white.opacity(0.3))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    .padding(14)
-                    .allowsHitTesting(false)
+                // asleep: one obvious way back in, at the eye's centre
+                if !engine.watching {
+                    Button {
+                        setWatching(true)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "eye")
+                            Text(L("Wake"))
+                        }
+                        .font(.callout.weight(.semibold))
+                        .fontDesign(.rounded)
+                        .foregroundStyle(Color(white: 0.25))
+                        .padding(.horizontal, 18).padding(.vertical, 10)
+                        .background(Color(white: 0.92), in: Capsule())
+                        .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
 
             // calibration overlay

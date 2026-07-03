@@ -133,9 +133,7 @@ private let TBL: [String: (String, String, String)] = [
     "Calibrated": ("Откалибровано", "校准完成", "校準完成"),
 
     // ---- main window ----
-    "asleep": ("спит", "休眠中", "休眠中"),
-    "● live": ("● живой режим", "● 实时", "● 即時"),
-    "○ demo": ("○ демо", "○ 演示", "○ 演示"),
+    "Wake": ("Разбудить", "唤醒", "喚醒"),
     "Chamber settings": ("Настройки Chamber", "Chamber 设置", "Chamber 設定"),
 
     // ---- menu bar ----

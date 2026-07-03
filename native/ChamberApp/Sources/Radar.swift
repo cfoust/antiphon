@@ -55,32 +55,51 @@ struct RadarView: View {
                 let cx = size.width / 2, cy = size.height / 2
                 let s = scale(size)
                 let dim = 0.4 + 0.6 * engine.lookGatePub
+                // asleep: everything recedes into the gray
+                let muted = !engine.watching
+                let mul = muted ? 0.45 : 1.0
+                func ring(_ r: CGFloat, at p: CGPoint, alpha: Double, width: CGFloat = 1) {
+                    ctx.stroke(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)),
+                               with: .color(.white.opacity(alpha * mul)), lineWidth: width)
+                }
 
                 // listener slides with head translation, world-anchored dots stay put
                 let hp = engine.headPos
                 let lim = CGFloat(1.0) * s
                 let lcx = cx + max(-lim, min(lim, CGFloat(hp.x) * s))
                 let lcy = cy + max(-lim, min(lim, CGFloat(hp.z) * s))
+                let c = CGPoint(x: cx, y: cy)
 
-                // ambient range rings (0.65 / 1.3 / 1.95 m)
-                for i in 1...3 {
-                    let r = s * 1.3 * CGFloat(i) / 3
-                    ctx.stroke(Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r)),
-                               with: .color(.white.opacity(0.05)))
+                // The Antiphon eye, monochrome: inner disc, thick iris band, a
+                // bold ring, then hairline outer rings. World-anchored on the
+                // calibrated neutral — the pupil (you) drifts inside it.
+                ctx.fill(Path(ellipseIn: CGRect(x: cx - 0.5 * s, y: cy - 0.5 * s, width: s, height: s)),
+                         with: .color(.white.opacity(0.035 * mul)))
+                ring(0.72 * s, at: c, alpha: 0.06, width: 0.26 * s) // the iris band
+                ring(0.95 * s, at: c, alpha: 0.16, width: 2.5)      // the bold ring
+                ring(1.30 * s, at: c, alpha: 0.055)                 // hairline, agents' arc
+                ring(1.62 * s, at: c, alpha: 0.04)                  // outermost hairline
+
+                // facing cone (only while watching — the pose is frozen asleep)
+                if !muted {
+                    var cone = Path()
+                    cone.move(to: CGPoint(x: lcx, y: lcy))
+                    cone.addArc(center: CGPoint(x: lcx, y: lcy), radius: s * 1.3 * 1.15,
+                                startAngle: .degrees(-90 - 26 + deg(engine.orientRad)),
+                                endAngle: .degrees(-90 + 26 + deg(engine.orientRad)), clockwise: false)
+                    cone.closeSubpath()
+                    ctx.fill(cone, with: .color(Color(hex: "#5fd0c5").opacity(0.13 * dim)))
                 }
 
-                // facing cone (emanates from the listener's current position)
-                var cone = Path()
-                cone.move(to: CGPoint(x: lcx, y: lcy))
-                cone.addArc(center: CGPoint(x: lcx, y: lcy), radius: s * 1.3 * 1.15,
-                            startAngle: .degrees(-90 - 26 + deg(engine.orientRad)),
-                            endAngle: .degrees(-90 + 26 + deg(engine.orientRad)), clockwise: false)
-                cone.closeSubpath()
-                ctx.fill(cone, with: .color(Color(hex: "#5fd0c5").opacity(0.13 * dim)))
-
-                // listener
-                ctx.fill(Path(ellipseIn: CGRect(x: lcx - 4.5, y: lcy - 4.5, width: 9, height: 9)),
-                         with: .color(.white))
+                // the pupil: you, glint and all
+                let pr: CGFloat = 9
+                ctx.fill(Path(ellipseIn: CGRect(x: lcx - pr, y: lcy - pr, width: 2 * pr, height: 2 * pr)),
+                         with: .color(.white.opacity(muted ? 0.5 : 1)))
+                ctx.fill(Path(ellipseIn: CGRect(x: lcx - pr * 0.42 - 2.4, y: lcy - pr * 0.42 - 2.4,
+                                                width: 4.8, height: 4.8)),
+                         with: .color(engine.watching
+                            ? Color(red: 0.04, green: 0.047, blue: 0.063)
+                            : Color(white: 0.18)))
 
                 for a in engine.snapshot {
                     let p = toScreen(a.x, a.z, size)
@@ -104,7 +123,7 @@ struct RadarView: View {
                     }
 
                     let dotRect = CGRect(x: p.x - baseR, y: p.y - baseR, width: 2 * baseR, height: 2 * baseR)
-                    let alpha = (a.state == .heard ? 0.4 : (faced ? 1.0 : 0.85)) * dim
+                    let alpha = (a.state == .heard ? 0.4 : (faced ? 1.0 : 0.85)) * dim * mul
                     ctx.fill(Path(ellipseIn: dotRect), with: .color(Color(hex: a.hex).opacity(alpha)))
 
                     if a.state == .done {
