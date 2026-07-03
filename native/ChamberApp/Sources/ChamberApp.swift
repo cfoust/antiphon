@@ -104,7 +104,14 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         // the room exists (muted) from launch so live-bridge state — binds, narration,
         // done-summaries — accumulates correctly before the user clicks in
-        .onAppear { engine.setup() }
+        .onAppear {
+            engine.setup()
+            // dev harness: CHAMBER_DEV=talkback locks onto a fake agent at launch so
+            // the panel's focus-steal mechanics are testable with no daemon or camera
+            if ProcessInfo.processInfo.environment["CHAMBER_DEV"] == "talkback" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { engine.talkbackHarness() }
+            }
+        }
     }
 
     private var introCard: some View {

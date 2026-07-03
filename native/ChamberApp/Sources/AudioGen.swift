@@ -83,6 +83,47 @@ func makeChime(sr: Double = 48_000) -> [Float] {
     return y
 }
 
+/// Talk-back dwell bloom: a soft swell that rises over ~1.2 s, built on the agent's ping
+/// frequency so the light "belongs" to the voice. The rising envelope is baked in — the
+/// dwell state machine only gates the gain, and an aborted dwell just fades it out.
+func makeBloom(_ freq: Float, sr: Double = 48_000) -> [Float] {
+    let dur = 1.2
+    let n = Int(sr * dur)
+    var y = [Float](repeating: 0, count: n)
+    var lp: Double = 0 // one-pole low-pass over noise → breathy air, no hiss edge
+    var seed: UInt64 = 0x9e3779b97f4a7c15
+    for i in 0..<n {
+        let t = Double(i) / sr
+        let p = min(1.0, t / dur)
+        let env = p * p * (3 - 2 * p) // smoothstep swell
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407
+        let white = Double(Int64(bitPattern: seed >> 11)) / Double(Int64.max)
+        lp += (white - lp) * 0.035
+        let f = Double(freq) * 0.5
+        let tone = sin(2 * .pi * f * t) * 0.55 + sin(2 * .pi * f * 2.005 * t) * 0.2
+        let shimmer = 0.85 + 0.15 * sin(2 * .pi * 5.3 * t)
+        y[i] = Float((tone * shimmer + lp * 2.4) * env * 0.28)
+    }
+    return y
+}
+
+/// Talk-back lock chime: two gentle partials a major third apart, softer and rounder than
+/// the accept chime — "I'm with you now", not "task complete".
+func makeLockChime(_ freq: Float, sr: Double = 48_000) -> [Float] {
+    let n = Int(sr * 0.8)
+    var y = [Float](repeating: 0, count: n)
+    for i in 0..<n {
+        let t = Double(i) / sr
+        var s = sin(2 * .pi * Double(freq) * t) * 0.30 * exp(-t * 4.5)
+        if t >= 0.11 {
+            let t2 = t - 0.11
+            s += sin(2 * .pi * Double(freq) * 1.25 * t2) * 0.30 * exp(-t2 * 4.5)
+        }
+        y[i] = Float(s)
+    }
+    return y
+}
+
 /// 2s of band-passed noise — a weak tuned signal rather than broadband hiss.
 func makeStatic(sr: Double = 48_000) -> [Float] {
     let n = Int(sr * 2)

@@ -14,12 +14,26 @@ private struct Frame: Decodable {
     let type: String
     let seat: Int?
     let name: String?
+    let kind: String?
+    let title: String?
+    let input: String?
     let headline: String?
     let note: String?
     let summary: String?
     let question: String?
     let audioB64: String?
     let audioUrl: String?
+
+    /// The narration text a frame carries, by type (mirrors the hub's FIELD map).
+    var text: String? {
+        switch type {
+        case "task": return headline
+        case "progress": return note
+        case "done": return summary
+        case "blocked": return question
+        default: return nil
+        }
+    }
 }
 
 enum ChamberDaemon {
@@ -113,6 +127,17 @@ final class BridgeClient: NSObject {
         daemon?.terminate()
     }
 
+    /// Talk-back: route the user's words to the agent on `seat` (hub deliverSay →
+    /// pane injection / channel). Fire-and-forget; delivery failures are hub-side.
+    func sendSay(seat: Int, text: String) {
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: ["type": "say", "seat": seat, "text": text]),
+            let s = String(data: data, encoding: .utf8) else { return }
+        task?.send(.string(s)) { err in
+            if let err { NSLog("[bridge] say send failed: %@", "\(err)") }
+        }
+    }
+
     private func connect() {
         guard !stopped else { return }
         guard let url = URL(string: "ws://127.0.0.1:\(port)/stream") else { return }
@@ -189,8 +214,9 @@ final class BridgeClient: NSObject {
                 engine.bridgeConnected(true)
             case "bind":
                 if let seat = f.seat {
-                    NSLog("[bridge] bind seat=%d", seat)
-                    engine.bridgeBind(seat: seat)
+                    NSLog("[bridge] bind seat=%d name=%@ input=%@", seat, f.name ?? "?", f.input ?? "-")
+                    engine.bridgeBind(seat: seat, name: f.name, kind: f.kind,
+                                      title: f.title, input: f.input)
                 }
             case "free":
                 if let seat = f.seat {
@@ -199,6 +225,10 @@ final class BridgeClient: NSObject {
                 }
             case "task", "progress", "blocked", "done":
                 guard let seat = f.seat else { return }
+                // the words themselves feed the talk-back panel's mini-transcript
+                if let line = f.text, !line.isEmpty {
+                    engine.bridgeLine(seat: seat, kind: f.type, text: line)
+                }
                 // Prefer fetching the cached line over the inline base64 — smaller
                 // frames, no message-size cliffs, same bytes (localhost).
                 var ext = "mp3"

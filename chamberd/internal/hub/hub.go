@@ -161,6 +161,7 @@ func (h *Hub) handleAgent(w http.ResponseWriter, r *http.Request) {
 	h.broadcast(map[string]any{
 		"type": "bind", "seat": seat, "color": persona.Color,
 		"agent": rec.ID, "name": persona.Name, "input": h.inputKind(rec.ID),
+		"kind": rec.Kind, "title": rec.Title,
 	})
 	log.Printf("agent %s (%s, %s) bound to seat %d as %s (input: %s)",
 		rec.ID, hello.Kind, hello.Repo, seat, persona.Name, orNone(h.inputKind(rec.ID)))
@@ -332,10 +333,14 @@ func (h *Hub) handleStream(w http.ResponseWriter, r *http.Request) {
 	// sees every agent that's already in the room
 	for seat, id := range occupied {
 		persona := h.roster.Personas[seat]
-		c.send(map[string]any{
+		frame := map[string]any{
 			"type": "bind", "seat": seat, "color": persona.Color,
 			"agent": id, "name": persona.Name, "input": h.inputKind(id),
-		})
+		}
+		if rec, ok := h.reg.Get(id); ok {
+			frame["kind"], frame["title"] = rec.Kind, rec.Title
+		}
+		c.send(frame)
 	}
 
 	for {
@@ -553,7 +558,10 @@ func (h *Hub) handleDebugEmit(w http.ResponseWriter, r *http.Request) {
 	persona := h.roster.Personas[msg.Seat]
 	switch msg.Type {
 	case "bind", "free":
-		h.broadcast(map[string]any{"type": msg.Type, "seat": msg.Seat, "color": persona.Color})
+		h.broadcast(map[string]any{
+			"type": msg.Type, "seat": msg.Seat, "color": persona.Color,
+			"name": persona.Name, "kind": "debug",
+		})
 	default:
 		if FIELD[msg.Type] == "" {
 			http.Error(w, "bad type", http.StatusBadRequest)

@@ -106,6 +106,16 @@ final class AgentRuntime {
     var narrTrig = 0, narrSeen = 0
     var gNarr: Float = 0
 
+    // talk-back dwell/lock earcons: the bloom is a baked rising swell gated by gBloom
+    // (aborted dwell = fade out); the lock chime is a plain one-shot. Both spatialized
+    // through this agent's voice like ping/chime.
+    var bloom: [Float] = []
+    var lockChime: [Float] = []
+    var bloomCur = -1, lockCur = -1
+    var bloomTrig = 0, bloomSeen = 0
+    var lockTrig = 0, lockSeen = 0
+    var gBloom: Float = 0
+
     init(def: AgentDef, idx: Int) { self.def = def; self.idx = idx }
 }
 
@@ -195,6 +205,21 @@ final class ChamberEngine: ObservableObject {
     /// ephemeral and may drop in that window; a done is durable state and must not.
     private var pendingDone: [Int: [Float]] = [:]
 
+    // talk-back lock-on (eyes-closed dwell → lantern → letter). All state lives on `q`;
+    // the panel (TalkbackController) is main-thread and driven via pushTalkback().
+    // seatMeta/seatLines live on the engine (not AgentRuntime) so binds and narration
+    // text that arrive before setup() are never lost.
+    let talkback = TalkbackController()
+    private var seatMeta: [Int: TalkbackSeatMeta] = [:]
+    private var seatLines: [Int: [TalkbackLine]] = [:]
+    private var dwellSeat = -1
+    private var dwellStart = 0.0
+    private var lockedSeat = -1
+    /// After a dismiss, don't immediately re-dwell on the same agent — wait until the
+    /// gaze leaves it or the eyes reopen (otherwise send-with-eyes-closed re-locks).
+    private var cooldownSeat = -1
+    private let dwellSecs = 0.9
+
     // preallocated FFI scratch (no allocation in the render callback)
     private var inBufs: [UnsafeMutablePointer<Float>] = []
     private var inTable: UnsafeMutablePointer<UnsafePointer<Float>?>!
@@ -210,6 +235,8 @@ final class ChamberEngine: ObservableObject {
         let b = BridgeClient(engine: self)
         bridge = b
         _ = b.start()
+        talkback.onSend = { [weak self] text in self?.talkbackSend(text) }
+        talkback.onDismiss = { [weak self] in self?.talkbackUnlock() }
     }
 
     func setup() {
@@ -234,6 +261,8 @@ final class ChamberEngine: ObservableObject {
             a.summary = loadMono(base.appendingPathComponent("\(def.id)_done.mp3")) ?? []
             a.ping = makePing(PING_FREQS[i % PING_FREQS.count])
             a.stat = sharedStatic
+            a.bloom = makeBloom(PING_FREQS[i % PING_FREQS.count])
+            a.lockChime = makeLockChime(PING_FREQS[i % PING_FREQS.count])
             agents.append(a)
         }
         let n = agents.count
@@ -310,8 +339,11 @@ final class ChamberEngine: ObservableObject {
             if a.summaryTrig != a.summarySeen { a.summarySeen = a.summaryTrig; a.summaryCur = 0 }
             if a.chimeTrig != a.chimeSeen { a.chimeSeen = a.chimeTrig; a.chimeCur = 0 }
             if a.narrTrig != a.narrSeen { a.narrSeen = a.narrTrig; a.narrCur = 0 }
+            if a.bloomTrig != a.bloomSeen { a.bloomSeen = a.bloomTrig; a.bloomCur = 0 }
+            if a.lockTrig != a.lockSeen { a.lockSeen = a.lockTrig; a.lockCur = 0 }
             let buf = inBufs[ai]
             let gc = a.gClear, gw = a.gWhisper, gs = a.gStat, gp = a.gPing, gsum = a.gSummary, gn = a.gNarr
+            let gb = a.gBloom
             for k in 0..<n {
                 var s: Float = 0
                 if !a.clear.isEmpty { s += a.clear[a.clearCur] * gc; a.clearCur = (a.clearCur + 1) % a.clear.count }
@@ -329,6 +361,9 @@ final class ChamberEngine: ObservableObject {
                     s += a.narr[a.narrCur] * gn; a.narrCur += 1
                     if a.narrCur >= a.narr.count { a.narrCur = -1 }
                 }
+                // talk-back dwell bloom + lock chime (spatialized from this agent)
+                if a.bloomCur >= 0 { s += a.bloom[a.bloomCur] * gb; a.bloomCur += 1; if a.bloomCur >= a.bloom.count { a.bloomCur = -1 } }
+                if a.lockCur >= 0 { s += a.lockChime[a.lockCur] * 0.9; a.lockCur += 1; if a.lockCur >= a.lockChime.count { a.lockCur = -1 } }
                 buf[k] = s
             }
         }
@@ -393,6 +428,9 @@ final class ChamberEngine: ObservableObject {
         q.async {
             self.lastEyesClosedState = closed
             if self.immersionArmed { self.immersionTarget = self.immersionTargetFor(closed) }
+            if self.lockedSeat >= 0 { // lantern (closed) ↔ letter (open)
+                DispatchQueue.main.async { self.talkback.setEyesClosed(closed) }
+            }
         }
     }
     /// Host-clock capture time of the most recent pose (from FaceTracker), for the latency oracle.
@@ -450,8 +488,17 @@ final class ChamberEngine: ObservableObject {
         }
     }
 
-    func bridgeBind(seat: Int) {
+    func bridgeBind(seat: Int, name: String? = nil, kind: String? = nil,
+                    title: String? = nil, input: String? = nil) {
         q.async {
+            var m = self.seatMeta[seat] ?? TalkbackSeatMeta()
+            if let name, !name.isEmpty { m.name = name }
+            if let kind, !kind.isEmpty { m.kind = kind }
+            if let title, !title.isEmpty { m.title = title }
+            m.input = input ?? ""
+            self.seatMeta[seat] = m
+            if self.lockedSeat == seat { self.pushTalkback(present: false) }
+
             self.boundSeats.insert(seat)
             guard self.liveBridge, self.agents.indices.contains(seat) else { return }
             let a = self.agents[seat]
@@ -461,9 +508,26 @@ final class ChamberEngine: ObservableObject {
         }
     }
 
+    /// Narration text (task/progress/blocked/done) — the panel's mini-transcript.
+    func bridgeLine(seat: Int, kind: String, text: String) {
+        q.async {
+            var lines = self.seatLines[seat] ?? []
+            lines.append(TalkbackLine(kind: kind, text: text, at: Date().timeIntervalSince1970))
+            if lines.count > 3 { lines.removeFirst(lines.count - 3) }
+            self.seatLines[seat] = lines
+            if self.lockedSeat == seat { self.pushTalkback(present: false) }
+        }
+    }
+
     func bridgeFree(seat: Int) {
         q.async {
             self.boundSeats.remove(seat)
+            self.seatMeta[seat]?.input = "" // its pane may live on, but honestly: unknown
+            if self.lockedSeat == seat {
+                // the conversation partner left mid-compose — let the panel go
+                self.lockedSeat = -1
+                DispatchQueue.main.async { self.talkback.dismiss(notify: false) }
+            }
             guard self.agents.indices.contains(seat) else { return }
             let a = self.agents[seat]
             a.narrQueue.removeAll()
@@ -578,8 +642,110 @@ final class ChamberEngine: ObservableObject {
             else if t - lingerStart >= LINGER_SECS { startSummary(agents[fi]) }
         } else { lingerIdx = -1 }
 
+        updateTalkback(fi: fi, t: t)
         updateMix(facedIdx: fi)
         publish(facedIdx: fi, at: t)
+    }
+
+    // MARK: talk-back lock-on (runs on `q`)
+
+    /// Eyes-closed dwell → lock. Dwelling swells the agent's bloom; completing the dwell
+    /// locks (chime + panel takes the keyboard). While locked, eyes-closed gaze can jump
+    /// the lock to another agent via the same dwell. Eyes open freeze the lock; only the
+    /// panel dismiss (esc / click-away / send) releases it.
+    private func updateTalkback(fi: Int, t: Double) {
+        if lastEyesClosedState {
+            if fi != cooldownSeat { cooldownSeat = -1 }
+            if fi >= 0, fi != lockedSeat, fi != cooldownSeat {
+                if dwellSeat != fi {
+                    dwellSeat = fi
+                    dwellStart = t
+                    agents[fi].bloomTrig += 1
+                } else if t - dwellStart >= dwellSecs {
+                    dwellSeat = -1
+                    lock(seat: fi)
+                }
+            } else {
+                dwellSeat = -1
+            }
+        } else {
+            dwellSeat = -1 // eyes open: existing lock freezes, no new dwell
+            cooldownSeat = -1
+        }
+        for (i, a) in agents.enumerated() {
+            let target: Float = i == dwellSeat ? 1 : 0
+            a.gBloom += (target - a.gBloom) * 0.3
+        }
+    }
+
+    private func lock(seat: Int) {
+        lockedSeat = seat
+        if agents.indices.contains(seat) { agents[seat].lockTrig += 1 }
+        NSLog("[talkback] locked seat=%d", seat)
+        pushTalkback(present: true)
+    }
+
+    /// Snapshot of everything the panel shows for a seat. Runs on `q`.
+    private func talkbackInfo(seat: Int) -> TalkbackAgentInfo {
+        let meta = seatMeta[seat]
+        let def = AGENTS[seat % AGENTS.count]
+        return TalkbackAgentInfo(
+            seat: seat,
+            name: meta?.name ?? def.id,
+            colorHex: def.hex,
+            kind: meta?.kind ?? (liveBridge ? "" : "demo"),
+            title: meta?.title ?? "",
+            input: meta?.input ?? (liveBridge ? "" : "demo"),
+            lines: seatLines[seat] ?? [])
+    }
+
+    private func pushTalkback(present: Bool) {
+        guard lockedSeat >= 0 else { return }
+        let info = talkbackInfo(seat: lockedSeat)
+        let eyes = lastEyesClosedState
+        DispatchQueue.main.async {
+            if present { self.talkback.present(info: info, eyesClosed: eyes) }
+            else { self.talkback.update(info: info) }
+        }
+    }
+
+    /// Panel dismissed (esc / click-away / after send). Cooldown the seat so an
+    /// eyes-closed send doesn't immediately re-dwell on the agent still being faced.
+    func talkbackUnlock() {
+        q.async {
+            self.cooldownSeat = self.lockedSeat
+            self.lockedSeat = -1
+            self.dwellSeat = -1
+        }
+    }
+
+    /// Send the user's words to the locked agent via the hub's say flow.
+    func talkbackSend(_ text: String) {
+        q.async {
+            guard self.lockedSeat >= 0 else { return }
+            if self.liveBridge {
+                self.bridge?.sendSay(seat: self.lockedSeat, text: text)
+            } else {
+                NSLog("[talkback] (demo) say seat=%d: %@", self.lockedSeat, text)
+            }
+        }
+    }
+
+    /// Dev harness (CHAMBER_DEV=talkback): lock onto a fake agent with canned data so
+    /// the panel's focus mechanics are testable with no daemon, camera, or agent.
+    func talkbackHarness() {
+        q.async {
+            let now = Date().timeIntervalSince1970
+            self.seatMeta[2] = TalkbackSeatMeta(
+                name: "wren", kind: "claude-code",
+                title: "chamber — talk-back panel", input: "tmux")
+            self.seatLines[2] = [
+                TalkbackLine(kind: "task", text: "Wiring the reconnect path in BridgeClient", at: now - 240),
+                TalkbackLine(kind: "progress", text: "Backoff works; adding the respawn guard", at: now - 70),
+                TalkbackLine(kind: "blocked", text: "Should the daemon keep port 8787 when the discovery file is stale?", at: now - 12),
+            ]
+            self.lock(seat: 2)
+        }
     }
 
     private func facedIndex() -> Int {
