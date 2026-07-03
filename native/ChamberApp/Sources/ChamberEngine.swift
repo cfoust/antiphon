@@ -731,10 +731,14 @@ final class ChamberEngine: ObservableObject {
         }
     }
 
-    /// Dev harness (CHAMBER_DEV=talkback): lock onto a fake agent with canned data so
-    /// the panel's focus mechanics are testable with no daemon, camera, or agent.
+    /// Dev harness (CHAMBER_DEV=talkback | talkback-lantern): lock onto a fake agent
+    /// with canned data so the panel's focus mechanics are testable with no daemon,
+    /// camera, or agent. The lantern variant simulates eyes-closed.
     func talkbackHarness() {
         q.async {
+            if ProcessInfo.processInfo.environment["CHAMBER_DEV"] == "talkback-lantern" {
+                self.lastEyesClosedState = true
+            }
             let now = Date().timeIntervalSince1970
             self.seatMeta[2] = TalkbackSeatMeta(
                 name: "wren", kind: "claude-code",

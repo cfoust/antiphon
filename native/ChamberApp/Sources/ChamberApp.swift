@@ -108,7 +108,7 @@ struct ContentView: View {
             engine.setup()
             // dev harness: CHAMBER_DEV=talkback locks onto a fake agent at launch so
             // the panel's focus-steal mechanics are testable with no daemon or camera
-            if ProcessInfo.processInfo.environment["CHAMBER_DEV"] == "talkback" {
+            if ProcessInfo.processInfo.environment["CHAMBER_DEV"]?.hasPrefix("talkback") == true {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { engine.talkbackHarness() }
             }
         }

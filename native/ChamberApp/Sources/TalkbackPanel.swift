@@ -69,7 +69,7 @@ final class TalkbackController: NSObject, NSWindowDelegate {
     var onDismiss: (() -> Void)?
 
     private var panel: KeyablePanel?
-    private var hosting: NSHostingView<TalkbackRoot>?
+    private var hosting: NSHostingController<TalkbackRoot>?
     private var dismissing = false
 
     func present(info: TalkbackAgentInfo, eyesClosed: Bool) {
@@ -78,6 +78,25 @@ final class TalkbackController: NSObject, NSWindowDelegate {
         if panel == nil { buildPanel() }
         layout()
         panel?.makeKeyAndOrderFront(nil)
+        if let p = panel {
+            NSLog("[talkback] present frame=%@ visible=%d key=%d screen=%@ info=%@",
+                  NSStringFromRect(p.frame), p.isVisible ? 1 : 0, p.isKeyWindow ? 1 : 0,
+                  p.screen?.localizedName ?? "none", model.info == nil ? "nil" : "set")
+        }
+        // dev: dump what the panel actually renders (screenshots need permissions; this doesn't)
+        if ProcessInfo.processInfo.environment["CHAMBER_DEV"]?.hasPrefix("talkback") == true {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                guard let hv = self?.hosting?.view,
+                      let rep = hv.bitmapImageRepForCachingDisplay(in: hv.bounds) else { return }
+                hv.cacheDisplay(in: hv.bounds, to: rep)
+                if let data = rep.representation(using: .png, properties: [:]) {
+                    let url = URL(fileURLWithPath: NSTemporaryDirectory())
+                        .appendingPathComponent("talkback-dump.png")
+                    try? data.write(to: url)
+                    NSLog("[talkback] dump: %@ bounds=%@", url.path, NSStringFromRect(hv.bounds))
+                }
+            }
+        }
     }
 
     /// Refresh content (a new narration line, a rebind) without re-summoning.
@@ -108,6 +127,7 @@ final class TalkbackController: NSObject, NSWindowDelegate {
     func dismiss(notify: Bool) {
         guard !dismissing, let p = panel, p.isVisible else { return }
         dismissing = true
+        NSLog("[talkback] dismiss notify=%d", notify ? 1 : 0)
         model.draft = ""
         p.orderOut(nil)
         dismissing = false
@@ -115,11 +135,13 @@ final class TalkbackController: NSObject, NSWindowDelegate {
     }
 
     /// Click-away = the keyboard moved on = let go.
-    func windowDidResignKey(_ notification: Notification) { dismiss(notify: true) }
+    func windowDidResignKey(_ notification: Notification) {
+        NSLog("[talkback] resigned key → dismiss")
+        dismiss(notify: true)
+    }
 
     private func buildPanel() {
-        let hv = NSHostingView(rootView: TalkbackRoot(model: model, controller: self))
-        if #available(macOS 13.0, *) { hv.sizingOptions = .preferredContentSize }
+        let hc = NSHostingController(rootView: TalkbackRoot(model: model, controller: self))
         let p = KeyablePanel(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 220),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -135,17 +157,22 @@ final class TalkbackController: NSObject, NSWindowDelegate {
         p.animationBehavior = .utilityWindow
         p.isMovableByWindowBackground = true
         p.delegate = self
-        p.contentView = hv
+        p.contentView = hc.view
         p.onCancel = { [weak self] in self?.cancel() }
         panel = p
-        hosting = hv
+        hosting = hc
     }
 
     /// Spotlight placement: centered on the screen with the mouse, upper third.
+    /// NSHostingController.sizeThatFits is the one sizing API that reliably measures
+    /// an off-window SwiftUI tree (fittingSize / intrinsicContentSize report 0 / -1).
     private func layout() {
-        guard let p = panel, let hv = hosting else { return }
-        hv.layoutSubtreeIfNeeded()
-        let size = hv.fittingSize
+        guard let p = panel, let hc = hosting else { return }
+        var size = hc.sizeThatFits(in: NSSize(width: 2000, height: 2000))
+        if size.width < 200 || size.height < 80 {
+            NSLog("[talkback] layout: degenerate size %@", NSStringFromSize(size))
+            size = NSSize(width: 640, height: 240)
+        }
         let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }
             ?? NSScreen.main
         guard let sf = screen?.visibleFrame else { return }
