@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$HOME/.chamber/chamberd.json\" ] && cat \"${CLAUDE_PLUGIN_ROOT}/hooks/narration.md\" 2>/dev/null; exit 0"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$HOME/.chamber/chamberd.json\" ] && echo 'Chamber: narrate this turn as you work — chamber_task at the start, a short chamber_progress line before each step, chamber_done (two sentences) when the task is complete.'; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -58,6 +58,11 @@ struct ContentView: View {
                     }
                     Text("Turn to face an agent to hear it open up · look down to whisper all")
                         .font(.caption2).foregroundStyle(.tertiary)
+                    Text(engine.bridged
+                        ? "● live — agents join as they connect (chamberd)"
+                        : "○ demo — canned agents (chamberd not running)")
+                        .font(.caption2)
+                        .foregroundStyle(engine.bridged ? Color.green.opacity(0.75) : Color.secondary.opacity(0.6))
                     // Eyes-closed immersion fade: close your eyes and the scene fills in; open them and
                     // it fades to silence. User-toggleable — off holds full audio regardless of eyes.
                     Toggle(isOn: $immersionEnabled) {
@@ -97,6 +102,16 @@ struct ContentView: View {
         }
         .frame(minWidth: 660, minHeight: 700)
         .preferredColorScheme(.dark)
+        // the room exists (muted) from launch so live-bridge state — binds, narration,
+        // done-summaries — accumulates correctly before the user clicks in
+        .onAppear {
+            engine.setup()
+            // dev harness: CHAMBER_DEV=talkback locks onto a fake agent at launch so
+            // the panel's focus-steal mechanics are testable with no daemon or camera
+            if ProcessInfo.processInfo.environment["CHAMBER_DEV"]?.hasPrefix("talkback") == true {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { engine.talkbackHarness() }
+            }
+        }
     }
 
     private var introCard: some View {
@@ -150,7 +165,7 @@ struct ContentView: View {
     }
 
     private func enable() {
-        engine.setup()
+        engine.openRoom() // setup() already ran at launch; this un-mutes
         // No sign flip: the two-point calibration below resolves the camera's yaw direction
         // (the uncalibrated default is what was inverted). 6DoF position from the bbox estimate.
         tracker.onOrient = { [weak engine] d in engine?.setOrient(deg: d) }

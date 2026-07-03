@@ -94,6 +94,28 @@ final class AgentRuntime {
     var nextPing = 0.0, lastPingWall = 0.0, heardAt = 0.0
     var stNextMod = 0.0, stCurrent: Float = 0
 
+    // live-bridge fields: presence (a bound chamberd seat) + the narration queue.
+    // Queue is mutated only on the state queue; render plays via the one-shot
+    // trigger pattern like ping/summary. Cap 2, drop-stale (match the web client:
+    // a slow listener hears the LATEST work, not a backlog).
+    var present = true // demo mode: everyone is present
+    var departed = false // session gone, but its unheard done-summary keeps it in the room
+    var narrQueue: [[Float]] = []
+    var narr: [Float] = []
+    var narrCur = -1
+    var narrTrig = 0, narrSeen = 0
+    var gNarr: Float = 0
+
+    // talk-back dwell/lock earcons: the bloom is a baked rising swell gated by gBloom
+    // (aborted dwell = fade out); the lock chime is a plain one-shot. Both spatialized
+    // through this agent's voice like ping/chime.
+    var bloom: [Float] = []
+    var lockChime: [Float] = []
+    var bloomCur = -1, lockCur = -1
+    var bloomTrig = 0, bloomSeen = 0
+    var lockTrig = 0, lockSeen = 0
+    var gBloom: Float = 0
+
     init(def: AgentDef, idx: Int) { self.def = def; self.idx = idx }
 }
 
@@ -171,6 +193,33 @@ final class ChamberEngine: ObservableObject {
     private var started = false
     private var autoFinishInternal = true
 
+    // live bridge (chamberd): when connected, agents exist only as bound seats and
+    // speak real narration; the canned demo loops and auto-finish stay off.
+    @Published var bridged = false
+    private var bridge: BridgeClient?
+    private var liveBridge = false
+    /// Seats currently bound at the hub — tracked independently of `agents` so binds
+    /// that arrive before setup() (hub replays occupancy on connect) aren't lost.
+    private var boundSeats = Set<Int>()
+    /// Done-summaries that arrived before setup() allocated the agents. Blips are
+    /// ephemeral and may drop in that window; a done is durable state and must not.
+    private var pendingDone: [Int: [Float]] = [:]
+
+    // talk-back lock-on (eyes-closed dwell → lantern → letter). All state lives on `q`;
+    // the panel (TalkbackController) is main-thread and driven via pushTalkback().
+    // seatMeta/seatLines live on the engine (not AgentRuntime) so binds and narration
+    // text that arrive before setup() are never lost.
+    let talkback = TalkbackController()
+    private var seatMeta: [Int: TalkbackSeatMeta] = [:]
+    private var seatLines: [Int: [TalkbackLine]] = [:]
+    private var dwellSeat = -1
+    private var dwellStart = 0.0
+    private var lockedSeat = -1
+    /// After a dismiss, don't immediately re-dwell on the same agent — wait until the
+    /// gaze leaves it or the eyes reopen (otherwise send-with-eyes-closed re-locks).
+    private var cooldownSeat = -1
+    private let dwellSecs = 0.9
+
     // preallocated FFI scratch (no allocation in the render callback)
     private var inBufs: [UnsafeMutablePointer<Float>] = []
     private var inTable: UnsafeMutablePointer<UnsafePointer<Float>?>!
@@ -178,8 +227,20 @@ final class ChamberEngine: ObservableObject {
 
     private func now() -> Double { CFAbsoluteTimeGetCurrent() }
 
+    init() {
+        // The app owns the daemon from launch (adopt or spawn + connect /stream) —
+        // before audio setup, so agents that connect while the user is still in the
+        // intro/calibration flow are present the moment the room opens. All frame
+        // handlers are guarded for the pre-setup (empty agents) window.
+        let b = BridgeClient(engine: self)
+        bridge = b
+        _ = b.start()
+        talkback.onSend = { [weak self] text in self?.talkbackSend(text) }
+        talkback.onDismiss = { [weak self] in self?.talkbackUnlock() }
+    }
+
     func setup() {
-        guard let res = Bundle.main.resourceURL else { return }
+        guard !started, let res = Bundle.main.resourceURL else { return }
         let assetURL = res.appendingPathComponent("chamber.chamber")
         guard let r = ChamberRenderer(assetURL: assetURL, sampleRate: SAMPLE_RATE,
                                       maxSources: AGENTS.count, maxBlock: maxBlock) else {
@@ -200,6 +261,8 @@ final class ChamberEngine: ObservableObject {
             a.summary = loadMono(base.appendingPathComponent("\(def.id)_done.mp3")) ?? []
             a.ping = makePing(PING_FREQS[i % PING_FREQS.count])
             a.stat = sharedStatic
+            a.bloom = makeBloom(PING_FREQS[i % PING_FREQS.count])
+            a.lockChime = makeLockChime(PING_FREQS[i % PING_FREQS.count])
             agents.append(a)
         }
         let n = agents.count
@@ -219,8 +282,10 @@ final class ChamberEngine: ObservableObject {
                                       fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
         }
         renderer.setRoom(roomIndex)
-        // close 1.3 m arc + 6 summed voices + BRIR tail is hot -> keep the master well down
-        renderer.setMasterGain(0.45)
+        // Muted until the user enters the room (openRoom). setup() now runs at app
+        // LAUNCH so live-bridge state (binds, dones) accumulates correctly from
+        // second zero; the intro click just turns the speakers on.
+        renderer.setMasterGain(0.0)
         renderer.setFreqScale(Float(freqScale)) // push the default "fit" so it's applied from the first block
 
         // attention cue: synthesized + spatialized inside the MAIN renderer now (no second engine).
@@ -236,7 +301,15 @@ final class ChamberEngine: ObservableObject {
         started = true
         nextAuto = now() + 6
         startTimer()
+        // the bridge may have entered live mode before the agents existed
+        q.async { if self.liveBridge { self.applyLiveMode() } }
         DispatchQueue.main.async { self.ready = true }
+    }
+
+    /// The user entered the room (intro click): un-mute. The close 1.3 m arc + 6
+    /// summed voices + BRIR tail is hot → keep the master well down.
+    func openRoom() {
+        q.async { self.renderer?.setMasterGain(0.45) }
     }
 
     private func buildGraph() {
@@ -265,8 +338,12 @@ final class ChamberEngine: ObservableObject {
             if a.pingTrig != a.pingSeen { a.pingSeen = a.pingTrig; a.pingCur = 0 }
             if a.summaryTrig != a.summarySeen { a.summarySeen = a.summaryTrig; a.summaryCur = 0 }
             if a.chimeTrig != a.chimeSeen { a.chimeSeen = a.chimeTrig; a.chimeCur = 0 }
+            if a.narrTrig != a.narrSeen { a.narrSeen = a.narrTrig; a.narrCur = 0 }
+            if a.bloomTrig != a.bloomSeen { a.bloomSeen = a.bloomTrig; a.bloomCur = 0 }
+            if a.lockTrig != a.lockSeen { a.lockSeen = a.lockTrig; a.lockCur = 0 }
             let buf = inBufs[ai]
-            let gc = a.gClear, gw = a.gWhisper, gs = a.gStat, gp = a.gPing, gsum = a.gSummary
+            let gc = a.gClear, gw = a.gWhisper, gs = a.gStat, gp = a.gPing, gsum = a.gSummary, gn = a.gNarr
+            let gb = a.gBloom
             for k in 0..<n {
                 var s: Float = 0
                 if !a.clear.isEmpty { s += a.clear[a.clearCur] * gc; a.clearCur = (a.clearCur + 1) % a.clear.count }
@@ -279,6 +356,14 @@ final class ChamberEngine: ObservableObject {
                     s += a.summary[a.summaryCur] * gsum; a.summaryCur += 1
                     if a.summaryCur >= a.summary.count { a.summaryCur = -1; a.summaryDone = true }
                 }
+                // live narration one-shot (bridge mode)
+                if a.narrCur >= 0, !a.narr.isEmpty {
+                    s += a.narr[a.narrCur] * gn; a.narrCur += 1
+                    if a.narrCur >= a.narr.count { a.narrCur = -1 }
+                }
+                // talk-back dwell bloom + lock chime (spatialized from this agent)
+                if a.bloomCur >= 0 { s += a.bloom[a.bloomCur] * gb; a.bloomCur += 1; if a.bloomCur >= a.bloom.count { a.bloomCur = -1 } }
+                if a.lockCur >= 0 { s += a.lockChime[a.lockCur] * 0.9; a.lockCur += 1; if a.lockCur >= a.lockChime.count { a.lockCur = -1 } }
                 buf[k] = s
             }
         }
@@ -343,6 +428,9 @@ final class ChamberEngine: ObservableObject {
         q.async {
             self.lastEyesClosedState = closed
             if self.immersionArmed { self.immersionTarget = self.immersionTargetFor(closed) }
+            if self.lockedSeat >= 0 { // lantern (closed) ↔ letter (open)
+                DispatchQueue.main.async { self.talkback.setEyesClosed(closed) }
+            }
         }
     }
     /// Host-clock capture time of the most recent pose (from FaceTracker), for the latency oracle.
@@ -370,6 +458,135 @@ final class ChamberEngine: ObservableObject {
         DispatchQueue.main.async { self.freqScale = s }
     }
 
+    // MARK: live bridge (chamberd /stream)
+
+    /// First hello (or reconnect) → enter live mode: hide everyone until seats bind,
+    /// stop the demo's auto-finish, drop the canned loops. Disconnect keeps live mode
+    /// (agents freeze; the bridge retries in the background). Runs on `q`.
+    private func applyLiveMode() {
+        autoFinishInternal = false
+        for (i, a) in agents.enumerated() {
+            a.present = boundSeats.contains(i)
+            a.state = .working
+            a.clear = []; a.whisper = [] // live agents speak narration, not loops
+            a.gClear = 0; a.gWhisper = 0; a.gStat = 0; a.gPing = 0
+        }
+        // replay dones that arrived before the room existed
+        for (seat, summary) in pendingDone where agents.indices.contains(seat) {
+            NSLog("[bridge] applying buffered done for seat=%d", seat)
+            applyDone(agents[seat], summary: summary)
+        }
+        pendingDone.removeAll()
+        DispatchQueue.main.async { self.bridged = true; self.autoFinish = false }
+    }
+
+    func bridgeConnected(_ up: Bool) {
+        q.async {
+            guard up, !self.liveBridge else { return }
+            self.liveBridge = true
+            self.applyLiveMode()
+        }
+    }
+
+    func bridgeBind(seat: Int, name: String? = nil, kind: String? = nil,
+                    title: String? = nil, input: String? = nil) {
+        q.async {
+            var m = self.seatMeta[seat] ?? TalkbackSeatMeta()
+            if let name, !name.isEmpty { m.name = name }
+            if let kind, !kind.isEmpty { m.kind = kind }
+            if let title, !title.isEmpty { m.title = title }
+            m.input = input ?? ""
+            self.seatMeta[seat] = m
+            if self.lockedSeat == seat { self.pushTalkback(present: false) }
+
+            self.boundSeats.insert(seat)
+            guard self.liveBridge, self.agents.indices.contains(seat) else { return }
+            let a = self.agents[seat]
+            a.present = true
+            a.departed = false
+            a.state = .working
+        }
+    }
+
+    /// Narration text (task/progress/blocked/done) — the panel's mini-transcript.
+    func bridgeLine(seat: Int, kind: String, text: String) {
+        q.async {
+            var lines = self.seatLines[seat] ?? []
+            lines.append(TalkbackLine(kind: kind, text: text, at: Date().timeIntervalSince1970))
+            if lines.count > 3 { lines.removeFirst(lines.count - 3) }
+            self.seatLines[seat] = lines
+            if self.lockedSeat == seat { self.pushTalkback(present: false) }
+        }
+    }
+
+    func bridgeFree(seat: Int) {
+        q.async {
+            self.boundSeats.remove(seat)
+            self.seatMeta[seat]?.input = "" // its pane may live on, but honestly: unknown
+            if self.lockedSeat == seat {
+                // the conversation partner left mid-compose — let the panel go
+                self.lockedSeat = -1
+                DispatchQueue.main.async { self.talkback.dismiss(notify: false) }
+            }
+            guard self.agents.indices.contains(seat) else { return }
+            let a = self.agents[seat]
+            a.narrQueue.removeAll()
+            a.gNarr = 0
+            if a.state == .done || a.state == .summarizing {
+                // The session exited, but its unheard summary is the whole point of
+                // the chamber: keep the agent in the room, pinging, until it's heard.
+                // reset() (after .heard) then removes it.
+                a.departed = true
+            } else {
+                a.present = false
+                a.state = .working
+                a.gPing = 0; a.gSummary = 0
+            }
+        }
+    }
+
+    /// A narration line (task/progress/blocked), already decoded to 48 k mono.
+    func bridgeNarration(seat: Int, samples: [Float]) {
+        q.async {
+            guard self.agents.indices.contains(seat) else { return }
+            let a = self.agents[seat]
+            a.present = true
+            if a.narrQueue.count >= 2 { a.narrQueue.removeFirst() } // drop-stale
+            a.narrQueue.append(samples)
+        }
+    }
+
+    /// A done-summary: swap it in for the canned summary clip and run the existing
+    /// done flow (pings from its bearing, linger-to-hear, attention cue counting).
+    func bridgeDone(seat: Int, summary: [Float]) {
+        q.async {
+            guard self.agents.indices.contains(seat) else {
+                // the room doesn't exist yet (setup pending) — hold the done for it
+                NSLog("[bridge] done seat=%d buffered (room not set up yet)", seat)
+                self.pendingDone[seat] = summary
+                return
+            }
+            self.applyDone(self.agents[seat], summary: summary)
+        }
+    }
+
+    /// Runs on `q`. The done flow shared by live frames and the pre-setup buffer.
+    private func applyDone(_ a: AgentRuntime, summary: [Float]) {
+        a.present = true
+        if !summary.isEmpty { a.summary = summary }
+        // a fresh done may also land on a .heard agent (it finished another task);
+        // only an in-flight .done/.summarizing keeps its current run
+        guard a.state == .working || a.state == .heard else {
+            NSLog("[bridge] done seat=%d: already \(a.state), summary updated only", a.idx)
+            return
+        }
+        a.heardAt = 0
+        a.state = .done
+        a.nextPing = now() + 0.15
+        a.lastPingWall = 0
+        NSLog("[bridge] done seat=%d -> .done (summary %d samples)", a.idx, a.summary.count)
+    }
+
     // MARK: the loop
 
     private func startTimer() {
@@ -383,6 +600,21 @@ final class ChamberEngine: ObservableObject {
     private func tick() {
         guard started else { return }
         let t = now()
+
+        // live narration: feed the next queued line into the one-shot slot when idle
+        if liveBridge {
+            for a in agents where a.present {
+                if a.narrCur == -1, a.narrTrig == a.narrSeen, !a.narrQueue.isEmpty {
+                    a.narr = a.narrQueue.removeFirst()
+                    a.narrTrig += 1
+                }
+                // narration ducks like the clear voice: full when faced, murmur otherwise
+                let faced = a.idx == facedIndex()
+                let target: Float = a.narr.isEmpty ? 0 : (faced ? 0.95 : 0.55) * Float(0.4 + 0.6 * lookGate)
+                a.gNarr += (target - a.gNarr) * 0.15
+            }
+        }
+
         for (i, a) in agents.enumerated() {
             switch a.state {
             case .done:
@@ -410,13 +642,116 @@ final class ChamberEngine: ObservableObject {
             else if t - lingerStart >= LINGER_SECS { startSummary(agents[fi]) }
         } else { lingerIdx = -1 }
 
+        updateTalkback(fi: fi, t: t)
         updateMix(facedIdx: fi)
         publish(facedIdx: fi, at: t)
     }
 
+    // MARK: talk-back lock-on (runs on `q`)
+
+    /// Eyes-closed dwell → lock. Dwelling swells the agent's bloom; completing the dwell
+    /// locks (chime + panel takes the keyboard). While locked, eyes-closed gaze can jump
+    /// the lock to another agent via the same dwell. Eyes open freeze the lock; only the
+    /// panel dismiss (esc / click-away / send) releases it.
+    private func updateTalkback(fi: Int, t: Double) {
+        if lastEyesClosedState {
+            if fi != cooldownSeat { cooldownSeat = -1 }
+            if fi >= 0, fi != lockedSeat, fi != cooldownSeat {
+                if dwellSeat != fi {
+                    dwellSeat = fi
+                    dwellStart = t
+                    agents[fi].bloomTrig += 1
+                } else if t - dwellStart >= dwellSecs {
+                    dwellSeat = -1
+                    lock(seat: fi)
+                }
+            } else {
+                dwellSeat = -1
+            }
+        } else {
+            dwellSeat = -1 // eyes open: existing lock freezes, no new dwell
+            cooldownSeat = -1
+        }
+        for (i, a) in agents.enumerated() {
+            let target: Float = i == dwellSeat ? 1 : 0
+            a.gBloom += (target - a.gBloom) * 0.3
+        }
+    }
+
+    private func lock(seat: Int) {
+        lockedSeat = seat
+        if agents.indices.contains(seat) { agents[seat].lockTrig += 1 }
+        NSLog("[talkback] locked seat=%d", seat)
+        pushTalkback(present: true)
+    }
+
+    /// Snapshot of everything the panel shows for a seat. Runs on `q`.
+    private func talkbackInfo(seat: Int) -> TalkbackAgentInfo {
+        let meta = seatMeta[seat]
+        let def = AGENTS[seat % AGENTS.count]
+        return TalkbackAgentInfo(
+            seat: seat,
+            name: meta?.name ?? def.id,
+            colorHex: def.hex,
+            kind: meta?.kind ?? (liveBridge ? "" : "demo"),
+            title: meta?.title ?? "",
+            input: meta?.input ?? (liveBridge ? "" : "demo"),
+            lines: seatLines[seat] ?? [])
+    }
+
+    private func pushTalkback(present: Bool) {
+        guard lockedSeat >= 0 else { return }
+        let info = talkbackInfo(seat: lockedSeat)
+        let eyes = lastEyesClosedState
+        DispatchQueue.main.async {
+            if present { self.talkback.present(info: info, eyesClosed: eyes) }
+            else { self.talkback.update(info: info) }
+        }
+    }
+
+    /// Panel dismissed (esc / click-away / after send). Cooldown the seat so an
+    /// eyes-closed send doesn't immediately re-dwell on the agent still being faced.
+    func talkbackUnlock() {
+        q.async {
+            self.cooldownSeat = self.lockedSeat
+            self.lockedSeat = -1
+            self.dwellSeat = -1
+        }
+    }
+
+    /// Send the user's words to the locked agent via the hub's say flow.
+    func talkbackSend(_ text: String) {
+        q.async {
+            guard self.lockedSeat >= 0 else { return }
+            if self.liveBridge {
+                self.bridge?.sendSay(seat: self.lockedSeat, text: text)
+            } else {
+                NSLog("[talkback] (demo) say seat=%d: %@", self.lockedSeat, text)
+            }
+        }
+    }
+
+    /// Dev harness (CHAMBER_DEV=talkback): lock onto a fake agent with canned data so
+    /// the panel's focus mechanics are testable with no daemon, camera, or agent.
+    /// Presents eyes-open, so it also exercises the empty-field grace auto-dismiss.
+    func talkbackHarness() {
+        q.async {
+            let now = Date().timeIntervalSince1970
+            self.seatMeta[2] = TalkbackSeatMeta(
+                name: "wren", kind: "claude-code",
+                title: "chamber — talk-back panel", input: "tmux")
+            self.seatLines[2] = [
+                TalkbackLine(kind: "task", text: "Wiring the reconnect path in BridgeClient", at: now - 240),
+                TalkbackLine(kind: "progress", text: "Backoff works; adding the respawn guard", at: now - 70),
+                TalkbackLine(kind: "blocked", text: "Should the daemon keep port 8787 when the discovery file is stale?", at: now - 12),
+            ]
+            self.lock(seat: 2)
+        }
+    }
+
     private func facedIndex() -> Int {
         var best = -1, bd = Double.infinity
-        for (i, a) in agents.enumerated() {
+        for (i, a) in agents.enumerated() where a.present {
             let d = abs(angdiff(a.bearing, orient))
             if d < bd { bd = d; best = i }
         }
@@ -477,12 +812,16 @@ final class ChamberEngine: ObservableObject {
 
     private func reset(_ a: AgentRuntime) {
         a.state = .working; a.heardAt = 0; a.stCurrent = 0; a.gPing = 0
+        if a.departed { // summary heard and the session is long gone — leave the room
+            a.departed = false
+            a.present = false
+        }
     }
 
     private func publish(facedIdx: Int, at t: Double) {
         pubCounter += 1
         guard pubCounter % 2 == 0 else { return }
-        let vms = agents.map {
+        let vms = agents.filter { $0.present }.map {
             AgentVM(id: $0.idx, hex: $0.def.hex, bearing: $0.bearing, state: $0.state,
                     pingAge: $0.lastPingWall > 0 ? t - $0.lastPingWall : 99)
         }
