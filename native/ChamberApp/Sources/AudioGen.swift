@@ -124,6 +124,68 @@ func makeLockChime(_ freq: Float, sr: Double = 48_000) -> [Float] {
     return y
 }
 
+// MARK: chord identity (tool calls + working drone)
+//
+// Each agent's chord is a minor-7th built an octave below its ping frequency:
+// tool calls walk DOWN the chord's top three tones (m7 → 5th → m3), one gentle
+// note per call, and the chord's root is the agent's working drone — a quiet,
+// slowly breathing tone that says "this direction is busy" without words.
+
+/// The three descending tool-call notes for a ping frequency (Hz, high→low).
+func toolNoteFreqs(_ ping: Float) -> [Float] {
+    let root = ping / 2
+    return [root * powf(2, 10 / 12), root * powf(2, 7 / 12), root * powf(2, 3 / 12)]
+}
+
+/// One tool-call note: a soft, round pluck — sine + a whisper of octave.
+func makeToolNote(_ freq: Float, sr: Double = 48_000) -> [Float] {
+    let n = Int(sr * 0.9)
+    var y = [Float](repeating: 0, count: n)
+    for i in 0..<n {
+        let t = Double(i) / sr
+        let env = min(t / 0.008, 1) * exp(-t * 4.2)
+        let s = sin(2 * .pi * Double(freq) * t) * 0.85
+              + sin(2 * .pi * Double(freq) * 2 * t) * 0.10
+        y[i] = Float(s * env * 0.16)
+    }
+    return y
+}
+
+/// The working drone: a seamless 4 s loop of the chord root, breathing at
+/// 0.5 Hz with a 0.25 Hz two-oscillator beat. All components complete whole
+/// cycles over the loop so it can run forever without a click.
+func makeDrone(_ ping: Float, sr: Double = 48_000) -> [Float] {
+    let dur = 4.0
+    let n = Int(sr * dur)
+    // quantize the carrier to whole cycles over the loop (seamless)
+    let f = (Double(ping) / 2 * dur).rounded() / dur
+    let f2 = f + 1.0 / dur // exactly one extra cycle → a slow, warm beat
+    var y = [Float](repeating: 0, count: n)
+    for i in 0..<n {
+        let t = Double(i) / sr
+        let breathe = 0.62 + 0.38 * sin(2 * .pi * 0.5 * t - .pi / 2)
+        let s = sin(2 * .pi * f * t) * 0.6 + sin(2 * .pi * f2 * t) * 0.4
+        y[i] = Float(s * breathe * 0.16)
+    }
+    return y
+}
+
+/// Drag audition pulse: a sonar-ish blip once per 1.4 s loop, meant to be
+/// played with a hot reverb send so the room answers from the agent's spot.
+func makePulse(_ ping: Float, sr: Double = 48_000) -> [Float] {
+    let dur = 1.4
+    let n = Int(sr * dur)
+    let f = (Double(ping) * dur).rounded() / dur
+    var y = [Float](repeating: 0, count: n)
+    for i in 0..<n {
+        let t = Double(i) / sr
+        let env = min(t / 0.006, 1) * exp(-t * 5.5)
+        let s = sin(2 * .pi * f * t) * 0.7 + sin(2 * .pi * f / 2 * t) * 0.3
+        y[i] = Float(s * env * 0.5)
+    }
+    return y
+}
+
 /// 2s of band-passed noise — a weak tuned signal rather than broadband hiss.
 func makeStatic(sr: Double = 48_000) -> [Float] {
     let n = Int(sr * 2)

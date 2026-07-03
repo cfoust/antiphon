@@ -27,6 +27,7 @@ struct TalkbackLine: Equatable {
 
 /// Per-seat identity from bind frames; survives pre-setup on the engine.
 struct TalkbackSeatMeta {
+    var agent = "" // registry id — a different id on the same seat is a new tenant
     var name = ""
     var kind = ""
     var title = ""

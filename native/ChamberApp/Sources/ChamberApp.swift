@@ -2,81 +2,76 @@ import SwiftUI
 
 @main
 struct ChamberAppMain: App {
+    @StateObject private var tracker = FaceTracker()
+    @StateObject private var engine = ChamberEngine()
+
     var body: some Scene {
-        WindowGroup("Chamber") { ContentView() }
-            .defaultSize(width: 720, height: 980)
+        // Full-bleed: the radar IS the window — traffic lights float over it.
+        WindowGroup("Chamber") { ContentView(tracker: tracker, engine: engine) }
+            .defaultSize(width: 1080, height: 780)
+            .windowStyle(.hiddenTitleBar)
+        Window("Chamber Settings", id: "chamber-settings") { SettingsView(engine: engine) }
+            .defaultSize(width: 760, height: 560)
+            .windowResizability(.contentMinSize)
     }
 }
 
-/// Mirrors the web experience: an intro gate, a voice-guided two-point calibration, then a
-/// full radar. (The web app and this share the same flow + radar so they feel identical.)
+/// The main window: an intro gate, a two-point calibration, then the chamber —
+/// a full-bleed top-down visualization with the residents' list on the right.
 struct ContentView: View {
-    @StateObject private var tracker = FaceTracker()
-    @StateObject private var engine = ChamberEngine()
+    @ObservedObject var tracker: FaceTracker
+    @ObservedObject var engine: ChamberEngine
+    @Environment(\.openWindow) private var openWindow
     @State private var enabled = false
     @State private var live = false
     @State private var showDebug = false
     @State private var calArrow = ""
     @State private var calText = ""
-    @State private var immersionEnabled = true // eyes-closed → scene fills in; user-toggleable below
-    private let rooms = ["dry", "room (FDN)", "hall (FDN)", "cathedral (FDN)", "room (BRIR)", "hall (BRIR)"]
+    @State private var immersionEnabled = true // eyes-closed → scene fills in (toggle in Settings)
+    @State private var menuBar = MenuBarController()
 
     var body: some View {
         ZStack {
             Color(red: 0.04, green: 0.047, blue: 0.063).ignoresSafeArea()
 
             if live {
-                VStack(spacing: 14) {
-                    Radar(engine: engine)
-                    HStack(spacing: 16) {
-                        Picker("", selection: Binding(get: { engine.roomIndex }, set: { engine.setRoom($0) })) {
-                            ForEach(rooms.indices, id: \.self) { Text(rooms[$0]).tag($0) }
-                        }
-                        .labelsHidden().frame(width: 160)
-                        Button("Recalibrate") { runCalibration() }
-                            .buttonStyle(.borderless).foregroundStyle(.secondary)
-                    }
-                    .font(.caption)
-                    // BRIR rooms can blend their measured tail with the parametric FDN tail.
-                    if engine.roomIndex >= 4 {
+                RadarView(engine: engine).ignoresSafeArea()
+
+                // right rail: gear over the residents' list
+                HStack(spacing: 0) {
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 10) {
                         HStack(spacing: 10) {
-                            Text("FDN").font(.caption2).foregroundStyle(.secondary)
-                            Slider(value: Binding(get: { engine.reverbBlend },
-                                                  set: { engine.setReverbBlend($0) }), in: 0...1)
-                                .frame(width: 170)
-                            Text("BRIR").font(.caption2).foregroundStyle(.secondary)
+                            if !engine.watching {
+                                Label("asleep", systemImage: "eye.slash")
+                                    .font(.caption).foregroundStyle(.white.opacity(0.45))
+                            }
+                            Button {
+                                openWindow(id: "chamber-settings")
+                            } label: {
+                                Image(systemName: "gearshape")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.white.opacity(0.55))
+                                    .padding(7)
+                                    .background(.black.opacity(0.42), in: Circle())
+                                    .overlay(Circle().stroke(.white.opacity(0.07)))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Chamber settings")
                         }
+                        AgentSidebar(engine: engine)
+                        Spacer(minLength: 0)
                     }
-                    // HRTF "fit": dial until a source straight ahead sits OUT in front at ear level.
-                    HStack(spacing: 10) {
-                        Text("Fit").font(.caption2).foregroundStyle(.secondary)
-                        Slider(value: Binding(get: { engine.freqScale },
-                                              set: { engine.setFreqScale($0) }), in: 0.7...2.2)
-                            .frame(width: 200)
-                        Text(String(format: "%.2f", engine.freqScale))
-                            .font(.caption2.monospaced()).foregroundStyle(.tertiary)
-                    }
-                    Text("Turn to face an agent to hear it open up · look down to whisper all")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                    Text(engine.bridged
-                        ? "● live — agents join as they connect (chamberd)"
-                        : "○ demo — canned agents (chamberd not running)")
-                        .font(.caption2)
-                        .foregroundStyle(engine.bridged ? Color.green.opacity(0.75) : Color.secondary.opacity(0.6))
-                    // Eyes-closed immersion fade: close your eyes and the scene fills in; open them and
-                    // it fades to silence. User-toggleable — off holds full audio regardless of eyes.
-                    Toggle(isOn: $immersionEnabled) {
-                        Text("Immersion fade · close eyes → scene fills in")
-                    }
-                    .toggleStyle(.switch).font(.caption).frame(width: 320)
-                    .onChange(of: immersionEnabled) { on in engine.setImmersionArmed(on) }
-                    Text(String(format: "eyes %@ · openness %.2f · immersion %.2f%@",
-                                tracker.eyesClosed ? "closed" : "open", tracker.eyeOpenness,
-                                engine.immersionLevel, tracker.eyesCalibratedPub ? "" : " · calibrating…"))
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(tracker.eyesClosed ? Color.green : Color.secondary)
+                    .padding(16)
                 }
-                .padding(20)
+
+                // discreet status, bottom-left
+                Text(engine.bridged ? "● live" : "○ demo")
+                    .font(.caption2)
+                    .foregroundStyle(engine.bridged ? Color.green.opacity(0.55) : .white.opacity(0.3))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(14)
+                    .allowsHitTesting(false)
             }
 
             // calibration overlay
@@ -100,17 +95,30 @@ struct ContentView: View {
                 introCard
             }
         }
-        .frame(minWidth: 660, minHeight: 700)
+        .frame(minWidth: 720, minHeight: 560)
         .preferredColorScheme(.dark)
         // the room exists (muted) from launch so live-bridge state — binds, narration,
         // done-summaries — accumulates correctly before the user clicks in
         .onAppear {
             engine.setup()
+            menuBar.install()
+            // menu-bar eye: closed = camera released, app silent and unresponsive
+            menuBar.onToggle = { [weak engine, weak tracker] on in
+                engine?.setWatching(on)
+                if on { tracker?.resume() } else { tracker?.pause() }
+            }
             // dev harness: CHAMBER_DEV=talkback locks onto a fake agent at launch so
             // the panel's focus-steal mechanics are testable with no daemon or camera
             if ProcessInfo.processInfo.environment["CHAMBER_DEV"]?.hasPrefix("talkback") == true {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { engine.talkbackHarness() }
             }
+        }
+        // Settings buttons act here — calibration needs this window's overlay.
+        .onReceive(NotificationCenter.default.publisher(for: .init("chamber.recalibrate"))) { _ in
+            if enabled { runCalibration() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("chamber.showDebug"))) { _ in
+            if enabled { showDebug = true }
         }
     }
 
