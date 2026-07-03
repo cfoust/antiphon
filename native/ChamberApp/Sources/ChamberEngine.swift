@@ -569,7 +569,10 @@ final class ChamberEngine: ObservableObject {
         q.async {
             guard self.agents.indices.contains(seat) else { return }
             self.agents[seat].snoozed = on
+            NSLog("[snooze] seat=%d %@", seat, on ? "snoozed" : "woken")
             if on {
+                // the row leaves the hovered spot without an onHover(false)
+                DispatchQueue.main.async { if self.hoveredSeat == seat { self.hoveredSeat = -1 } }
                 if self.dragSeat == seat { self.dragSeat = -1; self.immersionHold = false }
                 if self.lockedSeat == seat {
                     self.lockedSeat = -1

@@ -138,6 +138,28 @@ struct ContentView: View {
             if ProcessInfo.processInfo.environment["CHAMBER_DEV"]?.hasPrefix("talkback") == true {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { engine.talkbackHarness() }
             }
+            // dev harness: CHAMBER_DEV=snooze exercises snooze/unsnooze on the first
+            // listed agent and dumps the list state (UI-independent engine check)
+            if ProcessInfo.processInfo.environment["CHAMBER_DEV"] == "snooze" {
+                func dump(_ tag: String) {
+                    NSLog("[snoozedev] %@: %@", tag,
+                          engine.agentList.map { "\($0.id)=\($0.snoozed ? "z" : "-")" }.joined(separator: " "))
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    // a local fake bind so the harness works in live mode too
+                    engine.bridgeBind(seat: 0, agent: "dev-snooze", name: "wren",
+                                      kind: "demo", title: "snooze harness", input: "demo")
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    dump("before")
+                    if let seat = engine.agentList.first?.id { engine.setSnoozed(seat, true) }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    dump("after-snooze")
+                    if let seat = engine.agentList.first?.id { engine.setSnoozed(seat, false) }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) { dump("after-unsnooze") }
+            }
         }
         // Settings buttons act here — calibration needs this window's overlay.
         .onReceive(NotificationCenter.default.publisher(for: .init("chamber.recalibrate"))) { _ in

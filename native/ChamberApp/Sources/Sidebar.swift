@@ -119,7 +119,9 @@ private struct AgentRowView: View {
                 }
             }
 
-            if hovering {
+            // a snoozed row always shows its moon — the way back must never
+            // hide behind a hover; active rows reveal theirs on hover
+            if hovering || vm.snoozed {
                 Button(action: onSnooze) {
                     Image(systemName: vm.snoozed ? "moon.zzz.fill" : "moon.zzz")
                         .font(.system(size: 12))
@@ -135,6 +137,9 @@ private struct AgentRowView: View {
         .background(hovering ? Color.white.opacity(0.06) : .clear,
                     in: RoundedRectangle(cornerRadius: 10))
         .contentShape(RoundedRectangle(cornerRadius: 10))
+        .onTapGesture {
+            if vm.snoozed { onSnooze() } // the whole snoozed row is a wake button
+        }
         .onHover { over in
             hovering = over
             if !vm.snoozed { onHover(over) } // snoozed agents aren't in the world
