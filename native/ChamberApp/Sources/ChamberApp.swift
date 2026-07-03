@@ -47,6 +47,22 @@ struct ContentView: View {
                                 Label(L("asleep"), systemImage: "eye.slash")
                                     .font(.caption).foregroundStyle(.white.opacity(0.45))
                             }
+                            // same eye as the menu bar — notched Macs hide
+                            // overflowing status items, so it lives here too
+                            Button {
+                                setWatching(!engine.watching)
+                            } label: {
+                                Image(systemName: engine.watching ? "eye" : "eye.slash")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.white.opacity(engine.watching ? 0.55 : 0.35))
+                                    .padding(7)
+                                    .background(.black.opacity(0.42), in: Circle())
+                                    .overlay(Circle().stroke(.white.opacity(0.07)))
+                            }
+                            .buttonStyle(.plain)
+                            .help(engine.watching
+                                ? L("Chamber is watching — click to close its eyes (camera off, silent)")
+                                : L("Chamber is asleep — click to wake it"))
                             Button {
                                 openWindow(id: "chamber-settings")
                             } label: {
@@ -103,11 +119,8 @@ struct ContentView: View {
         .onAppear {
             engine.setup()
             menuBar.install()
-            // menu-bar eye: closed = camera released, app silent and unresponsive
-            menuBar.onToggle = { [weak engine, weak tracker] on in
-                engine?.setWatching(on)
-                if on { tracker?.resume() } else { tracker?.pause() }
-            }
+            // menu-bar eye mirrors the in-window one; both flip watching
+            menuBar.onToggle = { setWatching(!engine.watching) }
             // dev harness: CHAMBER_DEV=talkback locks onto a fake agent at launch so
             // the panel's focus-steal mechanics are testable with no daemon or camera
             if ProcessInfo.processInfo.environment["CHAMBER_DEV"]?.hasPrefix("talkback") == true {
@@ -190,6 +203,14 @@ struct ContentView: View {
     }
 
     private func startDebug() { showDebug = true }
+
+    /// The one watching toggle both eyes (menu bar + in-window) call: engine
+    /// silence, camera on/off, and both icons stay in sync.
+    private func setWatching(_ on: Bool) {
+        engine.setWatching(on)
+        if on { tracker.resume() } else { tracker.pause() }
+        menuBar.sync(on)
+    }
 
     /// Voice-less two-point calibration: look fully left, then fully right.
     private func runCalibration() {
