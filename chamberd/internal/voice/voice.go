@@ -89,7 +89,9 @@ func (r Roster) Pick(inUse map[string]bool) Persona {
 			return p
 		}
 	}
-	return r.Personas[len(inUse)%len(r.Personas)]
+	// every voice is on stage: cycle, still centre-first
+	order := CenterOut(len(r.Personas))
+	return r.Personas[order[len(inUse)%len(r.Personas)]]
 }
 
 // CenterOut orders seat indices by distance from the middle of the arc:

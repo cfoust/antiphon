@@ -201,11 +201,14 @@ func (h *Hub) handleAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 // bindPersona gives the record its sticky persona (existing binding wins).
+// "In use" means seated in the room RIGHT NOW — not bound to any record ever,
+// or a day of idle sessions marks every voice taken and each new agent falls
+// to the cycle fallback (atlas, seat 0, hard left) forever.
 func (h *Hub) bindPersona(id string) voice.Persona {
 	rec, _ := h.reg.Get(id)
 	name := rec.Voice
 	if name == "" {
-		name = h.roster.Pick(h.reg.VoicesInUse()).Name
+		name = h.roster.Pick(h.seatedVoices()).Name
 	}
 	name = h.reg.BindVoice(id, name)
 	p, ok := h.roster.Get(name)
@@ -213,6 +216,22 @@ func (h *Hub) bindPersona(id string) voice.Persona {
 		p = h.roster.Personas[0]
 	}
 	return p
+}
+
+// seatedVoices reports the personas of agents currently occupying seats.
+func (h *Hub) seatedVoices() map[string]bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	used := map[string]bool{}
+	for _, id := range h.seats {
+		if id == "" {
+			continue
+		}
+		if rec, ok := h.reg.Get(id); ok && rec.Voice != "" {
+			used[rec.Voice] = true
+		}
+	}
+	return used
 }
 
 // claimSeat prefers the persona's home seat, then any free seat, then steals

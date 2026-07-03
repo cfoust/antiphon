@@ -186,19 +186,6 @@ func (r *Registry) List() []Record {
 	return out
 }
 
-// VoicesInUse reports persona names currently bound to any record.
-func (r *Registry) VoicesInUse() map[string]bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	used := map[string]bool{}
-	for _, rec := range r.recs {
-		if rec.Voice != "" {
-			used[rec.Voice] = true
-		}
-	}
-	return used
-}
-
 func snapshot(rec *Record) *Record {
 	c := *rec
 	return &c
