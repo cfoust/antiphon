@@ -1,9 +1,22 @@
 import SwiftUI
 
-// The settings window (gear, top-right of the main window). Two panes:
-// General (the sound/tracking controls that used to crowd the radar) and
-// Voices (TTS providers + the discovered voice pool, served by chamberd's
-// /config + /voices endpoints). Warm paper, SF Rounded — the letter's skin.
+// Settings (gear, top-right) — an overlay INSIDE the chamber window, dark to
+// match it. Two panes: General (the sound/tracking controls that used to
+// crowd the radar) and Voices (TTS providers + the discovered voice pool,
+// served by chamberd's /config + /voices endpoints).
+
+/// The settings' dark palette (same cool-dark family as the radar window).
+enum SD {
+    static let paper = Color(red: 0.058, green: 0.064, blue: 0.082)  // nav rail
+    static let field = Color(red: 0.075, green: 0.081, blue: 0.101)  // content
+    static let card = Color.white.opacity(0.05)
+    static let ink = Color.white.opacity(0.92)
+    static let sub = Color.white.opacity(0.55)
+    static let faint = Color.white.opacity(0.34)
+    static let hairline = Color.white.opacity(0.08)
+    static let coral = TB.coral
+    static let clay = Color(red: 0.85, green: 0.56, blue: 0.48) // errors, lifted for dark
+}
 
 // MARK: - daemon settings client (localhost HTTP)
 
@@ -67,6 +80,7 @@ enum SettingsClient {
 
 struct SettingsView: View {
     @ObservedObject var engine: ChamberEngine
+    var onClose: () -> Void = {}
     @ObservedObject private var i18n = I18n.shared
     @State private var pane = "general"
 
@@ -76,19 +90,19 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(L("SETTINGS"))
                     .font(.caption2.weight(.semibold)).kerning(1.2)
-                    .foregroundStyle(TB.faint)
+                    .foregroundStyle(SD.faint)
                     .padding(.bottom, 6)
                 navItem("general", icon: "slider.horizontal.3", label: L("General"))
                 navItem("voices", icon: "waveform", label: L("Voices"))
                 Spacer()
                 Text("Chamber")
-                    .font(.caption2).foregroundStyle(TB.faint)
+                    .font(.caption2).foregroundStyle(SD.faint)
             }
             .padding(16)
             .frame(width: 168, alignment: .leading)
-            .background(TB.paper)
+            .background(SD.paper)
 
-            Rectangle().fill(TB.hairline).frame(width: 1)
+            Rectangle().fill(SD.hairline).frame(width: 1)
 
             // content
             ScrollView {
@@ -102,11 +116,26 @@ struct SettingsView: View {
                 .padding(26)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(TB.field)
+            .background(SD.field)
         }
         .fontDesign(.rounded)
-        .preferredColorScheme(.light)
-        .frame(minWidth: 700, minHeight: 520)
+        .frame(width: 760, height: 540)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .stroke(.white.opacity(0.09)))
+        .overlay(alignment: .topTrailing) {
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(SD.sub)
+                    .padding(7)
+                    .background(.white.opacity(0.06), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction) // esc lets go, like everything here
+            .padding(12)
+        }
+        .shadow(color: .black.opacity(0.5), radius: 26, y: 8)
     }
 
     private func navItem(_ id: String, icon: String, label: String) -> some View {
@@ -118,9 +147,9 @@ struct SettingsView: View {
                 Text(label).font(.callout)
                 Spacer()
             }
-            .foregroundStyle(pane == id ? TB.ink : TB.sub)
+            .foregroundStyle(pane == id ? SD.ink : SD.sub)
             .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(pane == id ? TB.ink.opacity(0.07) : .clear,
+            .background(pane == id ? SD.ink.opacity(0.07) : .clear,
                         in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
@@ -134,7 +163,7 @@ private struct GeneralPane: View {
     @ObservedObject private var i18n = I18n.shared
 
     var body: some View {
-        Text(L("General")).font(.title2.weight(.semibold)).foregroundStyle(TB.ink)
+        Text(L("General")).font(.title2.weight(.semibold)).foregroundStyle(SD.ink)
 
         card(L("Sound")) {
             labeledRow(L("Room"), L("The acoustic the agents live in")) {
@@ -148,11 +177,11 @@ private struct GeneralPane: View {
                 divider()
                 labeledRow(L("Reverb tail"), L("Blend the parametric tail with the measured one")) {
                     HStack(spacing: 8) {
-                        Text("FDN").font(.caption2).foregroundStyle(TB.sub)
+                        Text("FDN").font(.caption2).foregroundStyle(SD.sub)
                         Slider(value: Binding(get: { engine.reverbBlend },
                                               set: { engine.setReverbBlend($0) }), in: 0...1)
                             .frame(width: 150)
-                        Text("BRIR").font(.caption2).foregroundStyle(TB.sub)
+                        Text("BRIR").font(.caption2).foregroundStyle(SD.sub)
                     }
                 }
             }
@@ -163,7 +192,7 @@ private struct GeneralPane: View {
                                           set: { engine.setFreqScale($0) }), in: 0.7...2.2)
                         .frame(width: 170)
                     Text(String(format: "%.2f", engine.freqScale))
-                        .font(.caption.monospacedDigit()).foregroundStyle(TB.sub)
+                        .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
                 }
             }
         }
@@ -221,24 +250,24 @@ private struct VoicesPane: View {
     ]
 
     var body: some View {
-        Text(L("Voices")).font(.title2.weight(.semibold)).foregroundStyle(TB.ink)
+        Text(L("Voices")).font(.title2.weight(.semibold)).foregroundStyle(SD.ink)
         Text(L("Each agent draws a voice at random from the pool below when it first joins, and keeps it for the life of the session."))
-            .font(.callout).foregroundStyle(TB.sub)
+            .font(.callout).foregroundStyle(SD.sub)
             .fixedSize(horizontal: false, vertical: true)
 
         if !daemonUp {
             card("") {
                 Text(L("chamberd isn't running — start the app's live mode and come back."))
-                    .font(.callout).foregroundStyle(TB.clay)
+                    .font(.callout).foregroundStyle(SD.clay)
             }
         } else if loading {
             ProgressView().controlSize(.small)
         } else {
             // pool summary
             HStack(spacing: 8) {
-                Image(systemName: "person.wave.2").foregroundStyle(TB.coral)
+                Image(systemName: "person.wave.2").foregroundStyle(SD.coral)
                 Text(LVoicePool(total))
-                    .font(.callout.weight(.medium)).foregroundStyle(TB.ink)
+                    .font(.callout.weight(.medium)).foregroundStyle(SD.ink)
                 Spacer()
                 Button {
                     Task { await load(refresh: true) }
@@ -247,7 +276,7 @@ private struct VoicesPane: View {
                 }
             }
             .padding(14)
-            .background(TB.paper, in: RoundedRectangle(cornerRadius: 12))
+            .background(SD.card, in: RoundedRectangle(cornerRadius: 12))
 
             ForEach(order, id: \.id) { p in
                 providerCard(p.id, label: p.label, blurb: L(p.blurb))
@@ -262,7 +291,7 @@ private struct VoicesPane: View {
                         .frame(minWidth: 80)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(TB.coral)
+                .tint(SD.coral)
                 .disabled(applying)
             }
         }
@@ -346,23 +375,23 @@ private struct VoicesPane: View {
 private func card(_ title: String, @ViewBuilder content: () -> some View) -> some View {
     VStack(alignment: .leading, spacing: 10) {
         if !title.isEmpty {
-            Text(title).font(.callout.weight(.semibold)).foregroundStyle(TB.ink)
+            Text(title).font(.callout.weight(.semibold)).foregroundStyle(SD.ink)
         }
         content()
     }
     .padding(16)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(TB.paper, in: RoundedRectangle(cornerRadius: 12))
-    .overlay(RoundedRectangle(cornerRadius: 12).stroke(TB.hairline))
+    .background(SD.card, in: RoundedRectangle(cornerRadius: 12))
+    .overlay(RoundedRectangle(cornerRadius: 12).stroke(SD.hairline))
 }
 
 private func labeledRow(_ title: String, _ sub: String,
                         @ViewBuilder trailing: () -> some View) -> some View {
     HStack(alignment: .center, spacing: 12) {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.callout).foregroundStyle(TB.ink)
+            Text(title).font(.callout).foregroundStyle(SD.ink)
             if !sub.isEmpty {
-                Text(sub).font(.caption).foregroundStyle(TB.sub)
+                Text(sub).font(.caption).foregroundStyle(SD.sub)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -372,5 +401,5 @@ private func labeledRow(_ title: String, _ sub: String,
 }
 
 private func divider() -> some View {
-    Rectangle().fill(TB.hairline).frame(height: 1)
+    Rectangle().fill(SD.hairline).frame(height: 1)
 }

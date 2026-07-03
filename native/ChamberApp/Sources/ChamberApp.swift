@@ -10,9 +10,6 @@ struct ChamberAppMain: App {
         WindowGroup("Chamber") { ContentView(tracker: tracker, engine: engine) }
             .defaultSize(width: 1080, height: 780)
             .windowStyle(.hiddenTitleBar)
-        Window("Chamber Settings", id: "chamber-settings") { SettingsView(engine: engine) }
-            .defaultSize(width: 760, height: 560)
-            .windowResizability(.contentMinSize)
     }
 }
 
@@ -21,7 +18,7 @@ struct ChamberAppMain: App {
 struct ContentView: View {
     @ObservedObject var tracker: FaceTracker
     @ObservedObject var engine: ChamberEngine
-    @Environment(\.openWindow) private var openWindow
+    @State private var showSettings = false
     @State private var enabled = false
     @State private var live = false
     @State private var showDebug = false
@@ -65,7 +62,7 @@ struct ContentView: View {
                                 ? L("Chamber is watching — click to close its eyes (camera off, silent)")
                                 : L("Chamber is asleep — click to wake it"))
                             Button {
-                                openWindow(id: "chamber-settings")
+                                withAnimation(.easeOut(duration: 0.15)) { showSettings.toggle() }
                             } label: {
                                 Image(systemName: "gearshape")
                                     .font(.system(size: 15))
@@ -83,8 +80,19 @@ struct ContentView: View {
                     .padding(16)
                 }
 
+                // settings live INSIDE the chamber window, over the radar
+                if showSettings {
+                    Color.black.opacity(0.45)
+                        .ignoresSafeArea()
+                        .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { showSettings = false } }
+                    SettingsView(engine: engine) {
+                        withAnimation(.easeOut(duration: 0.15)) { showSettings = false }
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+
                 // asleep: one obvious way back in, at the eye's centre
-                if !engine.watching {
+                if !engine.watching, !showSettings {
                     Button {
                         setWatching(true)
                     } label: {
