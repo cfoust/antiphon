@@ -336,7 +336,7 @@ final class ChamberEngine: ObservableObject {
             a.ping = makePing(PING_FREQS[i % PING_FREQS.count])
             a.stat = sharedStatic
             a.bloom = makeBloom(PING_FREQS[i % PING_FREQS.count])
-            a.lockChime = makeLockChime(PING_FREQS[i % PING_FREQS.count])
+            a.lockChime = makeLockCrest(PING_FREQS[i % PING_FREQS.count])
             let pf = PING_FREQS[i % PING_FREQS.count]
             a.toolNotes = toolNoteFreqs(pf).map { makeToolNote($0) }
             a.drone = makeDrone(pf)
@@ -477,9 +477,9 @@ final class ChamberEngine: ObservableObject {
                     s += a.narr[a.narrCur] * gn; a.narrCur += 1
                     if a.narrCur >= a.narr.count { a.narrCur = -1 }
                 }
-                // talk-back dwell bloom + lock chime (spatialized from this agent)
+                // talk-back dwell hum + lock crest (spatialized from this agent)
                 if a.bloomCur >= 0 { s += a.bloom[a.bloomCur] * gb; a.bloomCur += 1; if a.bloomCur >= a.bloom.count { a.bloomCur = -1 } }
-                if a.lockCur >= 0 { s += a.lockChime[a.lockCur] * 0.9; a.lockCur += 1; if a.lockCur >= a.lockChime.count { a.lockCur = -1 } }
+                if a.lockCur >= 0 { s += a.lockChime[a.lockCur]; a.lockCur += 1; if a.lockCur >= a.lockChime.count { a.lockCur = -1 } }
                 // chord identity: tool-call note (one-shot) + working drone (loop)
                 if a.toolCur >= 0, !a.toolNote.isEmpty {
                     s += a.toolNote[a.toolCur]; a.toolCur += 1
