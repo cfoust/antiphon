@@ -83,42 +83,21 @@ func makeChime(sr: Double = 48_000) -> [Float] {
     return y
 }
 
-/// Talk-back dwell: a quiet low hum on the agent's CHORD ROOT (the same
-/// register as its working drone — see makeDrone), swelling in over ~1.2 s.
-/// The rising envelope is baked in — the dwell state machine only gates the
-/// gain, and an aborted dwell just fades it out.
+/// Talk-back dwell/lock hum: a barely-there loop on the agent's CHORD ROOT
+/// (the drone's register). ONE continuous sound whose whole shape lives in the
+/// engine's gain: it builds in slowly while the gaze dwells, leans up a touch
+/// at the lock, and releases — never a second tone. Seamless: both oscillators
+/// complete whole cycles over the loop.
 func makeBloom(_ freq: Float, sr: Double = 48_000) -> [Float] {
-    let dur = 1.2
+    let dur = 2.0
     let n = Int(sr * dur)
-    let f = Double(freq) / 2 // chord root
+    let f = (Double(freq) / 2 * dur).rounded() / dur // chord root, loop-quantized
+    let f2 = f + 1.0 / dur // one extra cycle → a slow 0.5 Hz warmth
     var y = [Float](repeating: 0, count: n)
     for i in 0..<n {
         let t = Double(i) / sr
-        let p = min(1.0, t / dur)
-        let env = p * p * (3 - 2 * p) // smoothstep swell
-        let s = sin(2 * .pi * f * t) * 0.62
-              + sin(2 * .pi * (f + 0.7) * t) * 0.38 // slow beat — warm, not static
-        y[i] = Float(s * env * 0.07)
-    }
-    return y
-}
-
-/// Talk-back lock: a very quiet crest of the same hum — it rises a touch past
-/// the dwell level and settles back down. No attack, no bell: "I'm with you",
-/// felt more than heard.
-func makeLockCrest(_ freq: Float, sr: Double = 48_000) -> [Float] {
-    let dur = 1.8
-    let n = Int(sr * dur)
-    let f = Double(freq) / 2 // chord root
-    var y = [Float](repeating: 0, count: n)
-    for i in 0..<n {
-        let t = Double(i) / sr
-        let rise = min(1.0, t / 0.5)
-        let env = (rise * rise * (3 - 2 * rise)) * exp(-max(0, t - 0.5) * 1.9)
-        let s = sin(2 * .pi * f * t) * 0.60
-              + sin(2 * .pi * f * 0.5 * t) * 0.22 // sub-octave body
-              + sin(2 * .pi * f * 1.4983 * t) * 0.12 // a whisper of fifth
-        y[i] = Float(s * env * 0.10)
+        let s = sin(2 * .pi * f * t) * 0.62 + sin(2 * .pi * f2 * t) * 0.38
+        y[i] = Float(s * 0.05)
     }
     return y
 }

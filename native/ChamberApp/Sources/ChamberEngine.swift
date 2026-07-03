@@ -127,15 +127,14 @@ final class AgentRuntime {
     var narrTrig = 0, narrSeen = 0
     var gNarr: Float = 0
 
-    // talk-back dwell/lock earcons: the bloom is a baked rising swell gated by gBloom
-    // (aborted dwell = fade out); the lock chime is a plain one-shot. Both spatialized
-    // through this agent's voice like ping/chime.
+    // talk-back dwell/lock hum: one seamless chord-root loop; ALL of its shape
+    // (build during dwell, brief crest at lock, release) lives in gBloom.
+    // Spatialized through this agent's voice like ping/chime.
     var bloom: [Float] = []
-    var lockChime: [Float] = []
-    var bloomCur = -1, lockCur = -1
-    var bloomTrig = 0, bloomSeen = 0
-    var lockTrig = 0, lockSeen = 0
+    var bloomCur = 0
     var gBloom: Float = 0
+    /// Wall time of the lock — the hum leans up for a moment after this.
+    var crestAt = 0.0
 
     // chord identity: each tool call plays the next of three descending notes
     // (one-shot, swapped only while idle so bursts collapse instead of
@@ -336,7 +335,6 @@ final class ChamberEngine: ObservableObject {
             a.ping = makePing(PING_FREQS[i % PING_FREQS.count])
             a.stat = sharedStatic
             a.bloom = makeBloom(PING_FREQS[i % PING_FREQS.count])
-            a.lockChime = makeLockCrest(PING_FREQS[i % PING_FREQS.count])
             let pf = PING_FREQS[i % PING_FREQS.count]
             a.toolNotes = toolNoteFreqs(pf).map { makeToolNote($0) }
             a.drone = makeDrone(pf)
@@ -454,12 +452,11 @@ final class ChamberEngine: ObservableObject {
             if a.summaryTrig != a.summarySeen { a.summarySeen = a.summaryTrig; a.summaryCur = 0 }
             if a.chimeTrig != a.chimeSeen { a.chimeSeen = a.chimeTrig; a.chimeCur = 0 }
             if a.narrTrig != a.narrSeen { a.narrSeen = a.narrTrig; a.narrCur = 0 }
-            if a.bloomTrig != a.bloomSeen { a.bloomSeen = a.bloomTrig; a.bloomCur = 0 }
-            if a.lockTrig != a.lockSeen { a.lockSeen = a.lockTrig; a.lockCur = 0 }
             if a.toolTrig != a.toolSeen { a.toolSeen = a.toolTrig; a.toolCur = 0 }
             let buf = inBufs[ai]
             let gc = a.gClear, gw = a.gWhisper, gs = a.gStat, gp = a.gPing, gsum = a.gSummary, gn = a.gNarr
             let gb = a.gBloom, gd = a.gDrone, gpl = a.gPulse
+            let humOn = gb > 0.001 // loop bed: advances only while audible
             for k in 0..<n {
                 var s: Float = 0
                 if !a.clear.isEmpty { s += a.clear[a.clearCur] * gc; a.clearCur = (a.clearCur + 1) % a.clear.count }
@@ -477,9 +474,8 @@ final class ChamberEngine: ObservableObject {
                     s += a.narr[a.narrCur] * gn; a.narrCur += 1
                     if a.narrCur >= a.narr.count { a.narrCur = -1 }
                 }
-                // talk-back dwell hum + lock crest (spatialized from this agent)
-                if a.bloomCur >= 0 { s += a.bloom[a.bloomCur] * gb; a.bloomCur += 1; if a.bloomCur >= a.bloom.count { a.bloomCur = -1 } }
-                if a.lockCur >= 0 { s += a.lockChime[a.lockCur]; a.lockCur += 1; if a.lockCur >= a.lockChime.count { a.lockCur = -1 } }
+                // talk-back dwell/lock hum (one continuous loop shaped by gBloom)
+                if humOn, !a.bloom.isEmpty { s += a.bloom[a.bloomCur] * gb; a.bloomCur = (a.bloomCur + 1) % a.bloom.count }
                 // chord identity: tool-call note (one-shot) + working drone (loop)
                 if a.toolCur >= 0, !a.toolNote.isEmpty {
                     s += a.toolNote[a.toolCur]; a.toolCur += 1
@@ -959,7 +955,6 @@ final class ChamberEngine: ObservableObject {
                 if dwellSeat != fi {
                     dwellSeat = fi
                     dwellStart = t
-                    agents[fi].bloomTrig += 1
                 } else if t - dwellStart >= dwellSecs {
                     dwellSeat = -1
                     lock(seat: fi)
@@ -971,15 +966,19 @@ final class ChamberEngine: ObservableObject {
             dwellSeat = -1 // eyes open: existing lock freezes, no new dwell
             cooldownSeat = -1
         }
+        // One continuous hum per agent: builds in while dwelt on, leans up for
+        // a beat at the lock, releases gently — the shape is all in this gain.
         for (i, a) in agents.enumerated() {
-            let target: Float = i == dwellSeat ? 1 : 0
-            a.gBloom += (target - a.gBloom) * 0.3
+            var target: Float = i == dwellSeat ? 0.7 : 0
+            if t - a.crestAt < 0.45 { target = 1.0 } // the crest: same hum, leaning in
+            let rate: Float = target > a.gBloom ? 0.05 : 0.03 // slow build, slower release
+            a.gBloom += (target - a.gBloom) * rate
         }
     }
 
     private func lock(seat: Int) {
         lockedSeat = seat
-        if agents.indices.contains(seat) { agents[seat].lockTrig += 1 }
+        if agents.indices.contains(seat) { agents[seat].crestAt = now() }
         NSLog("[talkback] locked seat=%d", seat)
         pushTalkback(present: true)
     }
