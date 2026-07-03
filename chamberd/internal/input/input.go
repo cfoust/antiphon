@@ -83,12 +83,16 @@ func (i *Info) Inject(text string) error {
 		if i.Socket != "" {
 			args = append(args, "-S", i.Socket)
 		}
+		// tmux 3.4 correctly prefers an explicit -S over $TMUX (verified), but strip
+		// the mux env anyway so a socketless record can't resolve to whatever session
+		// the daemon itself happens to live in. Same defense as the cy case.
+		env := muxFreeEnv("TMUX=", "TMUX_PANE=")
 		send := append(args, "send-keys", "-t", i.Target, "-l", "--", text)
-		if out, err := command(nil, "tmux", send...); err != nil {
+		if out, err := command(env, "tmux", send...); err != nil {
 			return fmt.Errorf("tmux send-keys: %w (%s)", err, out)
 		}
 		enter := append(args, "send-keys", "-t", i.Target, "Enter")
-		if out, err := command(nil, "tmux", enter...); err != nil {
+		if out, err := command(env, "tmux", enter...); err != nil {
 			return fmt.Errorf("tmux Enter: %w (%s)", err, out)
 		}
 		return nil
@@ -105,20 +109,35 @@ func (i *Info) Inject(text string) error {
 		if i.Socket != "" {
 			args = append([]string{"-L", i.Socket}, args...)
 		}
-		// strip our own $CY so the explicit socket flag wins over env context
-		env := []string{}
-		for _, e := range os.Environ() {
-			if !strings.HasPrefix(e, "CY=") {
-				env = append(env, e)
-			}
-		}
-		if out, err := command(env, "cy", args...); err != nil {
+		// strip our own $CY: cy's CLI prefers env context OVER the explicit socket
+		// flag (see cy repo: BUG-env-overrides-socket-flag.md)
+		if out, err := command(muxFreeEnv("CY="), "cy", args...); err != nil {
 			return fmt.Errorf("cy exec: %w (%s)", err, out)
 		}
 		return nil
 	default:
 		return fmt.Errorf("unknown input kind %q", i.Kind)
 	}
+}
+
+// muxFreeEnv is the current environment minus variables with the given prefixes —
+// injection targets must come from the agent's record, never from wherever the
+// daemon itself happens to be running.
+func muxFreeEnv(prefixes ...string) []string {
+	env := []string{}
+	for _, e := range os.Environ() {
+		keep := true
+		for _, p := range prefixes {
+			if strings.HasPrefix(e, p) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			env = append(env, e)
+		}
+	}
+	return env
 }
 
 // janetString renders text as a Janet string literal.
