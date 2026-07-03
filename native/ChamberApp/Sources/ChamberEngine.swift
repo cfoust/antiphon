@@ -172,7 +172,7 @@ final class ChamberEngine: ObservableObject {
     @Published var headPos = SIMD3<Double>(0, 0, 0)
     @Published var autoFinish = true
     @Published var ready = false
-    @Published var roomIndex = 4 // "room (BRIR)" = room_conv — matches the web default (measured tail)
+    @Published var roomIndex = 5 // hall (BRIR) — the chamber's one true acoustic (picker removed)
     @Published var reverbBlend = 1.0 // BRIR rooms: 0 = FDN tail, 1 = measured BRIR tail
     @Published var freqScale = 2.0   // HRTF fit: <1 / >1 warps the pinna spectral cue
     @Published var hrtfName = ""
