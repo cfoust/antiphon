@@ -893,7 +893,11 @@ final class ChamberEngine: ObservableObject {
             }
         }
 
-        // audition voice fade (onboarding cues / fit loop)
+        // audition voice fade (onboarding cues / fit loop). A finished one-shot
+        // cue lets go of the room by itself — otherwise the immersion hold and
+        // the agent duck stay pinned after calibration. (Loops hold until
+        // onboardStop; audTrig==audSeen guards a not-yet-started replacement.)
+        if audTarget > 0, !audLoop, audCur == -1, audTrig == audSeen { audTarget = 0 }
         gAud += (audTarget - gAud) * 0.12
 
         // chord drone: a quiet breathing root while the agent is actively working
@@ -928,7 +932,11 @@ final class ChamberEngine: ObservableObject {
         }
 
         let fi = facedIndex()
-        if fi >= 0, lookGate > 0.6, agents[fi].state == .done {
+        // Summaries are an eyes-closed moment once the fade is armed: an
+        // eyes-open glance must not start one into a silent scene (it would
+        // be consumed unheard). Unarmed (demo/debug) keeps the old behavior.
+        let listening = !immersionArmed || lastEyesClosedState
+        if fi >= 0, listening, lookGate > 0.6, agents[fi].state == .done {
             if lingerIdx != fi { lingerIdx = fi; lingerStart = t }
             else if t - lingerStart >= LINGER_SECS { startSummary(agents[fi]) }
         } else { lingerIdx = -1 }
