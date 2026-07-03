@@ -6,7 +6,9 @@ package voice
 
 import (
 	"encoding/json"
+	"math"
 	"os"
+	"sort"
 )
 
 // Persona is one chamber voice. Realizations maps provider name → provider-
@@ -77,13 +79,34 @@ func (r Roster) Seat(name string) int {
 	return -1
 }
 
-// Pick chooses a persona for a new agent: the first not in use, else the
-// roster cycles (many agents, few voices — acceptable until seats grow).
+// Pick chooses a persona for a new agent: the first not in use — walking seats
+// centre-out, so the first agents to arrive sit in front of the listener rather
+// than at the edge of the arc — else the roster cycles (many agents, few
+// voices — acceptable until seats grow).
 func (r Roster) Pick(inUse map[string]bool) Persona {
-	for _, p := range r.Personas {
-		if !inUse[p.Name] {
+	for _, i := range CenterOut(len(r.Personas)) {
+		if p := r.Personas[i]; !inUse[p.Name] {
 			return p
 		}
 	}
 	return r.Personas[len(inUse)%len(r.Personas)]
+}
+
+// CenterOut orders seat indices by distance from the middle of the arc:
+// for 6 seats → [2 3 1 4 0 5]. Hosts place seat i at bearing
+// -90° + 180°·i/(n-1), so "low distance from centre" = "in front".
+func CenterOut(n int) []int {
+	idx := make([]int, n)
+	for i := range idx {
+		idx[i] = i
+	}
+	mid := float64(n-1) / 2
+	sort.SliceStable(idx, func(a, b int) bool {
+		da, db := math.Abs(float64(idx[a])-mid), math.Abs(float64(idx[b])-mid)
+		if da != db {
+			return da < db
+		}
+		return idx[a] < idx[b]
+	})
+	return idx
 }

@@ -229,8 +229,8 @@ func (h *Hub) claimSeat(id string, persona voice.Persona) int {
 		h.seats[home] = id
 		return home
 	}
-	for i, occupant := range h.seats {
-		if occupant == "" {
+	for _, i := range voice.CenterOut(len(h.seats)) {
+		if h.seats[i] == "" {
 			h.seats[i] = id
 			return i
 		}

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -79,6 +80,7 @@ func (i *Info) Inject(text string) error {
 		}
 		return nil
 	case "tmux":
+		tmux := binPath("tmux")
 		args := []string{}
 		if i.Socket != "" {
 			args = append(args, "-S", i.Socket)
@@ -88,11 +90,11 @@ func (i *Info) Inject(text string) error {
 		// the daemon itself happens to live in. Same defense as the cy case.
 		env := muxFreeEnv("TMUX=", "TMUX_PANE=")
 		send := append(args, "send-keys", "-t", i.Target, "-l", "--", text)
-		if out, err := command(env, "tmux", send...); err != nil {
+		if out, err := command(env, tmux, send...); err != nil {
 			return fmt.Errorf("tmux send-keys: %w (%s)", err, out)
 		}
 		enter := append(args, "send-keys", "-t", i.Target, "Enter")
-		if out, err := command(env, "tmux", enter...); err != nil {
+		if out, err := command(env, tmux, enter...); err != nil {
 			return fmt.Errorf("tmux Enter: %w (%s)", err, out)
 		}
 		return nil
@@ -111,13 +113,35 @@ func (i *Info) Inject(text string) error {
 		}
 		// strip our own $CY: cy's CLI prefers env context OVER the explicit socket
 		// flag (see cy repo: BUG-env-overrides-socket-flag.md)
-		if out, err := command(muxFreeEnv("CY="), "cy", args...); err != nil {
+		if out, err := command(muxFreeEnv("CY="), binPath("cy"), args...); err != nil {
 			return fmt.Errorf("cy exec: %w (%s)", err, out)
 		}
 		return nil
 	default:
 		return fmt.Errorf("unknown input kind %q", i.Kind)
 	}
+}
+
+// binPath resolves a mux binary: $PATH first, then the usual homes. A daemon
+// spawned by the .app inherits the minimal GUI PATH (/usr/bin:/bin:…), which
+// has neither homebrew nor ~/go/bin — where tmux and cy actually live.
+func binPath(name string) string {
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	home, _ := os.UserHomeDir()
+	for _, dir := range []string{
+		"/opt/homebrew/bin", "/usr/local/bin",
+		filepath.Join(home, "go", "bin"),
+		filepath.Join(home, ".local", "bin"),
+		filepath.Join(home, "bin"),
+	} {
+		p := filepath.Join(dir, name)
+		if info, err := os.Stat(p); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+			return p
+		}
+	}
+	return name // let exec fail with its own clear error
 }
 
 // muxFreeEnv is the current environment minus variables with the given prefixes —
