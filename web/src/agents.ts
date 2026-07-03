@@ -30,3 +30,12 @@ export const RECYCLE_MS = 45000;
 /** Random gap between an agent finishing on its own (relaxed cadence). */
 export const AUTO_FINISH_MIN_MS = 27000;
 export const AUTO_FINISH_MAX_MS = 66000;
+
+/** How long after the last sign of life (tool call / narration) "working" keeps
+ *  humming its drone before reading as idle. // mirrors ChamberEngine.swift droneHoldSecs */
+export const DRONE_HOLD_MS = 45000;
+
+/** Draggable-agent distance clamp: too close is deafening, too far is inaudible.
+ *  // mirrors ChamberEngine.swift place(seat:) */
+export const DRAG_MIN_M = 0.45;
+export const DRAG_MAX_M = 2.6;

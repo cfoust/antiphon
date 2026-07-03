@@ -2,13 +2,25 @@ import {
   AGENTS,
   AUTO_FINISH_MAX_MS,
   AUTO_FINISH_MIN_MS,
+  DRAG_MAX_M,
+  DRAG_MIN_M,
+  DRONE_HOLD_MS,
   LINGER_MS,
   PING_FREQS,
   PING_INTERVAL,
   RECYCLE_MS,
 } from "../agents";
 import { ARRANGE, angdiff, deg, rad, TAU } from "../math";
-import type { AgentDef, AgentNode, Arrangement, ChamberMode, EnvName } from "../types";
+import type {
+  AgentDef,
+  AgentNode,
+  AgentRow,
+  Arrangement,
+  ChamberMode,
+  EnvName,
+  SeatMeta,
+} from "../types";
+import { makeDrone, makePulse, makeToolNote, toolNoteFreqs } from "./earcons";
 import { makeNoise } from "./impulse";
 import { WasmEngine, ENGINE_URLS } from "./wasmEngine";
 
@@ -16,6 +28,17 @@ import { WasmEngine, ENGINE_URLS } from "./wasmEngine";
  *  measured-style convolution-BRIR presets (4 = room_conv, 5 = hall_conv). */
 const ENV_ROOM: Record<EnvName, number> = { dry: 0, room: 4, chamber: 3, hall: 5 };
 const SOURCE_RADIUS = 1.3; // ~the first range ring — the distance that sounded best
+
+/** localStorage key for a seat's dragged world position (native: UserDefaults seatpos.*). */
+const seatPosKey = (i: number) => `chamber-seatpos.${i}`;
+function loadSeatPos(i: number): { x: number; z: number } | null {
+  try {
+    const p = JSON.parse(localStorage.getItem(seatPosKey(i)) || "null");
+    return p && typeof p.x === "number" && typeof p.z === "number" ? p : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Owns the Web Audio graph and all runtime state for the chamber. UI modules
@@ -43,7 +66,7 @@ export class Chamber {
   fit = 2.0; // HRTF "fit": warps the pinna spectral cue until a source ahead sits OUT in front
   // Full-scale master level. The eyes/immersion fade is now PER-SOURCE inside the engine (see
   // setImmersion), not a master-gain ramp, so the master stays at this level.
-  readonly masterFull = 0.42;
+  readonly masterFull = 0.45; // mirrors ChamberEngine.swift openRoom()
 
   // "Agent waiting" attention cue: minutes to build silent→full. Lower than native's 10 for the web
   // so the pulses are audible during a short session (tune later). `lastWaiting` de-dupes the count.
@@ -60,6 +83,12 @@ export class Chamber {
   private lingerStart = 0;
   private curFacedId: string | null = null;
 
+  // radar/list interactions (mirrors ChamberEngine.swift dragSeat/hoveredSeat/immersionHold)
+  dragSeat = -1; // seat being dragged on the radar; -1 = none
+  hoveredSeat = -1; // seat hovered/tapped in the agent list; -1 = none
+  private immersionHold = false; // a drag audition holds the scene fully in
+  private immersionEye = 1; // last eye-driven immersion target (0..1)
+
   // events for the UI layer
   onAgents: () => void = () => {};
   onOrient: (degrees: number) => void = () => {};
@@ -67,16 +96,25 @@ export class Chamber {
   constructor(readonly agents: AgentDef[] = AGENTS) {}
 
   // ---- geometry -----------------------------------------------------------
-  bearings(): number[] {
-    return ARRANGE[this.arrangement](this.activeCount);
+  /** Seats currently visible in the world (present, not snoozed; demo: first N). */
+  visibleSeats(): number[] {
+    const out: number[] = [];
+    const limit = this.mode === "demo" ? this.activeCount : this.agents.length;
+    for (let i = 0; i < limit; i++) {
+      const N = this.nodes[this.agents[i].id];
+      if (N && N.present && !N.snoozed) out.push(i);
+    }
+    return out;
   }
 
   facedAgent(): AgentDef | null {
-    const bs = this.bearings();
+    // nearest visible agent by bearing — snoozed/absent agents can't be faced
+    // (mirrors ChamberEngine.swift facedIndex())
     let best = -1,
       bd = Infinity;
-    for (let i = 0; i < this.activeCount; i++) {
-      const d = Math.abs(angdiff(bs[i], this.orient));
+    for (const i of this.visibleSeats()) {
+      const N = this.nodes[this.agents[i].id];
+      const d = Math.abs(angdiff(N.bearing, this.orient));
       if (d < bd) {
         bd = d;
         best = i;
@@ -98,11 +136,11 @@ export class Chamber {
 
   private placeAgent(id: string): void {
     const N = this.nodes[id];
-    const R = SOURCE_RADIUS;
     this.wasm?.setInputCfg(N.idx, {
-      pos: { x: Math.sin(N.bearing) * R, y: 0, z: -Math.cos(N.bearing) * R },
+      pos: { x: N.posX, y: 0, z: N.posZ },
       gain: 1,
-      send: 0.3,
+      // hot reverb send while being dragged so the room answers from its spot
+      send: N.idx === this.dragSeat ? 0.8 : 0.3, // mirrors ChamberEngine.swift dragBegan/dragEnded
     });
   }
 
@@ -155,6 +193,27 @@ export class Chamber {
     stMod.gain.value = 0;
     stSrc.connect(stBP).connect(stGain).connect(stMod).connect(sum);
 
+    // --- chord identity + drag audition (mirrors ChamberEngine.swift setup()) ---
+    // the working drone: a seamless loop of the chord root, gated by gDrone in tick()
+    const pf = PING_FREQS[idx % PING_FREQS.length];
+    const droneGain = ctx.createGain();
+    droneGain.gain.value = 0;
+    droneGain.connect(sum);
+    const droneSrc = ctx.createBufferSource();
+    droneSrc.buffer = makeDrone(ctx, pf);
+    droneSrc.loop = true;
+    droneSrc.connect(droneGain);
+    // the drag audition pulse: loops forever, gPulse opens it while dragged
+    const pulseGain = ctx.createGain();
+    pulseGain.gain.value = 0;
+    pulseGain.connect(sum);
+    const pulseSrc = ctx.createBufferSource();
+    pulseSrc.buffer = makePulse(ctx, pf);
+    pulseSrc.loop = true;
+    pulseSrc.connect(pulseGain);
+    // the three descending tool-call notes (one-shots, triggered in bridgeTool)
+    const toolNotes = toolNoteFreqs(pf).map((f) => makeToolNote(ctx, f));
+
     // --- content: demo loads the canned (fake) voices; live stays empty until the
     // bridge feeds it real narration + summary. ---
     let src: AudioBufferSourceNode | null = null;
@@ -171,9 +230,17 @@ export class Chamber {
       src.connect(gain); // the looping work-stream feeds the voice path
     }
 
+    // world position: a persisted dragged spot wins; otherwise the arrangement arc
+    const saved = loadSeatPos(idx);
+    const posX = saved ? saved.x : Math.sin(bearing) * SOURCE_RADIUS;
+    const posZ = saved ? saved.z : -Math.cos(bearing) * SOURCE_RADIUS;
+
     this.nodes[a.id] = {
       idx,
-      bearing,
+      bearing: Math.atan2(posX, -posZ),
+      posX,
+      posZ,
+      posSet: !!saved,
       sum,
       src,
       gain,
@@ -185,17 +252,32 @@ export class Chamber {
       stMod,
       stNextMod: 0,
       summaryBuf,
+      toolNotes,
+      toolIdx: 0,
+      toolBusy: false,
+      droneGain,
+      gDrone: 0,
+      pulseGain,
+      gPulse: 0,
       state: "working",
       nextPing: 0,
       lastPingMs: 0,
-      focusFlash: 0,
       heardAt: 0,
+      snoozed: false,
+      present: true, // demo mode: everyone is present (live flips this on bind)
+      departed: false,
+      lastActivity: 0,
+      meta: { agent: "", name: "", kind: "", title: "", input: "" },
+      lastLine: "",
+      lastKind: "",
       narrQueue: [],
       narrPlaying: false,
     };
     this.placeAgent(a.id);
     if (src) src.start(0, Math.random() * src.buffer!.duration);
     stSrc.start();
+    droneSrc.start();
+    pulseSrc.start();
   }
 
   /** Build the graph and load voices. The context starts suspended (silent) so nothing
@@ -282,6 +364,7 @@ export class Chamber {
   // ---- earcons ------------------------------------------------------------
   private schedulePing(id: string, idx: number): void {
     const N = this.nodes[id];
+    if (N.snoozed) return; // snoozed: no pings; the timer keeps cycling
     const at = this.ctx.currentTime;
     const f = PING_FREQS[idx % PING_FREQS.length];
     for (const [mult, amp] of [
@@ -372,6 +455,13 @@ export class Chamber {
     const N = this.nodes[id];
     if (!N) return;
     N.state = "working";
+    N.heardAt = 0;
+    if (N.departed) {
+      // summary heard and the session is long gone — leave the room
+      // (mirrors ChamberEngine.swift reset())
+      N.departed = false;
+      N.present = false;
+    }
     const t = this.ctx.currentTime;
     N.pingBus.gain.setTargetAtTime(0, t, 0.05);
     N.summaryGain.gain.setTargetAtTime(0, t, 0.05);
@@ -395,19 +485,9 @@ export class Chamber {
   // ---- the mix ------------------------------------------------------------
   updateMix(): void {
     if (!this.started) return;
-    // exactly one agent holds the floor: the single nearest active agent you face
-    let winner: string | null = null,
-      wd = Infinity;
-    for (let i = 0; i < this.activeCount; i++) {
-      const N = this.nodes[this.agents[i].id];
-      if (!N) continue;
-      const d = Math.abs(angdiff(N.bearing, this.orient));
-      if (d < wd) {
-        wd = d;
-        winner = this.agents[i].id;
-      }
-    }
-    if (wd > rad(40)) winner = null;
+    // exactly one agent holds the floor: the single nearest visible agent you face
+    const winnerIdx = this.facedIndex();
+    const winner = winnerIdx >= 0 ? this.agents[winnerIdx].id : null;
     const winnerDone = winner != null && this.nodes[winner].state === "done";
     const t = this.ctx.currentTime,
       k = 0.12;
@@ -415,7 +495,8 @@ export class Chamber {
     this.agents.forEach((a, idx) => {
       const N = this.nodes[a.id];
       if (!N) return;
-      const active = idx < this.activeCount;
+      const active =
+        (this.mode === "demo" ? idx < this.activeCount : N.present) && !N.snoozed;
       const faced = a.id === winner;
       const front = (Math.cos(angdiff(N.bearing, this.orient)) + 1) / 2;
       let whisper = 0,
@@ -425,7 +506,7 @@ export class Chamber {
         stat = 0;
       if (active) {
         if (N.state === "working") {
-          const murmur = 0.05 + this.ringIntel * 0.5;
+          const murmur = 0.06 + this.ringIntel * 0.5; // mirrors ChamberEngine.swift (murmur 0.06)
           const g = this.lookGate; // 1 = facing forward, 0 = looking down
           if (faced) {
             // turn toward it → opens from whisper into clear voice; look down → whisper again
@@ -460,12 +541,33 @@ export class Chamber {
     if (!this.started) return;
     const now = performance.now(),
       at = this.ctx.currentTime;
+
+    // chord drone + drag audition pulse — mirrors ChamberEngine.swift tick():
+    // the drone hums while the agent is present, awake, working, and showed a
+    // sign of life recently; the pulse opens for the dot being dragged.
+    this.agents.forEach((a, i) => {
+      const N = this.nodes[a.id];
+      if (!N) return;
+      const busy =
+        this.mode === "live" &&
+        N.present &&
+        !N.snoozed &&
+        N.state === "working" &&
+        N.lastActivity > 0 &&
+        now - N.lastActivity < DRONE_HOLD_MS;
+      N.gDrone += ((busy ? 0.5 : 0) - N.gDrone) * 0.03; // slow ~1.5 s fade either way
+      N.droneGain.gain.value = N.gDrone;
+      N.gPulse += ((i === this.dragSeat ? 0.9 : 0) - N.gPulse) * 0.12;
+      N.pulseGain.gain.value = N.gPulse;
+    });
+
     // pings for done agents + recycle heard agents back to working; also count agents WAITING (done)
     let waiting = 0;
-    for (let i = 0; i < this.activeCount; i++) {
+    for (let i = 0; i < this.agents.length; i++) {
       const N = this.nodes[this.agents[i].id];
       if (!N) continue;
-      if (N.state === "done") waiting++;
+      if (this.mode === "demo" && i >= this.activeCount) continue;
+      if (N.state === "done" && !N.snoozed) waiting++;
       if (N.state === "done" && at >= N.nextPing) {
         this.schedulePing(this.agents[i].id, i);
         N.lastPingMs = now;
@@ -507,6 +609,81 @@ export class Chamber {
     }
   }
 
+  // ---- radar drag + list interactions -------------------------------------
+  /** A dot picked up on the radar: hold the chamber audible (even with eyes
+   *  open) and pulse the agent with a hot reverb send so its place is felt.
+   *  // mirrors ChamberEngine.swift dragBegan */
+  dragBegan(seat: number): void {
+    const a = this.agents[seat];
+    if (!a || !this.nodes[a.id]) return;
+    this.dragSeat = seat;
+    this.immersionHold = true;
+    this.pushImmersion();
+    this.placeAgent(a.id); // re-push cfg with the hot (0.8) send
+  }
+
+  /** Live position update while dragging (world metres). */
+  dragMoved(seat: number, x: number, z: number): void {
+    this.place(seat, x, z);
+  }
+
+  /** Drop: restore the 0.3 send, release the immersion hold, persist the spot. */
+  dragEnded(): void {
+    const seat = this.dragSeat;
+    this.dragSeat = -1;
+    this.immersionHold = false;
+    this.pushImmersion();
+    const a = this.agents[seat];
+    if (!a || !this.nodes[a.id]) return;
+    const N = this.nodes[a.id];
+    this.placeAgent(a.id); // back to the resting send
+    N.posSet = true;
+    try {
+      localStorage.setItem(seatPosKey(seat), JSON.stringify({ x: N.posX, z: N.posZ }));
+    } catch {
+      /* private mode — position just won't persist */
+    }
+  }
+
+  /** Clamps to a sane annulus (too close is deafening, too far is inaudible)
+   *  and keeps position, bearing and the DSP source in sync.
+   *  // mirrors ChamberEngine.swift place(seat:) */
+  private place(seat: number, x: number, z: number): void {
+    const a = this.agents[seat];
+    if (!a || !this.nodes[a.id]) return;
+    const N = this.nodes[a.id];
+    const d = Math.max(Math.hypot(x, z), 1e-6);
+    const clamped = Math.min(Math.max(d, DRAG_MIN_M), DRAG_MAX_M);
+    N.posX = (x * clamped) / d;
+    N.posZ = (z * clamped) / d;
+    N.bearing = Math.atan2(N.posX, -N.posZ);
+    this.placeAgent(a.id);
+    if (this.started) this.updateMix();
+  }
+
+  /** Snooze: the agent leaves the world (no dot, no sound) but keeps receiving
+   *  updates; un-snoozing brings it back where it was.
+   *  // mirrors ChamberEngine.swift setSnoozed */
+  setSnoozed(seat: number, on: boolean): void {
+    const a = this.agents[seat];
+    if (!a || !this.nodes[a.id]) return;
+    const N = this.nodes[a.id];
+    N.snoozed = on;
+    if (on) {
+      if (this.dragSeat === seat) this.dragEnded();
+      if (this.hoveredSeat === seat) this.hoveredSeat = -1;
+    } else if (N.narrQueue.length && !N.narrPlaying) {
+      this.drainNarr(a.id); // resume the accumulated narration
+    }
+    this.onAgents();
+    if (this.started) this.updateMix();
+  }
+
+  /** List hover/tap → radar highlight. */
+  setHovered(seat: number): void {
+    this.hoveredSeat = seat;
+  }
+
   // ---- setters ------------------------------------------------------------
   setOrient(degrees: number): void {
     this.orient = ((((degrees % 360) + 360) % 360) * Math.PI) / 180;
@@ -514,7 +691,6 @@ export class Chamber {
     const faId = fa ? fa.id : null;
     if (faId !== this.curFacedId) {
       this.curFacedId = faId;
-      if (faId && this.nodes[faId]) this.nodes[faId].focusFlash = performance.now();
       this.onAgents();
     }
     if (this.started) {
@@ -548,9 +724,15 @@ export class Chamber {
    *  continuous 0..1 (0 = eyes open/scene silent, 1 = eyes closed/scene full). Applied PER-SOURCE
    *  inside the engine now (not a master ramp): the renderer scales scene sources by `imm` and the
    *  attention cue by (1−imm), so opening your eyes crossfades the scene OUT and the cue IN through
-   *  one shared reverb (the scene's tail rings out naturally). Smoothed in-engine (τ≈0.25 s). */
+   *  one shared reverb (the scene's tail rings out naturally). Smoothed in-engine (τ≈0.25 s).
+   *  While a radar drag is in flight the hold pins the scene fully in regardless of eye state. */
   setImmersion(imm: number): void {
-    this.wasm?.setImmersionEngine(Math.max(0, Math.min(1, imm)));
+    this.immersionEye = Math.max(0, Math.min(1, imm));
+    this.pushImmersion();
+  }
+
+  private pushImmersion(): void {
+    this.wasm?.setImmersionEngine(this.immersionHold ? 1 : this.immersionEye);
   }
 
   /** Convenience over setImmersion for the boolean eyes-closed detector: closed → full,
@@ -607,6 +789,11 @@ export class Chamber {
     this.arrangement = "cluster";
     this.agentBus.gain.setTargetAtTime(1, this.ctx.currentTime, 0.4);
     this.activeCount = 1; // grows as sessions bind
+    // live agents exist only as bound seats (mirrors applyLiveMode in the native app)
+    for (const a of this.agents) {
+      const N = this.nodes[a.id];
+      if (N) N.present = false;
+    }
     this.reArrange();
     this.onAgents();
   }
@@ -616,28 +803,56 @@ export class Chamber {
     return this.ctx.decodeAudioData(buf);
   }
 
-  /** A session connected → light up seat `idx` and grow the arc to include it. */
-  bindSeat(idx: number, label?: string): void {
+  /** A session connected → light up seat `idx` and grow the arc to include it.
+   *  `meta` mirrors bridgeBind in the native app: a different session id on the
+   *  same seat is a new tenant — its predecessor's snooze must not silence it. */
+  bindSeat(idx: number, meta?: Partial<SeatMeta>): void {
     const a = this.agents[idx];
     if (!a) return;
     const N = this.nodes[a.id];
     if (!N) return;
+    let newTenant = false;
+    if (meta) {
+      if (meta.agent) {
+        newTenant = N.meta.agent !== "" && N.meta.agent !== meta.agent;
+        N.meta.agent = meta.agent;
+      }
+      if (meta.name) N.meta.name = meta.name;
+      if (meta.kind) N.meta.kind = meta.kind;
+      if (meta.title) N.meta.title = meta.title;
+      N.meta.input = meta.input ?? "";
+    }
+    if (newTenant) {
+      N.lastLine = "";
+      N.lastKind = "";
+      N.snoozed = false;
+    }
+    N.present = true;
+    N.departed = false;
     N.state = "working";
-    if (label) a.task = label;
     if (idx + 1 > this.activeCount) this.activeCount = idx + 1;
     this.reArrange();
     this.onAgents();
     if (this.started) this.updateMix();
   }
 
-  /** A session disconnected → clear and reset its seat. */
+  /** A session disconnected. If its unheard done-summary is still pending, the
+   *  agent stays in the room (pinging) until it's heard — that's the whole point
+   *  of the chamber. Otherwise it leaves. // mirrors ChamberEngine.swift bridgeFree */
   unbindSeat(idx: number): void {
     const a = this.agents[idx];
     if (!a) return;
     const N = this.nodes[a.id];
     if (!N) return;
     N.narrQueue.length = 0;
-    this.resetAgent(a.id);
+    N.meta.input = "";
+    if (N.state === "done" || N.state === "summarizing") {
+      N.departed = true;
+      this.onAgents();
+    } else {
+      N.present = false;
+      this.resetAgent(a.id);
+    }
   }
 
   /** Update a seat's task label (cosmetic; the headline is also spoken via a clip). */
@@ -648,26 +863,63 @@ export class Chamber {
     this.onAgents();
   }
 
-  /** Queue a live narration line for seat `idx`; it rides the faced/whisper mix. */
+  /** Narration text (task/progress/blocked/done) → the list's last-line + the
+   *  drone's sign-of-life clock. // mirrors ChamberEngine.swift bridgeLine */
+  bridgeLine(idx: number, kind: string, text: string): void {
+    const a = this.agents[idx];
+    if (!a) return;
+    const N = this.nodes[a.id];
+    if (!N) return;
+    N.lastLine = text;
+    N.lastKind = kind;
+    N.lastActivity = performance.now();
+    this.onAgents();
+  }
+
+  /** A tool call from the live bridge: play the next descending chord note.
+   *  Triggered only while idle, so a burst of calls collapses into one note.
+   *  // mirrors ChamberEngine.swift bridgeTool */
+  bridgeTool(idx: number): void {
+    const a = this.agents[idx];
+    if (!a) return;
+    const N = this.nodes[a.id];
+    if (!N) return;
+    N.lastActivity = performance.now();
+    if (!N.present || N.snoozed || N.toolBusy || !N.toolNotes.length) return;
+    N.toolBusy = true;
+    const s = this.ctx.createBufferSource();
+    s.buffer = N.toolNotes[N.toolIdx];
+    N.toolIdx = (N.toolIdx + 1) % N.toolNotes.length;
+    s.connect(N.sum); // gain baked into the note (0.16)
+    s.onended = () => {
+      N.toolBusy = false;
+    };
+    s.start();
+  }
+
+  /** Queue a live narration line for seat `idx`; it rides the faced/whisper mix.
+   *  Presence is asserted but the state machine is left alone — a stray progress
+   *  line must not cancel an in-flight done. // mirrors bridgeNarration */
   enqueueProgress(idx: number, buf: AudioBuffer): void {
     const a = this.agents[idx];
     if (!a) return;
     const N = this.nodes[a.id];
     if (!N) return;
-    if (N.state !== "working") {
-      N.state = "working";
-      this.onAgents();
-      if (this.started) this.updateMix();
-    }
+    N.present = true;
     N.narrQueue.push(buf);
     // drop-stale: never let more than (playing + 1) pile up — you hear what it's doing now
     if (N.narrQueue.length > 2) N.narrQueue.splice(0, N.narrQueue.length - 2);
-    if (!N.narrPlaying) this.drainNarr(a.id);
+    if (!N.narrPlaying && !N.snoozed) this.drainNarr(a.id);
   }
 
   private drainNarr(id: string): void {
     const N = this.nodes[id];
     if (!N) return;
+    if (N.snoozed) {
+      // snoozed: hold the queue (it keeps accumulating with drop-stale); un-snooze resumes
+      N.narrPlaying = false;
+      return;
+    }
     const buf = N.narrQueue.shift();
     if (!buf) {
       N.narrPlaying = false;
@@ -689,10 +941,20 @@ export class Chamber {
     if (N) N.summaryBuf = buf;
   }
 
-  /** Seat `idx` finished its task → run the done → ping → summary flow. */
+  /** Seat `idx` finished its task → run the done → ping → summary flow. A fresh
+   *  done may also land on a `heard` agent (it finished another task) — only an
+   *  in-flight done/summarizing keeps its current run. // mirrors applyDone */
   markDone(idx: number): void {
     const a = this.agents[idx];
-    if (a) this.setDone(a.id);
+    if (!a) return;
+    const N = this.nodes[a.id];
+    if (!N) return;
+    N.present = true;
+    if (N.state === "heard") {
+      N.state = "working";
+      N.heardAt = 0;
+    }
+    this.setDone(a.id);
   }
 
   private reArrange(): void {
@@ -701,9 +963,59 @@ export class Chamber {
     this.agents.forEach((a, i) => {
       const N = this.nodes[a.id];
       if (!N) return;
-      if (i < this.activeCount) N.bearing = bs[i];
+      // a dragged/persisted position is the user's word — the arrangement won't move it
+      if (i < this.activeCount && !N.posSet) {
+        N.posX = Math.sin(bs[i]) * SOURCE_RADIUS;
+        N.posZ = -Math.cos(bs[i]) * SOURCE_RADIUS;
+        N.bearing = Math.atan2(N.posX, -N.posZ);
+      }
       this.placeAgent(a.id);
     });
     this.updateMix();
+  }
+
+  // ---- the agent list ------------------------------------------------------
+  /** Rows for everyone in the room, snoozed included.
+   *  // mirrors ChamberEngine.swift buildAgentList */
+  buildAgentList(): AgentRow[] {
+    const now = performance.now();
+    const live = this.mode === "live";
+    const rows: AgentRow[] = [];
+    this.agents.forEach((a, i) => {
+      const N = this.nodes[a.id];
+      if (!N) return;
+      if (live ? !N.present : i >= this.activeCount) return;
+      let status: string;
+      switch (N.state) {
+        case "done":
+          status = N.departed ? "finished — summary waiting" : "finished — waiting to report";
+          break;
+        case "summarizing":
+          status = "reporting";
+          break;
+        case "heard":
+          status = "resting";
+          break;
+        default:
+          status = !live
+            ? "working"
+            : N.lastActivity > 0 && now - N.lastActivity < DRONE_HOLD_MS
+              ? "working"
+              : "idle";
+      }
+      rows.push({
+        seat: i,
+        name: N.meta.name || a.name,
+        kind: N.meta.kind || (live ? "" : "demo"),
+        title: N.meta.title || (live ? "" : a.task),
+        color: a.color,
+        status,
+        lastLine: N.lastLine,
+        lastKind: N.lastKind,
+        waiting: N.state === "done",
+        snoozed: N.snoozed,
+      });
+    });
+    return rows;
   }
 }

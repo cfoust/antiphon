@@ -6,17 +6,41 @@ import type { Chamber } from "../audio/engine";
  * page just plays it spatially. Used only when the app is opened with `?live` against a
  * bridge running on the same machine (see docs/cc-integration-plan.md).
  */
+const BRIDGE_HTTP = "http://127.0.0.1:8787";
 const BRIDGE_WS = "ws://127.0.0.1:8787/stream";
 
+/** One /stream frame (superset of all types — mirrors Frame in BridgeClient.swift). */
 interface Frame {
-  type: "hello" | "bind" | "task" | "progress" | "done" | "blocked" | "free";
+  type: "hello" | "bind" | "tool" | "task" | "progress" | "done" | "blocked" | "free";
   seat: number;
+  agent?: string;
+  name?: string;
+  kind?: string;
+  title?: string;
+  input?: string;
   color?: string;
   headline?: string;
   note?: string;
   summary?: string;
   question?: string;
   audioB64?: string;
+  audioUrl?: string;
+}
+
+/** The narration text a frame carries, by type (mirrors the hub's FIELD map). */
+function frameText(f: Frame): string | undefined {
+  switch (f.type) {
+    case "task":
+      return f.headline;
+    case "progress":
+      return f.note;
+    case "done":
+      return f.summary;
+    case "blocked":
+      return f.question;
+    default:
+      return undefined;
+  }
 }
 
 function b64ToBuffer(b64: string): ArrayBuffer {
@@ -26,9 +50,22 @@ function b64ToBuffer(b64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
+/** Prefer fetching the cached line over the inline base64 — smaller frames, no
+ *  message-size cliffs, same bytes (localhost). // mirrors BridgeClient.handle */
+async function frameAudio(f: Frame): Promise<ArrayBuffer | null> {
+  if (f.audioUrl) {
+    try {
+      const r = await fetch(BRIDGE_HTTP + f.audioUrl);
+      if (r.ok) return await r.arrayBuffer();
+    } catch {
+      /* fall through to the inline copy */
+    }
+  }
+  return f.audioB64 ? b64ToBuffer(f.audioB64) : null;
+}
+
 export function connectLive(engine: Chamber): void {
   engine.startLive();
-  const decode = (b64: string) => engine.decodeBytes(b64ToBuffer(b64));
 
   let socket: WebSocket | null = null;
   const send = (obj: unknown) => {
@@ -60,20 +97,34 @@ export function connectLive(engine: Chamber): void {
       }
       switch (f.type) {
         case "bind":
-          engine.bindSeat(f.seat, f.headline);
+          engine.bindSeat(f.seat, {
+            agent: f.agent,
+            name: f.name,
+            kind: f.kind,
+            title: f.title,
+            input: f.input,
+          });
+          break;
+        case "tool":
+          // no audio, no text — just the next descending chord note + sign of life
+          engine.bridgeTool(f.seat);
           break;
         case "task":
-          engine.setTask(f.seat, f.headline ?? "");
-          if (f.audioB64) engine.enqueueProgress(f.seat, await decode(f.audioB64));
-          break;
         case "progress":
         case "blocked":
-          if (f.audioB64) engine.enqueueProgress(f.seat, await decode(f.audioB64));
+        case "done": {
+          const text = frameText(f);
+          if (text) engine.bridgeLine(f.seat, f.type, text); // list line + lastActivity
+          if (f.type === "task") engine.setTask(f.seat, f.headline ?? "");
+          const audio = await frameAudio(f);
+          if (f.type === "done") {
+            if (audio) engine.setSummaryClip(f.seat, await engine.decodeBytes(audio));
+            engine.markDone(f.seat);
+          } else if (audio) {
+            engine.enqueueProgress(f.seat, await engine.decodeBytes(audio));
+          }
           break;
-        case "done":
-          if (f.audioB64) engine.setSummaryClip(f.seat, await decode(f.audioB64));
-          engine.markDone(f.seat);
-          break;
+        }
         case "free":
           engine.unbindSeat(f.seat);
           break;

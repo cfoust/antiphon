@@ -35,18 +35,19 @@ body {
 .stage {
   position: fixed;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
-canvas {
+#radar {
   display: block;
+  position: fixed;
+  inset: 0;
+  touch-action: none; /* pointer-drag the dots on touch screens */
 }
 
 /* ---- onboarding ---- */
 .intro {
   position: fixed;
   inset: 0;
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -229,6 +230,223 @@ h1 {
 }
 .say-input:disabled {
   opacity: 0.5;
+}
+
+/* ---- the agent list (mirrors the native sidebar) ---- */
+.agents {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 64px);
+  right: calc(env(safe-area-inset-right) + 16px);
+  width: 272px;
+  max-height: calc(100% - 140px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  z-index: 3;
+  overflow: hidden;
+}
+.agents-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 14px 8px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.35);
+  font: 600 10px/1 inherit;
+  font-family: inherit;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: default;
+}
+.agents-count {
+  color: rgba(255, 255, 255, 0.3);
+  font-weight: 500;
+}
+.agents-chevron {
+  display: none; /* only the mobile sheet folds */
+  margin-left: auto;
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+.agents-body {
+  overflow-y: auto;
+  padding: 0 8px 10px;
+  overscroll-behavior: contain;
+}
+.agents-empty {
+  padding: 0 6px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.4);
+}
+.agents-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+}
+.agents-divider span {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.agents-divider b {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.3);
+}
+.agent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: 10px;
+  margin-bottom: 4px;
+  cursor: default;
+  transition: background 0.12s ease;
+}
+.agent-row.hover,
+.agent-row.hl {
+  background: rgba(255, 255, 255, 0.06);
+}
+.a-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 8px var(--c); /* glow while active */
+}
+.agent-row.snoozed .a-dot {
+  opacity: 0.35;
+  box-shadow: none;
+}
+.a-main {
+  flex: 1;
+  min-width: 0;
+}
+.a-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.a-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+}
+.agent-row.snoozed .a-name {
+  color: rgba(255, 255, 255, 0.45);
+}
+.a-kind {
+  font-size: 9px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 1.5px 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.a-wait {
+  /* an unheard summary is waiting — the whole point of the room */
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 6px rgba(255, 206, 107, 0.8);
+}
+.a-title {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.a-status {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+.a-word {
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.agent-row.snoozed .a-word {
+  opacity: 0.5;
+}
+.a-line {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.42);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.a-snooze {
+  flex: none;
+  margin-top: 3px;
+  padding: 3px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.6);
+  opacity: 0.35; /* always visible (touch has no hover); hover brightens it */
+  cursor: pointer;
+  line-height: 0;
+}
+.agent-row.hover .a-snooze,
+.a-snooze:hover {
+  opacity: 1;
+}
+.agent-row.snoozed .a-snooze {
+  opacity: 0.7;
+}
+
+/* phones: the list folds into a bottom sheet; the header is the handle */
+@media (max-width: 700px), (max-height: 500px) {
+  .agents {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 46vh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    background: rgba(6, 8, 11, 0.82);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+  .agents-head {
+    padding: 14px 16px 10px;
+    cursor: pointer;
+  }
+  .agents-chevron {
+    display: block;
+  }
+  .agents:not(.open) .agents-body {
+    display: none;
+  }
+  .agents:not(.open) .agents-chevron {
+    transform: rotate(180deg);
+  }
+  .agents-body {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 10px);
+  }
+  /* keep the sheet clear of the say input in live mode */
+  .say {
+    bottom: calc(env(safe-area-inset-bottom) + 58px);
+  }
 }
 
 /* ---- calibration ---- */

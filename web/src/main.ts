@@ -1,5 +1,6 @@
 import { Chamber } from "./audio/engine";
 import { HeadTracker, type Calibration } from "./tracking/headTracking";
+import { initAgentList } from "./ui/agentList";
 import { initRadar } from "./ui/radar";
 import "./ui/styles.css";
 
@@ -27,6 +28,12 @@ const engine = new Chamber();
 const tracker = new HeadTracker();
 const canvas = $<HTMLCanvasElement>("radar");
 initRadar(engine, canvas);
+const agentList = $("agentList");
+initAgentList(engine, agentList);
+
+// Head tracking is best-effort: on phones (or with the camera denied) the room
+// still works — radar, drag, list and audio — just without head-driven pose.
+let tracking = false;
 
 const intro = $("intro");
 const enableBtn = $<HTMLButtonElement>("enable");
@@ -79,7 +86,14 @@ enableBtn.onclick = async () => {
   try {
     setStatus("Starting audio…");
     await engine.start(LIVE ? "live" : "demo"); // builds the graph; stays silent until Start
-
+  } catch (err) {
+    const e = err as Error;
+    setStatus("Couldn't start audio: " + (e.message || e.name), "err");
+    enableBtn.disabled = false;
+    enableBtn.classList.remove("busy");
+    return;
+  }
+  try {
     setStatus("Requesting camera…");
     await tracker.startCamera();
 
@@ -91,6 +105,7 @@ enableBtn.onclick = async () => {
       engine.loadClip("audio/cal_done.mp3"),
     ]);
     clips = { left, right, done };
+    tracking = true;
 
     setStatus("Look at your screen…");
     tracker.startLoop(() => {
@@ -98,19 +113,18 @@ enableBtn.onclick = async () => {
       revealStart("Start");
     });
     setTimeout(() => revealStart("Start anyway"), 5000);
-
-    enableBtn.hidden = true;
   } catch (err) {
+    // No camera (denied, or a phone without tracking) — the room still works:
+    // radar, dragging and the agent list, just without head-driven pose.
     const e = err as Error;
     setStatus(
       e.name === "NotAllowedError"
-        ? "Camera permission denied — enable it and reload."
-        : "Couldn't start: " + (e.message || e.name),
-      "err",
+        ? "Camera denied — starting without head tracking."
+        : "No head tracking — the room still works.",
     );
-    enableBtn.disabled = false;
-    enableBtn.classList.remove("busy");
+    revealStart("Start without head tracking");
   }
+  enableBtn.hidden = true;
 };
 
 // Step 2 — calibrate (first time) then begin the experience.
@@ -118,14 +132,16 @@ startBtn.onclick = async () => {
   startBtn.disabled = true;
   await engine.resume(); // unmute (still no auto-finishing yet)
 
-  const stored = loadCal();
-  if (stored) tracker.apply(stored);
-  else await runCalibration();
-
-  tracker.attach(engine); // go live with the calibration
+  if (tracking) {
+    const stored = loadCal();
+    if (stored) tracker.apply(stored);
+    else await runCalibration();
+    tracker.attach(engine); // go live with the calibration
+  }
   intro.classList.add("gone");
   calib.hidden = true;
   controls.hidden = false; // reveal the Fit slider once the experience is live
+  agentList.hidden = false; // …and the room list
   if (LIVE) {
     const { connectLive } = await import("./live/bridge");
     connectLive(engine); // agents driven by a real Claude Code session
