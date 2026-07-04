@@ -54,13 +54,10 @@ export interface HeroStrings {
   eyesClosed: string;
   tracked: string;
   hint: string;
-  idleTitle: string;
-  begin: string;
-  idleNote: string;
+  introCap: string;
   done: string;
   unmute: string;
   soundOn: string;
-  replay: string;
 }
 
 export interface SiteStrings {
@@ -188,13 +185,10 @@ export const SITE: Record<Lang, SiteStrings> = {
       eyesClosed: "eyes closed",
       tracked: "head &amp; eyes tracked",
       hint: "the room, from above — voices stay put as you turn",
-      idleTitle: "Put on headphones.",
-      begin: "Close your eyes ↵",
-      idleNote: "The real workflow, in half a minute · rendered by the real engine · sound on",
+      introCap: "The camera on your screen follows your face — and notices when your eyes close.",
       done: "DONE",
       unmute: "🔇 unmute",
       soundOn: "🔊 sound on",
-      replay: "replay ⟳",
     },
   },
 
@@ -299,13 +293,10 @@ export const SITE: Record<Lang, SiteStrings> = {
       eyesClosed: "глаза закрыты",
       tracked: "голова и глаза отслеживаются",
       hint: "комната сверху — голоса остаются на месте, когда вы поворачиваетесь",
-      idleTitle: "Наденьте наушники.",
-      begin: "Закройте глаза ↵",
-      idleNote: "Настоящий рабочий процесс за полминуты · отрендерено настоящим движком · со звуком",
+      introCap: "Камера на вашем экране следит за лицом — и замечает, когда вы закрываете глаза.",
       done: "ГОТОВО",
       unmute: "🔇 включить звук",
       soundOn: "🔊 звук включён",
-      replay: "ещё раз ⟳",
     },
   },
 
@@ -409,13 +400,10 @@ export const SITE: Record<Lang, SiteStrings> = {
       eyesClosed: "眼睛已闭",
       tracked: "追踪头部与眼睛",
       hint: "俯瞰房间——转头时，声音留在原地",
-      idleTitle: "戴上耳机。",
-      begin: "闭上眼睛 ↵",
-      idleNote: "真实工作流，半分钟 · 由真实引擎渲染 · 建议开声音",
+      introCap: "屏幕上的摄像头跟随你的面部——并在你闭上眼睛时察觉。",
       done: "完成",
       unmute: "🔇 开启声音",
       soundOn: "🔊 声音已开",
-      replay: "重播 ⟳",
     },
   },
 
@@ -519,13 +507,10 @@ export const SITE: Record<Lang, SiteStrings> = {
       eyesClosed: "眼睛已閉",
       tracked: "追蹤頭部與眼睛",
       hint: "俯瞰房間——轉頭時，聲音留在原地",
-      idleTitle: "戴上耳機。",
-      begin: "閉上眼睛 ↵",
-      idleNote: "真實工作流程，半分鐘 · 由真實引擎渲染 · 建議開聲音",
+      introCap: "螢幕上的攝影機跟隨你的面部——並在你閉上眼睛時察覺。",
       done: "完成",
       unmute: "🔇 開啟聲音",
       soundOn: "🔊 聲音已開",
-      replay: "重播 ⟳",
     },
   },
 };

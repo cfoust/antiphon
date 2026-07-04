@@ -35,28 +35,40 @@ AGENTS = {
     "A": {"name": "wren", "color": "#C4694A", "bearingDeg": -35.0, "distance": 1.25, "ping": 587.33},
     "B": {"name": "sol", "color": "#7D93E8", "bearingDeg": 30.0, "distance": 1.8, "ping": 659.25},
 }
-VOICES = {"summary_A": "cedar", "summary_B": "marin"}
+VOICES = {"working_A": "cedar", "summary_B": "marin"}
+TONES = {
+    "working_A": (
+        "A coding agent thinking aloud mid-task, half to itself — murmured, "
+        "unhurried, eyes on the work. Not addressing anyone."
+    ),
+    "summary_B": (
+        "A capable, calm coding agent reporting a finished task to its "
+        "human, speaking across a quiet room. Warm, brief, done."
+    ),
+}
 # One soundtrack per site language: spoken lines + the typed reply. Timings are
 # recomputed per language from the measured TTS durations, so each language gets
-# its own timeline JSON alongside its m4a.
+# its own timeline JSON alongside its m4a. The scene: A (left) keeps WORKING —
+# drone, tool ticks, a muttered progress line; B (right) finishes mid-stream,
+# you turn to B instead of waiting for A, and only B gives a summary.
 LANGS = {
     "en": {
-        "summary_A": "Rebuilt the auth flow — all forty-two tests pass. Refresh tokens rotate cleanly now.",
+        "working_A": "Auth suite again… two failures left, both in token refresh. Trying a rotation guard.",
         "summary_B": "The docs draft is ready — two pages, with the migration notes you asked for.",
         "reply": "Ship the docs. I'll look at auth after the tests.",
     },
     "ru": {
-        "summary_A": "Переделал поток авторизации — все сорок два теста проходят. Refresh-токены теперь ротируются чисто.",
+        "working_A": "Снова тесты авторизации… осталось два падения, оба в обновлении токенов. Пробую защиту от гонки.",
         "summary_B": "Черновик документации готов — две страницы, с заметками о миграции, как ты просил.",
         "reply": "Публикуй доку. Auth посмотрю после тестов.",
     },
     "zh-Hans": {
-        "summary_A": "鉴权流程重建完成——四十二个测试全部通过。刷新令牌现在能干净地轮换了。",
+        "working_A": "又在跑鉴权测试……还剩两个失败，都在令牌刷新里。试试加个轮换保护。",
         "summary_B": "文档草稿好了——两页，带上你要的迁移说明。",
         "reply": "文档先发。鉴权等测试跑完我再看。",
     },
     "zh-Hant": {
-        "summary_A": "驗證流程重建完成——四十二個測試全部通過。更新權杖現在能乾淨地輪換了。",
+        "working_A": "又在跑驗證測試……還剩兩個失敗，都在權杖更新裡。試試加個輪換保護。",
         "summary_B": "文件草稿好了——兩頁，附上你要的遷移說明。",
         "reply": "文件先出。驗證等測試跑完我再看。",
     },
@@ -87,6 +99,14 @@ def make_chime() -> np.ndarray:
     return (s * 1.3).astype(np.float32)  # CHIME_GAIN
 
 
+def make_tick(freq: float) -> np.ndarray:
+    """A tool call: one short, quiet blip in the agent's key — work, not news."""
+    t = np.arange(int(SR * 0.14)) / SR
+    env = np.exp(-t * 42.0)
+    s = np.sin(2 * np.pi * freq * 2.0 * t) * 0.32 + np.sin(2 * np.pi * freq * 3.0 * t) * 0.12
+    return (s * env).astype(np.float32)
+
+
 def make_drone_segment(ping: float, dur: float) -> np.ndarray:
     """The working drone (three-tone machine hum) for `dur` seconds with the
     app's mixed level (gDrone 0.5 × baked 0.16) and gentle edge fades."""
@@ -112,8 +132,8 @@ def make_drone_segment(ping: float, dur: float) -> np.ndarray:
 
 
 # ---- TTS ----------------------------------------------------------------------
-def tts(voice: str, text: str) -> Path:
-    key = hashlib.sha256(f"{voice}\x00{text}".encode()).hexdigest()[:16]
+def tts(voice: str, text: str, instructions: str) -> Path:
+    key = hashlib.sha256(f"{voice}\x00{text}\x00{instructions}".encode()).hexdigest()[:16]
     out = CACHE / f"line-{key}.wav"
     if out.exists():
         return out
@@ -125,10 +145,7 @@ def tts(voice: str, text: str) -> Path:
             "voice": voice,
             "input": text,
             "response_format": "wav",
-            "instructions": (
-                "A capable, calm coding agent reporting a finished task to its "
-                "human, speaking across a quiet room. Warm, brief, done."
-            ),
+            "instructions": instructions,
         },
         timeout=120,
     )
@@ -160,15 +177,15 @@ def build_lang(lang: str, texts: dict) -> None:
     type_cps = TYPE_CPS_CJK if lang.startswith("zh") else TYPE_CPS
 
     # 1) lines + measured durations
-    line_paths = {k: tts(VOICES[k], texts[k]) for k in ("summary_A", "summary_B")}
-    dur_a = wav_dur(line_paths["summary_A"])
+    line_paths = {k: tts(VOICES[k], texts[k], TONES[k]) for k in ("working_A", "summary_B")}
+    dur_a = wav_dur(line_paths["working_A"])
     dur_b = wav_dur(line_paths["summary_B"])
 
-    # 2) resolved timeline (times chain off real line lengths)
-    gaze_a = WORLD_IN + 1.1                     # you notice A's ping, turn
-    lock_a = gaze_a + GAZE_TURN + LINGER        # linger complete → chime
-    line_a = lock_a + CHIME_LEAD
-    ping_b = line_a + dur_a + AFTER_A           # B finishes as A wraps up
+    # 2) resolved timeline: A never finishes — B pings while A is mid-mutter,
+    # and you turn RIGHT instead of waiting
+    line_a = WORLD_IN + 0.8
+    ticks_a = [line_a + 0.5, line_a + 1.9, line_a + 3.4, line_a + dur_a + 1.6]
+    ping_b = max(line_a + dur_a * 0.72, WORLD_IN + 3.0)
     gaze_b = ping_b + 0.5
     lock_b = gaze_b + GAZE_TURN + LINGER
     line_b = lock_b + CHIME_LEAD
@@ -180,24 +197,27 @@ def build_lang(lang: str, texts: dict) -> None:
     duration = send + 1.6
 
     # 3) earcons
-    ping_a_w = CACHE / "ping_a.wav"
     ping_b_w = CACHE / "ping_b.wav"
     chime_w = CACHE / "chime.wav"
-    drone_b_w = CACHE / f"drone_b.{lang}.wav"
-    write_wav(ping_a_w, make_ping(AGENTS["A"]["ping"]))
+    tick_a_w = CACHE / "tick_a.wav"
+    drone_a_w = CACHE / f"drone_a.{lang}.wav"
+    drone_b_w = CACHE / f"drone_b2.{lang}.wav"
     write_wav(ping_b_w, make_ping(AGENTS["B"]["ping"]))
     write_wav(chime_w, make_chime())
+    write_wav(tick_a_w, make_tick(AGENTS["A"]["ping"]))
+    write_wav(drone_a_w, make_drone_segment(AGENTS["A"]["ping"], eyes_open - WORLD_IN))
     write_wav(drone_b_w, make_drone_segment(AGENTS["B"]["ping"], ping_b - WORLD_IN))
 
-    # 4) the .scn — the app's gains: ping faced 0.9 / side 0.4, summary 0.95
+    # 4) the .scn — the app's gains: ping faced 0.9 / side 0.4, summary 0.95;
+    # A's mutter stays side-gained (you never face it), its ticks stay quiet
     A, B = AGENTS["A"], AGENTS["B"]
     ev = []
+    ev.append((drone_a_w, WORLD_IN, A, 1.0))
     ev.append((drone_b_w, WORLD_IN, B, 1.0))
-    ev.append((ping_a_w, WORLD_IN + 0.2, A, 0.4))       # not yet faced
-    ev.append((ping_a_w, WORLD_IN + 0.2 + 2.6, A, 0.9))  # faced by now
-    ev.append((chime_w, lock_a, A, 1.0))
-    ev.append((line_paths["summary_A"], line_a, A, 0.95))
-    ev.append((ping_b_w, ping_b, B, 0.4))
+    ev.append((line_paths["working_A"], line_a, A, 0.62))
+    for tk in ticks_a:
+        ev.append((tick_a_w, tk, A, 0.55))
+    ev.append((ping_b_w, ping_b, B, 0.4))            # not yet faced
     ev.append((chime_w, lock_b, B, 1.0))
     ev.append((line_paths["summary_B"], line_b, B, 0.95))
 
@@ -207,9 +227,7 @@ def build_lang(lang: str, texts: dict) -> None:
         f.write(f"duration {duration:.2f}\nmaster 0.45\n")
         for t, yaw in [
             (0.0, 0.0),
-            (gaze_a, 0.0),
-            (gaze_a + GAZE_TURN, A["bearingDeg"]),
-            (gaze_b, A["bearingDeg"]),
+            (gaze_b, 0.0),
             (gaze_b + GAZE_TURN, B["bearingDeg"]),
             (eyes_open, B["bearingDeg"]),
             (eyes_open + 1.0, 0.0),
@@ -253,13 +271,12 @@ def build_lang(lang: str, texts: dict) -> None:
         "duration": round(duration, 2),
         "agents": {k: {kk: v[kk] for kk in ("name", "color", "bearingDeg", "distance")}
                    for k, v in AGENTS.items()},
-        "captions": {k: texts[k] for k in ("summary_A", "summary_B")},
+        "captions": {k: texts[k] for k in ("working_A", "summary_B")},
         "reply": reply,
+        "ticksA": [round(t, 2) for t in ticks_a],
         "t": {
             "eyesClose": EYES_CLOSE,
             "worldIn": WORLD_IN,
-            "gazeA": round(gaze_a, 2),
-            "lockA": round(lock_a, 2),
             "lineA": round(line_a, 2),
             "lineAEnd": round(line_a + dur_a, 2),
             "pingB": round(ping_b, 2),
