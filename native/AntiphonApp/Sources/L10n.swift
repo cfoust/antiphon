@@ -180,10 +180,15 @@ private let TBL: [String: (String, String, String)] = [
     "Check for Updates…": ("Проверить обновления…", "检查更新…", "檢查更新…"),
     "Updates": ("Обновления", "更新", "更新"),
     "Up to date": ("У вас последняя версия", "已是最新版本", "已是最新版本"),
-    "Checked once a day": ("Проверяется раз в день", "每天检查一次", "每天檢查一次"),
     "New version: %@": ("Новая версия: %@", "新版本：%@", "新版本：%@"),
     "Download": ("Скачать", "下载", "下載"),
     "Check now": ("Проверить сейчас", "立即检查", "立即檢查"),
+    "Check automatically": ("Проверять автоматически", "自动检查", "自動檢查"),
+    "Once a day, from GitHub — nothing is sent":
+        ("Раз в день, через GitHub — ничего не отправляется",
+         "每天一次，向 GitHub 查询——不发送任何数据",
+         "每天一次，向 GitHub 查詢——不傳送任何資料"),
+    "Not checked yet": ("Ещё не проверялось", "尚未检查", "尚未檢查"),
 
     // ---- menu bar ----
     "Antiphon is watching — click to close its eyes (camera off, silent)":

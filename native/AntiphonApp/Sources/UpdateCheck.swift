@@ -15,15 +15,23 @@ final class UpdateChecker: ObservableObject {
     @Published var checking = false
     @Published var checkedOnce = false // gate "Up to date" behind a real check
 
+    /// The automatic daily check is opt-out; "Check now" stays available either
+    /// way — clicking it IS the consent.
+    @Published var autoCheck: Bool = UserDefaults.standard.object(forKey: autoKey) as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoCheck, forKey: Self.autoKey) }
+    }
+
     static let current: String =
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
 
     private static let lastKey = "update.lastCheck"
+    private static let autoKey = "update.autoCheck"
     private static let api =
         URL(string: "https://api.github.com/repos/cfoust/antiphon/releases/latest")!
 
     /// Launch-time check, throttled to once a day so we're a polite API citizen.
     func checkIfDue() {
+        guard autoCheck else { return }
         let last = UserDefaults.standard.double(forKey: Self.lastKey)
         guard Date().timeIntervalSince1970 - last > 24 * 3600 else { return }
         check()

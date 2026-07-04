@@ -235,9 +235,15 @@ private struct GeneralPane: View {
                 Text(appVersion).font(.callout.monospacedDigit()).foregroundStyle(SD.sub)
             }
             divider()
+            labeledRow(L("Check automatically"), L("Once a day, from GitHub — nothing is sent")) {
+                Toggle("", isOn: Binding(get: { updates.autoCheck },
+                                         set: { updates.autoCheck = $0 }))
+                    .labelsHidden().toggleStyle(.switch)
+            }
+            divider()
             labeledRow(L("Updates"),
                        updates.available.map { Lf("New version: %@", $0.version) }
-                           ?? (updates.checkedOnce ? L("Up to date") : L("Checked once a day"))) {
+                           ?? (updates.checkedOnce ? L("Up to date") : L("Not checked yet"))) {
                 if updates.checking {
                     ProgressView().controlSize(.small)
                 } else if let up = updates.available {

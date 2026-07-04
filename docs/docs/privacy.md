@@ -24,6 +24,12 @@ provider to be turned into speech, under that provider's privacy policy. The syn
 audio is cached locally (`~/.antiphon/tts-cache`) so repeated lines aren't re-sent. If you
 stick with the built-in macOS voices, nothing leaves your machine at all.
 
+Two small housekeeping calls also go out: the app asks GitHub's public API once a day
+whether a newer release exists (a plain HTTPS request — no identifiers beyond what any
+web request carries; you can turn this off in Settings → About), and the site's download
+buttons do the same. That's the entire
+network story.
+
 The `antiphond` daemon listens on `127.0.0.1` only — it is never reachable from the
 network. Your agent sessions' narration travels from plugin to daemon to app entirely on
 localhost.
