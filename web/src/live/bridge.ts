@@ -18,6 +18,9 @@ interface Frame {
   name?: string;
   kind?: string;
   title?: string;
+  repo?: string; // "owner/name"
+  cwd?: string; // absolute path
+  branch?: string; // "" = switched away from any branch
   input?: string;
   color?: string;
   headline?: string;
@@ -103,6 +106,9 @@ export function connectLive(engine: Antiphon): void {
             name: f.name,
             kind: f.kind,
             title: f.title,
+            repo: f.repo,
+            cwd: f.cwd,
+            branch: f.branch,
             input: f.input,
           });
           break;

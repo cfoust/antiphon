@@ -1,4 +1,5 @@
 import type { Antiphon } from "../audio/engine";
+import { lang } from "../demoI18n";
 import { rad, TAU } from "../math";
 
 // Full-bleed top-down antiphon, visually mirroring the native RadarView
@@ -14,6 +15,23 @@ const GRAB_PX = 26; // generous grab radius // mirrors Radar.swift hitTest
 function rgb(hex: string): string {
   const v = parseInt(hex.replace("#", ""), 16);
   return `${(v >> 16) & 0xff},${(v >> 8) & 0xff},${v & 0xff}`;
+}
+
+/** Compact age — "42s" / "3m" / "2h", localized unit letters (mirrors LAge in
+ *  L10n.swift, keyed off the demo's active language). `atMs` is performance.now. */
+function fmtAge(atMs: number): string {
+  const d = Math.max(0, (performance.now() - atMs) / 1000);
+  const [s, m, h] =
+    lang === "ru"
+      ? ["с", "м", "ч"]
+      : lang === "zh-Hans"
+        ? ["秒", "分", "时"]
+        : lang === "zh-Hant"
+          ? ["秒", "分", "時"]
+          : ["s", "m", "h"];
+  if (d < 60) return `${Math.floor(d)}${s}`;
+  if (d < 3600) return `${Math.floor(d / 60)}${m}`;
+  return `${Math.floor(d / 3600)}${h}`;
 }
 
 export function initRadar(engine: Antiphon, cv: HTMLCanvasElement): void {
@@ -63,8 +81,15 @@ export function initRadar(engine: Antiphon, cv: HTMLCanvasElement): void {
     return best;
   }
 
-  // ---- drag (Pointer Events: mouse + touch + pen) --------------------------
+  // ---- drag + hover (Pointer Events: mouse + touch + pen) ------------------
+  // The grab affordance: an open hand over a dot, closed while carrying — and
+  // hovering a dot spotlights its row in the agent list (the mirror of the
+  // list hover lighting the dot up out here). // mirrors Radar.swift
   let dragging = -1;
+  let hoverHit = -1; // dot under the cursor (drives the cursor + the spotlight)
+  const setCursor = () => {
+    cv.style.cursor = dragging >= 0 ? "grabbing" : hoverHit >= 0 ? "grab" : "default";
+  };
   const pointerPos = (e: PointerEvent) => {
     const r = cv.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -76,6 +101,7 @@ export function initRadar(engine: Antiphon, cv: HTMLCanvasElement): void {
     dragging = hit;
     cv.setPointerCapture(e.pointerId);
     engine.dragBegan(hit);
+    setCursor();
     e.preventDefault();
   });
   cv.addEventListener("pointermove", (e) => {
@@ -85,15 +111,104 @@ export function initRadar(engine: Antiphon, cv: HTMLCanvasElement): void {
       engine.dragMoved(dragging, w.x, w.z);
       e.preventDefault();
     } else if (e.pointerType === "mouse") {
-      cv.style.cursor = hitTest(p.x, p.y) >= 0 ? "grab" : "default";
+      const hit = hitTest(p.x, p.y);
+      if (hit !== hoverHit) {
+        hoverHit = hit;
+        engine.setHovered(hit); // spotlight the list row (bidirectional)
+      }
+      setCursor();
     }
+  });
+  cv.addEventListener("pointerleave", () => {
+    if (hoverHit >= 0) {
+      hoverHit = -1;
+      engine.setHovered(-1);
+    }
+    setCursor();
   });
   const endDrag = () => {
     if (dragging >= 0) engine.dragEnded();
     dragging = -1;
+    setCursor();
   };
   cv.addEventListener("pointerup", endDrag);
   cv.addEventListener("pointercancel", endDrag);
+
+  // ---- the hover bubble -----------------------------------------------------
+  // Whichever agent is spotlit (from either side) speaks its latest narration
+  // line in place, over its dot — with a dim inline age; the title stands in
+  // when it hasn't said anything yet (no age then). An absolutely-positioned
+  // DOM node so the text engine does the wrapping; pointer-events: none is the
+  // allowsHitTesting(false) equivalent. // mirrors HoverBubble in Radar.swift
+  const bubble = document.createElement("div");
+  bubble.className = "radar-bubble";
+  bubble.hidden = true;
+  const bubbleText = document.createElement("span");
+  bubbleText.className = "bubble-text";
+  bubble.appendChild(bubbleText);
+  (cv.parentElement ?? document.body).appendChild(bubble);
+  let bubbleKey = ""; // seat|text|age — only touch the DOM when it changes
+
+  function updateBubble(): void {
+    const seat = engine.hoveredSeat;
+    let text = "",
+      age = "",
+      color = "",
+      anchor: { x: number; y: number } | null = null;
+    if (dragging < 0 && seat >= 0) {
+      const a = engine.agents[seat];
+      const N = a ? engine.nodes[a.id] : null;
+      if (N && N.present && !N.snoozed) {
+        const title = N.meta.title || (engine.mode === "demo" ? a.task : "");
+        text = N.lastLine || title;
+        age = N.lastLine && N.lastAt ? fmtAge(N.lastAt) : "";
+        color = a.color;
+        anchor = toScreen(N.posX, N.posZ);
+      }
+    }
+    if (!text || !anchor) {
+      bubble.hidden = true;
+      bubbleKey = "";
+      return;
+    }
+    const key = `${seat}|${text}|${age}`;
+    if (key !== bubbleKey) {
+      bubbleKey = key;
+      bubbleText.textContent = text;
+      if (age) {
+        // the dim inline age suffix rides inside the same 3-line clamp
+        bubbleText.textContent = text + " ";
+        const span = document.createElement("span");
+        span.className = "bubble-age";
+        span.textContent = age;
+        bubbleText.appendChild(span);
+      }
+      bubble.style.borderColor = `rgba(${rgb(color)},0.35)`;
+    }
+    bubble.hidden = false;
+    // Position from the MEASURED size (mirrors Radar.swift bubblePosition):
+    // prefer floating above the dot; flip below near the top; clamp inside the
+    // viewport on all edges and never slide under the agent-list rail.
+    const r = bubble.getBoundingClientRect();
+    const m = 10,
+      clearance = 22;
+    const halfW = r.width / 2,
+      halfH = r.height / 2;
+    let rightEdge = W - m;
+    const list = document.getElementById("agentList");
+    if (list && !list.hidden) {
+      const lr = list.getBoundingClientRect();
+      // the desktop right rail constrains x; the phone bottom sheet (full
+      // width) doesn't
+      if (lr.width < W - 40) rightEdge = Math.min(rightEdge, lr.left - 12);
+    }
+    const x = Math.min(Math.max(anchor.x, m + halfW), Math.max(m + halfW, rightEdge - halfW));
+    let y = anchor.y - clearance - halfH;
+    if (y - halfH < m) y = anchor.y + clearance + halfH; // flip below the dot
+    y = Math.min(Math.max(y, m + halfH), H - m - halfH);
+    bubble.style.left = (x - halfW).toFixed(1) + "px";
+    bubble.style.top = (y - halfH).toFixed(1) + "px";
+  }
 
   // ---- draw -----------------------------------------------------------------
   function draw() {
@@ -212,6 +327,7 @@ export function initRadar(engine: Antiphon, cv: HTMLCanvasElement): void {
         g.stroke();
       }
     }
+    updateBubble(); // dots move (drag/rearrange) — the bubble follows per frame
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);

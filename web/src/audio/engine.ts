@@ -7,10 +7,12 @@ import {
   BLOOM_COOLDOWN_MS,
   DRONE_HOLD_MS,
   DWELL_MS,
+  FADE_DELAY_MS,
   LINGER_MS,
   PING_FREQS,
   PING_INTERVAL,
   RECYCLE_MS,
+  WALL_MARGIN_M,
 } from "../agents";
 import { ARRANGE, angdiff, deg, rad, TAU } from "../math";
 import type {
@@ -23,7 +25,7 @@ import type {
   SeatMeta,
 } from "../types";
 import { makeBloom, makeDrone, makePulse, makeToolNote, toolNoteFreqs } from "./earcons";
-import { WasmEngine, ENGINE_URLS } from "./wasmEngine";
+import { WasmEngine, ENGINE_URLS, type RoomDims } from "./wasmEngine";
 
 /** Map the prototype's env names to wasm room-preset indices. `room`/`hall` use the
  *  measured-style convolution-BRIR presets (4 = room_conv, 5 = hall_conv). */
@@ -85,14 +87,24 @@ export class Antiphon {
 
   // radar/list interactions (mirrors AntiphonEngine.swift dragSeat/hoveredSeat/immersionHold)
   dragSeat = -1; // seat being dragged on the radar; -1 = none
-  hoveredSeat = -1; // seat hovered/tapped in the agent list; -1 = none
+  hoveredSeat = -1; // seat hovered/tapped in the agent list or on the radar; -1 = none
   private immersionHold = false; // a drag audition holds the scene fully in
   private immersionEye = 1; // last eye-driven immersion target (0..1)
   private eyesClosed = false; // detector state (false when no tracker runs)
+  // Blink filter + scene-in (mirrors AntiphonEngine.swift pendingSceneIn/sceneInSince):
+  // eyes must stay closed FADE_DELAY_MS before the immersion target goes to 1
+  // (opening cancels instantly); sceneInSince marks when the scene actually came
+  // in — dwell and summaries count time only in-scene, never during a blink.
+  private immersionArmed = false; // true once an eye detector drives us (native: armImmersion)
+  private pendingSceneIn = false;
+  private eyesClosedAt = 0;
+  private sceneInSince = 0; // wall-clock ms; 0 = the scene is not in
   // eyes-closed gaze dwell → the hum crests (mirrors AntiphonEngine.swift updateTalkback)
   private dwellSeat = -1;
   private dwellStart = 0;
   private cooldownSeat = -1;
+  // active room geometry, cached for place()'s wall clamp (fetched async on room change)
+  private roomDims: RoomDims | null = null;
 
   // events for the UI layer
   onAgents: () => void = () => {};
@@ -256,9 +268,10 @@ export class Antiphon {
       present: true, // demo mode: everyone is present (live flips this on bind)
       departed: false,
       lastActivity: 0,
-      meta: { agent: "", name: "", kind: "", title: "", input: "" },
+      meta: { agent: "", name: "", kind: "", title: "", repo: "", cwd: "", branch: "", input: "" },
       lastLine: "",
       lastKind: "",
+      lastAt: 0,
       narrQueue: [],
       narrPlaying: false,
     };
@@ -294,6 +307,7 @@ export class Antiphon {
     });
     this.wasm.connect(this.agentBus);
     this.wasm.setRoom(ENV_ROOM[this.env]);
+    this.refreshRoomDims(); // cache the walls for place()'s drag clamp
     this.wasm.setFreqScale(this.fit); // apply the default "fit" before any audio plays
     this.wasm.setAttentionBuildMinutes(this.attnBuildMin); // "agent waiting" cue build time
     this.setListener();
@@ -591,6 +605,12 @@ export class Antiphon {
     const now = performance.now(),
       at = this.ctx.currentTime;
 
+    // blink filter: the eyes have stayed closed long enough — scene in
+    // (mirrors AntiphonEngine.swift tick(); opening cancels in setEyesClosed)
+    if (this.pendingSceneIn && this.eyesClosed && now - this.eyesClosedAt >= FADE_DELAY_MS) {
+      this.enterScene(now);
+    }
+
     // chord drone + drag audition pulse — mirrors AntiphonEngine.swift tick():
     // the drone hums while the agent is present, awake, working, and showed a
     // sign of life recently; the pulse opens for the dot being dragged.
@@ -611,10 +631,13 @@ export class Antiphon {
 
     // dwell/lock hum — mirrors AntiphonEngine.swift updateTalkback(): rest an
     // eyes-closed gaze on an agent and its chord-root hum builds in; holding
-    // ~0.9 s "locks" (the hum leans up for a beat, then releases). There is no
+    // ~1 s "locks" (the hum leans up for a beat, then releases). There is no
     // talk-back panel on the web, so the lock is purely the acoustic moment;
-    // the cooldown keeps a held gaze from cresting over and over.
-    if (this.eyesClosed) {
+    // the cooldown keeps a held gaze from cresting over and over. The dwell
+    // exists only INSIDE the scene: the clock starts after the blink filter
+    // has brought the room in, never during an eyes-open glance.
+    const inScene = this.eyesClosed && (!this.immersionArmed || this.sceneInSince > 0);
+    if (inScene) {
       const fi = this.facedIndex();
       if (fi !== this.cooldownSeat) this.cooldownSeat = -1;
       if (fi >= 0 && fi !== this.cooldownSeat) {
@@ -679,11 +702,15 @@ export class Antiphon {
         now + AUTO_FINISH_MIN_MS + Math.random() * (AUTO_FINISH_MAX_MS - AUTO_FINISH_MIN_MS);
       this.finishRandom();
     }
-    // linger on a done agent → summary. Eyes-open must not consume one into a
-    // silent scene (mirrors AntiphonEngine.swift); with no eye tracker the
-    // immersion rests at 1, so mobile keeps the old behavior.
+    // linger on a done agent → summary. Summaries are an eyes-closed moment
+    // once the fade is armed: an eyes-open glance (or a blink that hasn't
+    // survived the filter) must not start one into a silent scene — the dwell
+    // clock counts only while the scene is actually in. With no eye tracker
+    // the fade is never armed, so mobile keeps the old behavior.
+    // (mirrors AntiphonEngine.swift `listening`)
     const fa = this.facedAgent();
-    const attending = fa && this.lookGate > 0.6 && this.immersionEye >= 0.5;
+    const listening = !this.immersionArmed || (this.eyesClosed && this.sceneInSince > 0);
+    const attending = fa && this.lookGate > 0.6 && listening;
     if (attending && this.nodes[fa.id]?.state === "done") {
       if (this.lingerId !== fa.id) {
         this.lingerId = fa.id;
@@ -730,17 +757,29 @@ export class Antiphon {
     }
   }
 
-  /** Clamps to a sane annulus (too close is deafening, too far is inaudible)
-   *  and keeps position, bearing and the DSP source in sync.
+  /** Too close is deafening (keep the 0.45 m bubble); beyond the ROOM's walls
+   *  the reverb model no longer matches and voices go flat, so the reverb
+   *  chamber itself is the outer bound (a wall margin keeps image sources
+   *  honest). While the async dims query is still in flight, fall back to the
+   *  old ring. Keeps position, bearing and the DSP source in sync.
    *  // mirrors AntiphonEngine.swift place(seat:) */
   private place(seat: number, x: number, z: number): void {
     const a = this.agents[seat];
     if (!a || !this.nodes[a.id]) return;
     const N = this.nodes[a.id];
-    const d = Math.max(Math.hypot(x, z), 1e-6);
-    const clamped = Math.min(Math.max(d, DRAG_MIN_M), DRAG_MAX_M);
-    N.posX = (x * clamped) / d;
-    N.posZ = (z * clamped) / d;
+    let wx = x,
+      wz = z;
+    const dims = this.roomDims;
+    if (dims) {
+      const hx = Math.max(0.6, dims.w / 2 - WALL_MARGIN_M);
+      const hz = Math.max(0.6, dims.d / 2 - WALL_MARGIN_M);
+      wx = Math.min(Math.max(wx, -hx), hx);
+      wz = Math.min(Math.max(wz, -hz), hz);
+    }
+    const d = Math.max(Math.hypot(wx, wz), 1e-6);
+    const clamped = dims ? Math.max(d, DRAG_MIN_M) : Math.min(Math.max(d, DRAG_MIN_M), DRAG_MAX_M);
+    N.posX = (wx * clamped) / d;
+    N.posZ = (wz * clamped) / d;
     N.bearing = Math.atan2(N.posX, -N.posZ);
     this.placeAgent(a.id);
     if (this.started) this.updateMix();
@@ -820,11 +859,35 @@ export class Antiphon {
     this.wasm?.setImmersionEngine(this.immersionHold || this.fitHold ? 1 : this.immersionEye);
   }
 
-  /** Convenience over setImmersion for the boolean eyes-closed detector: closed → full,
-   *  open → silent (full-silence floor; change the 0 below if a small floor reads better). */
+  /** The boolean eyes-closed detector: closed → full, open → silent. Closing runs
+   *  through the blink filter — the eyes must STAY closed FADE_DELAY_MS before the
+   *  scene comes in (tick() completes it); opening cancels instantly and drops the
+   *  scene-in marker. The first call arms the fade (until then the scene rests at
+   *  full so mobile/no-tracker keeps working). Edge-triggered: the tracker pushes
+   *  every frame, and re-stamping eyesClosedAt would keep the filter from ever
+   *  elapsing. // mirrors AntiphonEngine.swift setEyesClosed + armImmersion */
   setEyesClosed(closed: boolean): void {
+    if (this.immersionArmed && closed === this.eyesClosed) return;
+    this.immersionArmed = true;
     this.eyesClosed = closed;
-    this.setImmersion(closed ? 1 : 0);
+    if (closed) {
+      // entering: hold for the blink filter — tick() completes it
+      this.pendingSceneIn = true;
+      this.eyesClosedAt = performance.now();
+      if (FADE_DELAY_MS <= 10) this.enterScene(performance.now());
+    } else {
+      // leaving is always immediate
+      this.pendingSceneIn = false;
+      this.sceneInSince = 0;
+      this.setImmersion(0);
+    }
+  }
+
+  /** The blink filter elapsed — bring the room in. // mirrors AntiphonEngine.swift enterScene */
+  private enterScene(nowMs: number): void {
+    this.pendingSceneIn = false;
+    this.sceneInSince = nowMs;
+    this.setImmersion(1);
   }
 
   setMasterVol(v: number): void {
@@ -850,7 +913,18 @@ export class Antiphon {
   setEnv(name: EnvName): void {
     this.env = name;
     this.wasm?.setRoom(ENV_ROOM[name]);
+    this.refreshRoomDims();
     if (this.started) this.updateMix();
+  }
+
+  /** Re-cache the active room's geometry (async worklet query) so place() can
+   *  clamp dragged agents to the walls synchronously. */
+  private refreshRoomDims(): void {
+    this.roomDims = null; // stale walls are worse than the fallback ring
+    const idx = ENV_ROOM[this.env];
+    void this.wasm?.roomDims(idx).then((d) => {
+      if (ENV_ROOM[this.env] === idx) this.roomDims = d; // env may have moved on
+    });
   }
 
   setActiveCount(n: number): void {
@@ -906,11 +980,15 @@ export class Antiphon {
       if (meta.name) N.meta.name = meta.name;
       if (meta.kind) N.meta.kind = meta.kind;
       if (meta.title) N.meta.title = meta.title;
+      if (meta.repo) N.meta.repo = meta.repo;
+      if (meta.cwd) N.meta.cwd = meta.cwd;
+      if (meta.branch !== undefined) N.meta.branch = meta.branch; // "" clears (branch switched away)
       N.meta.input = meta.input ?? "";
     }
     if (newTenant) {
       N.lastLine = "";
       N.lastKind = "";
+      N.lastAt = 0;
       N.snoozed = false;
     }
     N.present = true;
@@ -958,6 +1036,7 @@ export class Antiphon {
     if (!N) return;
     N.lastLine = text;
     N.lastKind = kind;
+    N.lastAt = performance.now(); // the hover bubble shows the line's age
     N.lastActivity = performance.now();
     this.onAgents();
   }
@@ -1094,6 +1173,11 @@ export class Antiphon {
         name: N.meta.name || a.name,
         kind: N.meta.kind || (live ? "" : "demo"),
         title: N.meta.title || (live ? "" : a.task),
+        // workspace identity: real bind metadata, or the demo persona's scripted
+        // one (same fallback shape as title/task above)
+        repo: N.meta.repo || (live ? "" : a.repo ?? ""),
+        cwd: N.meta.cwd || (live ? "" : a.cwd ?? ""),
+        branch: N.meta.branch || (live ? "" : a.branch ?? ""),
         color: a.color,
         status,
         lastLine: N.lastLine,
