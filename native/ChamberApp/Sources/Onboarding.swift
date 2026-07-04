@@ -16,6 +16,10 @@ enum AN {
     static let muted = Color(red: 0.639, green: 0.588, blue: 0.518)      // #A39684
     static let cobalt = Color(red: 0.153, green: 0.263, blue: 0.722)     // #2743B8
     static let terracotta = Color(red: 0.769, green: 0.412, blue: 0.290) // #C4694A
+    // the site's dark-room tokens (the "close your eyes" panel)
+    static let darkRoom = Color(red: 0.090, green: 0.071, blue: 0.063)   // #171210
+    static let creamText = Color(red: 0.965, green: 0.937, blue: 0.886)  // #F6EFE2
+    static let periwinkle = Color(red: 0.490, green: 0.576, blue: 0.910) // #7D93E8
 }
 
 /// The concentric-circle mati eye (hero proportions from the handoff), with an
@@ -80,7 +84,7 @@ struct WelcomeView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                AN.cream.ignoresSafeArea()
+                AN.darkRoom.ignoresSafeArea()
                 VStack(spacing: 0) {
                     Spacer(minLength: 24)
                     AntiphonEye(size: 130, pupil: pupil)
@@ -88,15 +92,15 @@ struct WelcomeView: View {
                         .padding(.bottom, 26)
                     Text("Antiphon")
                         .font(.system(size: 40, design: .serif))
-                        .foregroundStyle(AN.ink)
+                        .foregroundStyle(AN.creamText)
                         .padding(.bottom, 10)
                     Text(L("Your agents, speaking. You, listening."))
                         .font(.system(size: 21, design: .serif))
-                        .foregroundStyle(AN.ink.opacity(0.85))
+                        .foregroundStyle(AN.creamText.opacity(0.88))
                         .padding(.bottom, 8)
                     Text(L("Antiphon gives every coding agent a voice, placed in the room around you. Put on headphones and overhear the work."))
                         .font(.system(size: 14))
-                        .foregroundStyle(AN.secondary)
+                        .foregroundStyle(AN.creamText.opacity(0.6))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 440)
                         .fixedSize(horizontal: false, vertical: true)
@@ -106,7 +110,7 @@ struct WelcomeView: View {
                         Button(L("Enable camera & continue")) { onEnable() }
                             .buttonStyle(PillButtonStyle())
                         Text(L("Turn your head to face agents. Video never leaves your device."))
-                            .font(.system(size: 12)).foregroundStyle(AN.muted)
+                            .font(.system(size: 12)).foregroundStyle(AN.creamText.opacity(0.4))
                             .padding(.top, 12)
                     } else {
                         // the camera step, unified into the welcome — no mirror:
@@ -128,7 +132,7 @@ struct WelcomeView: View {
                                 : L("Looking for your face…"))
                                 .font(.system(size: 12.5))
                         }
-                        .foregroundStyle(tracker.faceFound ? AN.cobalt : AN.muted)
+                        .foregroundStyle(tracker.faceFound ? AN.periwinkle : AN.creamText.opacity(0.4))
                         .padding(.bottom, 16)
                         if tracker.hasSavedCalibration {
                             Button(L("Start")) { onStart() }
@@ -137,7 +141,7 @@ struct WelcomeView: View {
                             Button(L("Set up again")) { onSetUp() }
                                 .buttonStyle(.plain)
                                 .font(.system(size: 12.5))
-                                .foregroundStyle(AN.cobalt)
+                                .foregroundStyle(AN.periwinkle)
                                 .padding(.top, 10)
                         } else {
                             Button(L("Continue")) { onSetUp() }
@@ -149,14 +153,11 @@ struct WelcomeView: View {
                     Spacer(minLength: 24)
                     Text(L("By Caleb Foust"))
                         .font(.system(size: 11))
-                        .foregroundStyle(AN.muted)
+                        .foregroundStyle(AN.creamText.opacity(0.35))
                         .padding(.bottom, 16)
                 }
                 .frame(maxWidth: .infinity)
             }
-            // the window runs dark; this screen is cream — restyle the native
-            // controls (picker!) for a light ground or they render white-on-cream
-            .environment(\.colorScheme, .light)
             // the eye watches the cursor (hero behavior: max ±22 pt, full
             // deflection beyond ~300 pt — measured from the eye's spot)
             .onContinuousHover { phase in
