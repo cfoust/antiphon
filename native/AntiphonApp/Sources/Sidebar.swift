@@ -7,6 +7,9 @@ import SwiftUI
 struct AgentSidebar: View {
     @ObservedObject var engine: AntiphonEngine
     @ObservedObject private var i18n = I18n.shared
+    @AppStorage("sidebar.width") private var width = 300.0
+    @State private var dragStartWidth: Double?
+    static let widthRange = 240.0...420.0
 
     var body: some View {
         let rows = engine.agentList
@@ -60,9 +63,27 @@ struct AgentSidebar: View {
                 }
             }
         }
-        .frame(width: 272)
+        .frame(width: width)
         .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.07)))
+        // the rail's edge is draggable: a slim, invisible grip
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(.clear)
+                .frame(width: 9)
+                .contentShape(Rectangle())
+                .onHover { over in (over ? NSCursor.resizeLeftRight : NSCursor.arrow).set() }
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { v in
+                            let start = dragStartWidth ?? width
+                            dragStartWidth = start
+                            width = (start - v.translation.width)
+                                .clamped(to: AgentSidebar.widthRange)
+                        }
+                        .onEnded { _ in dragStartWidth = nil }
+                )
+        }
         .fontDesign(.rounded)
     }
 
@@ -90,38 +111,15 @@ private struct AgentRowView: View {
                 .shadow(color: vm.snoozed ? .clear : Color(hex: vm.hex).opacity(0.7), radius: 4)
                 .padding(.top, 4)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    // the session's title leads; the persona name is only a
-                    // fallback for sessions that haven't said what they're doing
-                    Text(vm.title.isEmpty ? (vm.name.isEmpty ? "—" : vm.name) : vm.title)
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.white.opacity(vm.snoozed ? 0.45 : 0.92))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if !vm.kind.isEmpty {
-                        Text(prettyAgentKind(vm.kind))
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.45))
-                            .padding(.horizontal, 5).padding(.vertical, 1.5)
-                            .background(.white.opacity(0.08), in: Capsule())
-                            .layoutPriority(1)
-                    }
-                    Spacer(minLength: 0)
-                    if vm.waiting {
-                        // an unheard summary is waiting — the whole point of the room
-                        Circle().fill(Color(hex: "#ffce6b")).frame(width: 7, height: 7)
-                            .shadow(color: Color(hex: "#ffce6b").opacity(0.8), radius: 3)
-                    }
-                }
-                if !contextLine.isEmpty {
-                    // where the work lives: repo ⎇ branch · ~/dir
-                    Text(contextLine)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+            // conversations-style: the title owns the full width (two lines),
+            // then the preview (status · last words), then the dimmest context
+            VStack(alignment: .leading, spacing: 2.5) {
+                Text(vm.title.isEmpty ? (vm.name.isEmpty ? "—" : vm.name) : vm.title)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white.opacity(vm.snoozed ? 0.45 : 0.92))
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 5) {
                     Text(LStatus(vm.status))
                         .font(.caption2.weight(.medium))
@@ -133,19 +131,33 @@ private struct AgentRowView: View {
                             .lineLimit(1)
                     }
                 }
+                if !contextLine.isEmpty {
+                    Text(contextLine)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.38))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
 
-            // a snoozed row always shows its moon — the way back must never
-            // hide behind a hover; active rows reveal theirs on hover
-            if hovering || vm.snoozed {
-                Button(action: onSnooze) {
-                    Image(systemName: vm.snoozed ? "moon.zzz.fill" : "moon.zzz")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.6))
+            // trailing rail: the unread badge, and the moon (always for snoozed)
+            VStack(alignment: .trailing, spacing: 6) {
+                if vm.waiting {
+                    // an unheard summary is waiting — the whole point of the room
+                    Circle().fill(Color(hex: "#ffce6b")).frame(width: 7, height: 7)
+                        .shadow(color: Color(hex: "#ffce6b").opacity(0.8), radius: 3)
+                        .padding(.top, 4)
                 }
-                .buttonStyle(.plain)
-                .help(vm.snoozed ? L("Wake — back into the room") : L("Snooze — out of the room, keeps updating"))
-                .padding(.top, 3)
+                if hovering || vm.snoozed {
+                    Button(action: onSnooze) {
+                        Image(systemName: vm.snoozed ? "moon.zzz.fill" : "moon.zzz")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                    .help(vm.snoozed ? L("Wake — back into the room") : L("Snooze — out of the room, keeps updating"))
+                }
+                Spacer(minLength: 0)
             }
         }
         .padding(.horizontal, 8)
@@ -165,6 +177,7 @@ private struct AgentRowView: View {
 
     private var contextLine: String {
         var parts: [String] = []
+        if !vm.kind.isEmpty { parts.append(prettyAgentKind(vm.kind)) }
         if !vm.repo.isEmpty { parts.append(vm.branch.isEmpty ? vm.repo : "\(vm.repo) ⎇ \(vm.branch)") }
         else if !vm.branch.isEmpty { parts.append("⎇ \(vm.branch)") }
         if !vm.cwd.isEmpty { parts.append(tildePath(vm.cwd)) }
@@ -185,4 +198,10 @@ private struct AgentRowView: View {
 func prettyAgentKind(_ kind: String) -> String {
     kind.split(separator: "-").map { $0.prefix(1).uppercased() + $0.dropFirst() }
         .joined(separator: " ")
+}
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+    }
 }

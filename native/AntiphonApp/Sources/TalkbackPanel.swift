@@ -478,28 +478,55 @@ private struct LetterView: View {
         }
     }
 
+    /// A real conversation: agent narration as paper bubbles on the left, your
+    /// sent messages on the right. Full text, no truncation; scrolls when long.
     private var transcript: some View {
-        VStack(spacing: 9) {
-            ForEach(Array(info.lines.enumerated()), id: \.offset) { i, line in
-                let latest = i == info.lines.count - 1
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(LTag(line.kind))
-                        .font(.system(size: 10.5, weight: .heavy, design: .rounded))
-                        .kerning(1.0)
-                        .foregroundColor(tagColor(line.kind))
-                        .frame(width: 66, alignment: .trailing)
-                    Text(line.text)
-                        .font(.system(size: 14, design: .rounded))
-                        .foregroundColor(latest ? TB.ink : TB.sub)
-                        .lineLimit(2)
-                    Spacer(minLength: 8)
-                    Text(LAge(line.at))
-                        .font(.system(size: 11, design: .rounded))
-                        .foregroundColor(TB.faint)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(Array(info.lines.enumerated()), id: \.offset) { i, line in
+                        bubble(line).id(i)
+                    }
+                }
+                .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 10)
+            }
+            .frame(maxHeight: 300)
+            .onAppear { proxy.scrollTo(info.lines.count - 1, anchor: .bottom) }
+            .onChange(of: info.lines.count) { _ in
+                withAnimation(.easeOut(duration: 0.15)) {
+                    proxy.scrollTo(info.lines.count - 1, anchor: .bottom)
                 }
             }
         }
-        .padding(.horizontal, 18).padding(.top, 2).padding(.bottom, 12)
+    }
+
+    @ViewBuilder private func bubble(_ line: TalkbackLine) -> some View {
+        let mine = line.kind == "you"
+        HStack(alignment: .bottom, spacing: 0) {
+            if mine { Spacer(minLength: 56) }
+            VStack(alignment: .leading, spacing: 3) {
+                if !mine {
+                    HStack(spacing: 7) {
+                        Text(LTag(line.kind))
+                            .font(.system(size: 9.5, weight: .heavy, design: .rounded))
+                            .kerning(0.9)
+                            .foregroundColor(tagColor(line.kind))
+                        Text(LAge(line.at))
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundColor(TB.faint)
+                    }
+                }
+                Text(line.text)
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(mine ? .white : TB.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(mine ? AnyShapeStyle(TB.clay) : AnyShapeStyle(TB.ink.opacity(0.055)),
+                        in: RoundedRectangle(cornerRadius: 13))
+            if !mine { Spacer(minLength: 56) }
+        }
     }
 
     private func tagColor(_ kind: String) -> Color {
@@ -513,7 +540,7 @@ private struct LetterView: View {
     private var footer: some View {
         HStack(spacing: 16) {
             if info.reachable {
-                HStack(spacing: 6) { KeyCap(label: "↩"); Text(Lf("send to %@", info.displayName)) }
+                HStack(spacing: 6) { KeyCap(label: "↩"); Text(L("send")) }
             } else {
                 Text(L("listening only")).foregroundColor(TB.clay)
             }

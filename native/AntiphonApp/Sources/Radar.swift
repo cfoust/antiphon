@@ -21,11 +21,12 @@ struct RadarView: View {
     @State private var dragging = -1
     @State private var dragMissed = false
     @State private var hoverHit = -1 // dot under the cursor (drives the grab cursor)
+    @AppStorage("sidebar.width") private var sidebarWidth = 300.0
 
-    /// Keep draggable dots clear of the right rail (sidebar 272 + its 16 pt
+    /// Keep draggable dots clear of the right rail (live width + its 16 pt
     /// padding) and the window edges — a dot must never be *lost* under UI.
     private func clampToVisible(_ p: CGPoint, _ size: CGSize) -> CGPoint {
-        let sidebar: CGFloat = 272 + 16 + 14
+        let sidebar: CGFloat = CGFloat(sidebarWidth) + 16 + 14
         let m: CGFloat = 14
         return CGPoint(x: min(max(p.x, m), max(m, size.width - sidebar)),
                        y: min(max(p.y, m), size.height - m))

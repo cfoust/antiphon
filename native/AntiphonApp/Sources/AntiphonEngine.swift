@@ -874,7 +874,7 @@ final class AntiphonEngine: ObservableObject {
         q.async {
             var lines = self.seatLines[seat] ?? []
             lines.append(TalkbackLine(kind: kind, text: text, at: Date().timeIntervalSince1970))
-            if lines.count > 3 { lines.removeFirst(lines.count - 3) }
+            if lines.count > 24 { lines.removeFirst(lines.count - 24) } // a conversation, not a marquee
             self.seatLines[seat] = lines
             if self.agents.indices.contains(seat) { self.agents[seat].lastActivity = self.now() }
             if self.lockedSeat == seat { self.pushTalkback(present: false) }
@@ -1121,11 +1121,18 @@ final class AntiphonEngine: ObservableObject {
     func talkbackSend(_ text: String) {
         q.async {
             guard self.lockedSeat >= 0 else { return }
+            let seat = self.lockedSeat
             if self.liveBridge {
-                self.bridge?.sendSay(seat: self.lockedSeat, text: text)
+                self.bridge?.sendSay(seat: seat, text: text)
             } else {
-                NSLog("[talkback] (demo) say seat=%d: %@", self.lockedSeat, text)
+                NSLog("[talkback] (demo) say seat=%d: %@", seat, text)
             }
+            // your side of the conversation belongs in the transcript too
+            var lines = self.seatLines[seat] ?? []
+            lines.append(TalkbackLine(kind: "you", text: text, at: Date().timeIntervalSince1970))
+            if lines.count > 24 { lines.removeFirst(lines.count - 24) }
+            self.seatLines[seat] = lines
+            if self.lockedSeat == seat { self.pushTalkback(present: false) }
         }
     }
 
