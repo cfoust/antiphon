@@ -1,7 +1,7 @@
 # plugins/codex — Codex CLI adapter for Antiphon
 
 Narrates OpenAI Codex CLI sessions into the Antiphon spatial-audio monitor via
-`antiphond` (see `docs/internal/agent-bridge.md`). A near-1:1 port of the Claude Code
+`antiphond` (protocol: `plugins/README.md`). A near-1:1 port of the Claude Code
 plugin: Codex's hooks engine is Claude-Code-shaped, so the same pieces map
 straight across.
 

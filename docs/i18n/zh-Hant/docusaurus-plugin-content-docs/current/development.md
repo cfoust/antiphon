@@ -21,7 +21,7 @@ native/AntiphonApp  SwiftUI host (swiftc only — no Xcode project)
 antiphond/          Go daemon: agent registry, TTS ladder, WS hub
 plugins/            per-agent adapters (claude-code, codex, opencode, pi, aider)
 web/                marketing site + web demo (Vite/Bun + AudioWorklet)
-docs/               this documentation (Docusaurus; engineering notes in docs/internal/)
+docs/               this documentation (Docusaurus)
 ```
 
 ## 常用工作
@@ -43,7 +43,7 @@ just tag      # 發布一個 CalVer 版本標籤
 ## 兩條不變式
 
 1. **原生↔wasm 一致性。** 對 `antiphon-dsp` 或 `antiphon-ffi` 的任何改動，都必須讓 `just parity` 持續通過（誤差 < −90 dBFS；實際大約落在 −155）。避免與平台相關的浮點行為、執行緒，以及熱路徑上的記憶體配置。
-2. **單一座標系。** 幾何由 DSP crate 全權掌管（右手座標系，前方 = −z，方位角朝 +左）。宿主在各自的邊界處轉換。動到任何與姿態或 ITD 相關的程式碼之前，請先閱讀儲存庫裡的 `docs/internal/conventions.md`——ITD 的正負號只要用猜的，左右就會顛倒。
+2. **單一座標系。** 幾何由 DSP crate 全權掌管（右手座標系，前方 = −z，方位角朝 +左）。宿主在各自的邊界處轉換。既定約定（方位角朝 +左、ITD 的正負號）記錄在儲存庫的 `CLAUDE.md` 裡——用猜的，左右就會顛倒。
 
 ## 品質關卡是你的耳朵
 

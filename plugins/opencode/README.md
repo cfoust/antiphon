@@ -1,7 +1,7 @@
 # plugins/opencode — OpenCode plugin for Antiphon
 
 Narrates OpenCode sessions into the Antiphon spatial-audio monitor via
-`antiphond` (see `docs/internal/agent-bridge.md`). Runs in-process, so it speaks the
+`antiphond` (protocol: `plugins/README.md`). Runs in-process, so it speaks the
 hub's `/agent` WebSocket protocol natively — the same full-fidelity rung as
 the Claude Code plugin's `antiphond channel`.
 

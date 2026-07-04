@@ -1,4 +1,4 @@
-# antiphond — the Antiphon agent bridge daemon (see ../docs/internal/agent-bridge.md)
+# antiphond — the Antiphon agent bridge daemon (protocol: ../plugins/README.md)
 
 default:
     @just --list

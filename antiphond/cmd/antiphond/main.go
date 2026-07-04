@@ -1,4 +1,4 @@
-// antiphond — the Antiphon agent bridge daemon. See docs/internal/agent-bridge.md.
+// antiphond — the Antiphon agent bridge daemon. The wire protocol is documented in plugins/README.md.
 //
 //	antiphond serve    run the hub (default)
 //	antiphond channel  per-session MCP subprocess for Claude Code (stdio ↔ hub)

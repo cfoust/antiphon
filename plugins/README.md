@@ -1,7 +1,7 @@
 # plugins/ — coding-agent adapters for Antiphon
 
 Each directory teaches one coding agent to narrate into `antiphond`, the
-Antiphon daemon (see `docs/internal/agent-bridge.md`).
+Antiphon daemon (protocol: `plugins/README.md`).
 
 **The protocol, in one paragraph.** An agent binds by sending
 `{type:"hello", session, kind, repo, cwd, title, input}` on the

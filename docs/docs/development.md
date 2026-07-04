@@ -22,7 +22,7 @@ native/AntiphonApp  SwiftUI host (swiftc only — no Xcode project)
 antiphond/          Go daemon: agent registry, TTS ladder, WS hub
 plugins/            per-agent adapters (claude-code, codex, opencode, pi, aider)
 web/                marketing site + web demo (Vite/Bun + AudioWorklet)
-docs/               this documentation (Docusaurus; engineering notes in docs/internal/)
+docs/               this documentation (Docusaurus)
 ```
 
 ## Common tasks
@@ -49,9 +49,8 @@ generator scripts.
    `just parity` passing (error < −90 dBFS; it sits around −155). Avoid
    platform-dependent float behavior, threading, and hot-path allocation.
 2. **One coordinate frame.** The DSP crate owns geometry (right-handed, front = −z,
-   azimuth toward +left). Hosts convert at their edge. Read `docs/internal/conventions.md` in the
-   repo before touching anything pose- or ITD-related — the ITD sign flips left/right if
-   you guess.
+   azimuth toward +left). Hosts convert at their edge. The pinned facts (azimuth toward +left, the ITD sign)
+   live in the repo's `CLAUDE.md` — they flip left/right if you guess.
 
 ## The quality gate is your ears
 

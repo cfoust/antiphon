@@ -54,7 +54,7 @@ impl ReverbBackend {
 /// One measured direction and its associated minimum-phase HRIR pair + ITD.
 #[derive(Clone, Debug)]
 pub struct Direction {
-    /// Azimuth in radians. 0 = front, +pi/2 = left, -pi/2 = right (see docs/internal/conventions.md).
+    /// Azimuth in radians. 0 = front, +pi/2 = left, -pi/2 = right (the frame is pinned in CLAUDE.md).
     pub az: f32,
     /// Elevation in radians. 0 = ear level, +pi/2 = straight up.
     pub el: f32,

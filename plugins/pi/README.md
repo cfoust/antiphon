@@ -1,7 +1,7 @@
 # plugins/pi — Pi extension for Antiphon
 
 Narrates Pi (badlogic/pi-mono `coding-agent`) sessions into the Antiphon
-spatial-audio monitor via `antiphond` (see `docs/internal/agent-bridge.md`). Runs
+spatial-audio monitor via `antiphond` (protocol: `plugins/README.md`). Runs
 in-process with a persistent `/agent` WebSocket — the same full-fidelity rung
 as the Claude Code plugin, plus genuine bidirectional talk-back.
 

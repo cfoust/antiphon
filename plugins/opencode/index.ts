@@ -1,6 +1,6 @@
 /**
  * antiphon-opencode — narrate OpenCode sessions into Antiphon, the
- * spatial-audio agent monitor (see docs/internal/agent-bridge.md).
+ * spatial-audio agent monitor (protocol: plugins/README.md).
  *
  * Runs in-process (Bun), so it speaks the hub's /agent WebSocket protocol
  * directly: one persistent connection per OpenCode session, identity hello on

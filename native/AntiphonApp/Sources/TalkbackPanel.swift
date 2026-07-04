@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-// TalkbackPanel — the talk-back surface (docs/internal/agent-bridge.md, "Talk-back").
+// TalkbackPanel — the talk-back surface (the eyes-open reply surface).
 //
 // A Spotlight-class NSPanel: non-activating, floating, key-without-activating — it
 // takes the keyboard the moment the dwell locks (so a dictation tool types into it
