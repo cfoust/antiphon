@@ -63,7 +63,7 @@ export interface HeroStrings {
 export interface SiteStrings {
   title: string;
   nav: { sounds: string; feels: string; engineering: string; download: string };
-  hero: { h1: string; sub: string; download: string; browser: string; fineprint: string };
+  hero: { h1: string; sub: string; download: string; browser: string; fineprint: string; mobileNote: string };
   listen: { eyebrow: string; h2: string; intro: string; note: string; cta: string };
   feel: { eyebrow: string; h2: string; bubbles: Bubble[]; tenets: Tenet[] };
   choir: {
@@ -97,6 +97,7 @@ export const SITE: Record<Lang, SiteStrings> = {
       sub: "Antiphon gives every coding agent a voice, placed in the room around you. Put on headphones and overhear the work.",
       download: "Download for macOS",
       browser: "Try it in the browser",
+      mobileNote: "A native macOS app — and the demo runs right here in your browser.",
       fineprint: "Free &amp; open source · Headphones recommended",
     },
     listen: {
@@ -205,6 +206,7 @@ export const SITE: Record<Lang, SiteStrings> = {
       sub: "Antiphon даёт каждому кодинг-агенту голос и место в комнате вокруг вас. Наденьте наушники — и просто слушайте, как идёт работа.",
       download: "Скачать для macOS",
       browser: "Попробовать в браузере",
+      mobileNote: "Нативное приложение для macOS — а демо работает прямо в браузере.",
       fineprint: "Бесплатно и открыто · Рекомендуются наушники",
     },
     listen: {
@@ -313,6 +315,7 @@ export const SITE: Record<Lang, SiteStrings> = {
       sub: "Antiphon 给每个编程智能体一个声音，安放在你周围的房间里。戴上耳机，听工作自己发生。",
       download: "下载 macOS 版",
       browser: "在浏览器里试试",
+      mobileNote: "原生 macOS 应用——演示可以直接在浏览器里体验。",
       fineprint: "免费开源 · 建议佩戴耳机",
     },
     listen: {
@@ -420,6 +423,7 @@ export const SITE: Record<Lang, SiteStrings> = {
       sub: "Antiphon 給每個程式代理一個聲音，安放在你周圍的房間裡。戴上耳機，聽工作自己發生。",
       download: "下載 macOS 版",
       browser: "在瀏覽器裡試試",
+      mobileNote: "原生 macOS 應用程式——示範可以直接在瀏覽器裡體驗。",
       fineprint: "免費開源 · 建議佩戴耳機",
     },
     listen: {

@@ -82,10 +82,11 @@ function page(lang: Lang): string {
     <h1>${S.hero.h1}</h1>
     <p class="anph-hero-sub">${S.hero.sub}</p>
     <div class="anph-hero-ctas">
-      <a href="${DOWNLOAD_URL}" data-dl class="anph-btn anph-btn--primary">${S.hero.download}</a>
+      <a href="${DOWNLOAD_URL}" data-dl class="anph-btn anph-btn--primary anph-only-desktop">${S.hero.download}</a>
       <a href="/demo.html" class="anph-btn anph-btn--secondary">${S.hero.browser}</a>
     </div>
-    <div class="anph-fineprint">${S.hero.fineprint}</div>
+    <div class="anph-fineprint anph-only-desktop">${S.hero.fineprint}</div>
+    <div class="anph-fineprint anph-only-mobile">${S.hero.mobileNote}</div>
   </div>
   <div class="anph-stage">
     <div id="listen-panel" class="listen-panel"></div>
@@ -203,7 +204,7 @@ function page(lang: Lang): string {
     <h2>${S.get.h2}</h2>
     <p class="anph-get-sub">${S.get.sub}</p>
     <div class="anph-get-ctas">
-      <a href="${DOWNLOAD_URL}" data-dl class="anph-btn anph-btn--primary">${S.get.download}</a>
+      <a href="${DOWNLOAD_URL}" data-dl class="anph-btn anph-btn--primary anph-only-desktop">${S.get.download}</a>
       <a href="/demo.html" class="anph-btn anph-btn--secondary">${S.get.demo}</a>
     </div>
     <div class="anph-fineprint">${S.get.fineprint}</div>

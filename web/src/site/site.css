@@ -875,3 +875,31 @@ body {
     padding: 54px 20px 24px;
   }
 }
+
+/* phones can't run a macOS app — the web demo becomes the one true CTA */
+.anph-only-mobile {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .anph-only-desktop {
+    display: none;
+  }
+
+  .anph-only-mobile {
+    display: block;
+  }
+
+  /* promote the demo button to primary weight where the download hid */
+  .anph-hero--stage .anph-hero-ctas .anph-btn--secondary {
+    background: #fbf7f0;
+    border-color: #fbf7f0;
+    color: #2a231b;
+  }
+
+  .anph-get-ctas .anph-btn--secondary {
+    background: #2a231b;
+    border-color: #2a231b;
+    color: #fbf7f0;
+  }
+}
