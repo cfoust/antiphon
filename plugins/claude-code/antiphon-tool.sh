@@ -17,7 +17,7 @@ fi
 for CAND in \
   "/Applications/Antiphon.app/Contents/MacOS/antiphond" \
   "$HOME/Applications/Antiphon.app/Contents/MacOS/antiphond" \
-  "${CLAUDE_PLUGIN_ROOT}/../antiphond/bin/antiphond" \
+  "${CLAUDE_PLUGIN_ROOT}/../../antiphond/bin/antiphond" \
   "$HOME/go/bin/antiphond"; do
   [ -z "$BIN" ] && [ -x "$CAND" ] && BIN="$CAND"
 done

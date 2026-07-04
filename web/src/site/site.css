@@ -584,6 +584,10 @@ body {
   text-decoration: none;
 }
 
+.anph-footer-version {
+  color: var(--anph-muted);
+}
+
 /* ===================== reduced motion ===================== */
 
 @media (prefers-reduced-motion: reduce) {

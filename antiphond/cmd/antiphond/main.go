@@ -28,8 +28,15 @@ import (
 	"github.com/cfoust/antiphon/antiphond/internal/voice"
 )
 
+// version is stamped by `just tag` (CalVer) and shipped in release builds.
+var version = "0.0.0-dev"
+
 func main() {
 	args := os.Args[1:]
+	if len(args) > 0 && (args[0] == "version" || args[0] == "-version" || args[0] == "--version") {
+		fmt.Println("antiphond", version)
+		return
+	}
 	mode := "serve"
 	if len(args) > 0 && (args[0] == "serve" || args[0] == "channel" || args[0] == "emit") {
 		mode = args[0]
@@ -128,7 +135,7 @@ func serve(args []string) {
 		os.Exit(0)
 	}()
 
-	log.Printf("antiphond listening on %s (state: %s)", addr, *stateDir)
+	log.Printf("antiphond %s listening on %s (state: %s)", version, addr, *stateDir)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}

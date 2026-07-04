@@ -7,6 +7,7 @@ import "@fontsource/cormorant-garamond/400-italic.css";
 import "@fontsource/instrument-sans/400.css";
 import "@fontsource/instrument-sans/500.css";
 import "@fontsource/instrument-sans/600.css";
+import { VERSION } from "../version";
 import "./site.css";
 
 import { mountHero } from "./hero";
@@ -249,7 +250,8 @@ const footer = `
     <div class="anph-footer-greek">ἀντίφωνον — voices, answering across a space</div>
     <div class="anph-footer-links">
       <a href="${GITHUB_URL}">GitHub</a>
-      <a href="#">Docs</a>
+      <a href="/docs/">Docs</a>
+      <span class="anph-footer-version">${VERSION === "0.0.0-dev" ? "" : `v${VERSION}`}</span>
     </div>
   </div>
 </footer>`;
