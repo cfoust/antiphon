@@ -13,6 +13,7 @@ import "./site.css";
 import { mountHero } from "./hero";
 
 const GITHUB_URL = "https://github.com/cfoust/antiphon";
+const DOWNLOAD_URL = `${GITHUB_URL}/releases/latest/download/Antiphon-macOS.zip`;
 
 // Concentric-circle mati eye mark, at several sizes.
 const navEyeSvg = `<svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="12" fill="#2743B8"/><circle cx="13" cy="13" r="7.5" fill="#FBF7F0"/><circle cx="13" cy="13" r="3.4" fill="#2A231B"/></svg>`;
@@ -65,7 +66,7 @@ const hero = `
   <h1>Your agents, speaking.<br>You, listening.</h1>
   <p class="anph-hero-sub">Antiphon gives every coding agent a voice, placed in the room around you. Put on headphones and overhear the work.</p>
   <div class="anph-hero-ctas">
-    <a href="#get" class="anph-btn anph-btn--primary">Download for macOS</a>
+    <a href="${DOWNLOAD_URL}" class="anph-btn anph-btn--primary">Download for macOS</a>
     <a href="/demo.html" class="anph-btn anph-btn--secondary">Try it in the browser</a>
   </div>
   <div class="anph-fineprint">Free &amp; open source · Headphones recommended</div>
@@ -233,10 +234,10 @@ const get = `
     <h2>Let something keep watch.</h2>
     <p class="anph-get-sub">Antiphon lives in your menu bar — a small eye, always listening on your behalf. Free and open source.</p>
     <div class="anph-get-ctas">
-      <a href="#get" class="anph-btn anph-btn--primary">Download for macOS</a>
+      <a href="${DOWNLOAD_URL}" class="anph-btn anph-btn--primary">Download for macOS</a>
       <a href="/demo.html" class="anph-btn anph-btn--secondary">Open the web demo</a>
     </div>
-    <div class="anph-fineprint">macOS 14+ · Apple silicon &amp; Intel · MIT license</div>
+    <div class="anph-fineprint">macOS 14+ · Apple silicon · MIT license</div>
   </div>
 </section>`;
 

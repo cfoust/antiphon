@@ -1,0 +1,187 @@
+/**
+ * Antiphon docs theme — same tokens as the marketing site (web/src/site/site.css):
+ * cream #FBF7F0, warm #F4EDE2, ink #2A231B, secondary #6B5F51, muted #A39684,
+ * cobalt #2743B8, terracotta #C4694A. GFS Didot display / Instrument Sans text /
+ * Cormorant Garamond italic accents.
+ */
+
+@import "@fontsource/gfs-didot/400.css";
+@import "@fontsource/cormorant-garamond/400-italic.css";
+@import "@fontsource/cormorant-garamond/500-italic.css";
+@import "@fontsource/instrument-sans/400.css";
+@import "@fontsource/instrument-sans/500.css";
+@import "@fontsource/instrument-sans/600.css";
+
+:root {
+  --anph-cream: #fbf7f0;
+  --anph-warm: #f4ede2;
+  --anph-ink: #2a231b;
+  --anph-secondary: #6b5f51;
+  --anph-muted: #a39684;
+  --anph-cobalt: #2743b8;
+  --anph-terracotta: #c4694a;
+
+  --ifm-color-primary: #2743b8;
+  --ifm-color-primary-dark: #233ca6;
+  --ifm-color-primary-darker: #21399c;
+  --ifm-color-primary-darkest: #1b2f81;
+  --ifm-color-primary-light: #2b4aca;
+  --ifm-color-primary-lighter: #2f4fd4;
+  --ifm-color-primary-lightest: #4a66dd;
+
+  --ifm-background-color: var(--anph-cream);
+  --ifm-font-color-base: var(--anph-ink);
+  --ifm-font-family-base: "Instrument Sans", -apple-system, sans-serif;
+  --ifm-heading-font-family: "GFS Didot", Georgia, serif;
+  --ifm-heading-font-weight: 400;
+  --ifm-heading-color: var(--anph-ink);
+  --ifm-font-size-base: 16.5px;
+  --ifm-line-height-base: 1.72;
+  --ifm-code-font-size: 87%;
+
+  --ifm-navbar-background-color: rgba(251, 247, 240, 0.92);
+  --ifm-navbar-shadow: 0 1px 0 rgba(42, 35, 27, 0.1);
+  --ifm-footer-background-color: var(--anph-warm);
+  --ifm-toc-border-color: rgba(42, 35, 27, 0.12);
+  --ifm-color-emphasis-300: rgba(42, 35, 27, 0.18);
+
+  --ifm-code-background: rgba(42, 35, 27, 0.055);
+  --ifm-pre-background: #f4ede2;
+  --ifm-blockquote-color: var(--anph-secondary);
+
+  --ifm-link-decoration: none;
+  --ifm-menu-color: var(--anph-secondary);
+  --ifm-menu-color-active: var(--anph-cobalt);
+  --ifm-breadcrumb-color-active: var(--anph-cobalt);
+}
+
+html {
+  background: var(--anph-cream);
+}
+
+/* ---- chrome -------------------------------------------------------------- */
+
+.navbar {
+  backdrop-filter: blur(10px);
+}
+
+.navbar__title {
+  font-family: "GFS Didot", Georgia, serif;
+  font-size: 1.15rem;
+  letter-spacing: 0.01em;
+}
+
+.navbar__link,
+.menu__link {
+  font-size: 0.92rem;
+}
+
+.footer {
+  border-top: 1px solid rgba(42, 35, 27, 0.1);
+  padding: 2.2rem 1rem;
+}
+
+.footer__copyright {
+  font-size: 0.85rem;
+  color: var(--anph-muted);
+}
+
+/* ---- docs typography ------------------------------------------------------ */
+
+.markdown h1:first-child {
+  --ifm-h1-font-size: 2.6rem;
+}
+
+.markdown h2 {
+  --ifm-h2-font-size: 1.75rem;
+  margin-top: 2.6rem;
+}
+
+.markdown h3 {
+  --ifm-h3-font-size: 1.25rem;
+}
+
+.markdown a {
+  color: var(--anph-cobalt);
+}
+
+.markdown a:hover {
+  text-decoration: underline;
+}
+
+blockquote {
+  border-left: 2px solid var(--anph-terracotta);
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-style: italic;
+  font-size: 1.14em;
+}
+
+.theme-code-block {
+  box-shadow: none;
+  border: 1px solid rgba(42, 35, 27, 0.12);
+}
+
+.table-of-contents__link--active {
+  color: var(--anph-cobalt);
+}
+
+/* ---- the blog: a reading page, not an app page ----------------------------- */
+
+.blog-wrapper article {
+  max-width: 44rem;
+  margin: 0 auto;
+}
+
+.blog-wrapper article header h1 {
+  font-size: 2.9rem;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+}
+
+.blog-wrapper article header h2 {
+  font-size: 2rem; /* list-page titles */
+}
+
+.blog-wrapper article .markdown {
+  font-size: 1.16rem;
+  line-height: 1.78;
+  color: #3a3127;
+}
+
+.blog-wrapper article .markdown p {
+  margin-bottom: 1.35em;
+}
+
+.blog-wrapper article .markdown h2 {
+  margin-top: 2.8rem;
+  font-size: 1.85rem;
+}
+
+.blog-wrapper article .markdown blockquote {
+  font-size: 1.35rem;
+  line-height: 1.5;
+  color: var(--anph-secondary);
+  border-left: none;
+  padding: 0.4rem 2.2rem;
+  text-align: center;
+}
+
+.blog-wrapper .avatar__name a {
+  color: var(--anph-ink);
+}
+
+.blog-wrapper .avatar__subtitle,
+.blog-wrapper article header .margin-vert--md,
+.blog-wrapper time {
+  color: var(--anph-muted);
+}
+
+/* a quiet drop cap on post pages only (list pages truncate; skip them) */
+.blog-post-page.blog-wrapper article .markdown > p:first-of-type::first-letter {
+  font-family: "GFS Didot", Georgia, serif;
+  font-size: 3.4em;
+  float: left;
+  line-height: 0.82;
+  padding: 0.08em 0.12em 0 0;
+  color: var(--anph-cobalt);
+}

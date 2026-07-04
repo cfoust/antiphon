@@ -1,0 +1,86 @@
+---
+slug: about-antiphon
+title: "Antiphon: agents you can overhear"
+authors: caleb
+---
+
+export const Eye = () => (
+  <div style={{ display: "flex", justifyContent: "center", margin: "2.4rem 0" }}>
+    <svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true">
+      <circle cx="36" cy="36" r="34" fill="none" stroke="#2743B8" strokeWidth="2.5" />
+      <circle cx="36" cy="36" r="22" fill="#2743B8" />
+      <circle cx="36" cy="36" r="13" fill="#FBF7F0" />
+      <circle cx="36" cy="36" r="6" fill="#2A231B" />
+    </svg>
+  </div>
+);
+
+Somewhere along the way, working with coding agents turned into watching them. A good
+session now means four or five of them running at once — one refactoring, one writing docs,
+one chasing a flaky test — and me, cycling through terminal tabs like a security guard
+checking monitors. The agents got faster and more capable every month. My side of the
+arrangement stayed the same: poll, squint, scroll.
+
+{/* truncate */}
+
+That's a strange way to supervise collaborators, when you think about it. Nobody manages a
+team by staring at all of them simultaneously. You share a space. You develop peripheral
+awareness. You hear the tone of the room — who's in flow, who's stuck, who just pushed back
+from their desk with something to say. Vision is a foreground sense; it needs you to point
+it. Hearing is the background one. It monitors everything, all the time, for free.
+
+So I built the thing I wanted: a room.
+
+<Eye />
+
+Antiphon gives every agent session a voice and a seat in a virtual space around you. It's a
+native macOS app doing real binaural rendering — measured HRTFs, room acoustics, a webcam
+watching your head so the world holds still while you move. An agent isn't a tab anymore;
+it's a presence two meters off your left shoulder. When it runs tools, you hear its chord
+tick downward, note by note. When it settles into a long build, it drops to a low
+three-tone machine hum, the way you'd hear a lathe from across a workshop. When it
+finishes, it tells you — a sentence or two, in its own voice, from its own spot in the
+room.
+
+The interaction I care most about is the one that costs nothing: **close your eyes.** The
+camera notices. The desk fades, the room comes up, and for a few seconds you're standing
+among your agents. Turn toward the voice that wants you, hold your gaze a beat, and it
+delivers its report. Open your eyes and there's a reply box waiting — type, enter, and
+you're back to your own work. Triage by ear, ten seconds, no tabs.
+
+> Nothing pings. Nothing flashes. A waiting agent builds a slow bloom in one ear —
+> over minutes — until you have a moment for it.
+
+That gentleness is the design center, and it's the part I had to relearn the most. Every
+notification system I've ever used treats attention as something to *seize*. Antiphon
+treats it as something you *lend*. The sounds took dozens of rounds of tuning-by-ear to get
+right — quieter, lower, slower, always in that direction — because the failure mode of an
+ambient tool isn't subtlety, it's annoyance. If you notice the sound design, it's wrong.
+
+## The engineering bet
+
+Under the hood there's one bet, made early: a single Rust DSP core, no I/O, no threads, no
+allocation on the audio path, compiled twice — a staticlib inside the Mac app and a
+WebAssembly module for the browser. The two builds are verified byte-identical, which is
+why [the web demo](https://antiphon.dev/demo.html) isn't a mockup of the product; it *is*
+the renderer, running scripted agents instead of yours. Even the demo film on the front
+page was scored offline through the real engine.
+
+The other thing that turned out to matter more than expected: head tracking beats HRTF
+personalization. Fancy per-ear measurement is the thing everyone asks about, but motion is
+what convinces your brain that a voice is out there — the soundfield counter-rotating
+against your head, quickly and smoothly. One fit slider and a webcam get you almost all the
+way.
+
+A small Go daemon ties it together: agent plugins connect on localhost, sessions get
+persistent personas and voices (ElevenLabs or OpenAI if you have keys, the macOS voices if
+you don't), and everything streams to the app. Claude Code, Codex, OpenCode, Pi, and Aider
+have adapters today, and the protocol is deliberately small — an adapter is an afternoon.
+
+## The name
+
+*Antiphon* — ἀντίφωνον — is the old word for call-and-response singing: voices answering
+each other across a space. That's the shape of the work now, and it deserved better than a
+dashboard. The whole thing is [open source, MIT](https://github.com/cfoust/antiphon).
+
+Put on headphones. [Close your eyes.](https://antiphon.dev/)

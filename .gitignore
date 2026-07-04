@@ -3,9 +3,11 @@
 /out*
 # raw upstream HRTF/BRIR downloads (fetched, not committed)
 /assets/sofa
-# measured-SOFA bakes are regenerable from assets/sofa; only the analytic default is committed
+# baked assets: the analytic default + measured MIT KEMAR are committed (CI needs them);
+# other bakes are regenerable from assets/sofa
 /assets/baked/*
 !/assets/baked/antiphon-default.antiphon
+!/assets/baked/antiphon-kemar.antiphon
 # web app: deps, build output, staged engine artifacts (produced by tools/build-web.sh)
 /web/node_modules
 /web/dist

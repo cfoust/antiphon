@@ -1,0 +1,82 @@
+name: release
+
+# On a CalVer tag (just tag), build Antiphon.app + standalone antiphond binaries
+# and publish a GitHub release. If Developer ID secrets are configured the app is
+# signed + notarized; otherwise it ships ad-hoc signed with a quarantine note.
+#
+# Optional secrets for notarized builds:
+#   MACOS_CERT_P12          base64 of a Developer ID Application .p12
+#   MACOS_CERT_PASSWORD     its password
+#   APPLE_ID / APPLE_TEAM_ID / APPLE_APP_PASSWORD   for notarytool
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build Antiphon.app
+        run: bash native/AntiphonApp/make.sh
+
+      - name: Sign + notarize (if secrets configured)
+        if: ${{ vars.SIGN_RELEASES == 'true' }}
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          KEYCHAIN=build.keychain
+          security create-keychain -p ci "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p ci "$KEYCHAIN"
+          echo "$MACOS_CERT_P12" | base64 -d > cert.p12
+          security import cert.p12 -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KEYCHAIN"
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F'"' 'NR==1{print $2}')
+          codesign --force --deep --options runtime --timestamp \
+            --sign "$IDENTITY" native/AntiphonApp/Antiphon.app
+          ditto -c -k --keepParent native/AntiphonApp/Antiphon.app notarize.zip
+          xcrun notarytool submit notarize.zip --wait \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          xcrun stapler staple native/AntiphonApp/Antiphon.app
+
+      - name: Package
+        run: |
+          ditto -c -k --keepParent native/AntiphonApp/Antiphon.app Antiphon-macOS.zip
+          (cd antiphond && GOOS=darwin  GOARCH=arm64 go build -o ../antiphond-darwin-arm64 ./cmd/antiphond)
+          (cd antiphond && GOOS=darwin  GOARCH=amd64 go build -o ../antiphond-darwin-amd64 ./cmd/antiphond)
+          (cd antiphond && GOOS=linux   GOARCH=amd64 go build -o ../antiphond-linux-amd64  ./cmd/antiphond)
+          shasum -a 256 Antiphon-macOS.zip antiphond-* > SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            Antiphon-macOS.zip
+            antiphond-darwin-arm64
+            antiphond-darwin-amd64
+            antiphond-linux-amd64
+            SHA256SUMS
+          body: |
+            **Install:** unzip, drag `Antiphon.app` to /Applications, then clear
+            quarantine on first launch (release builds are not yet notarized):
+
+            ```
+            xattr -d com.apple.quarantine /Applications/Antiphon.app
+            ```
+
+            Docs: https://antiphon.dev/docs/
