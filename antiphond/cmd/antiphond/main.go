@@ -99,10 +99,10 @@ func serve(args []string) {
 	cacheDir := filepath.Join(*stateDir, "tts-cache")
 	buildTTS := func(cfg config.Config) hub.TTSSetup {
 		providers := []tts.Provider{}
-		if key := cfg.Key("elevenlabs", "ELEVENLABS_API_KEY"); key != "" && cfg.Provider("elevenlabs").On() {
+		if key := cfg.Key("elevenlabs"); key != "" && cfg.Provider("elevenlabs").On() {
 			providers = append(providers, tts.NewElevenLabs(key))
 		}
-		if key := cfg.Key("openai", "OPENAI_API_KEY"); key != "" && cfg.Provider("openai").On() {
+		if key := cfg.Key("openai"); key != "" && cfg.Provider("openai").On() {
 			providers = append(providers, tts.NewOpenAI(key))
 		}
 		if cfg.Provider("macos-say").On() {

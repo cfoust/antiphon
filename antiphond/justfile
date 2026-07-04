@@ -13,6 +13,6 @@ test:
 vet:
     go vet ./...
 
-# Run the hub on 127.0.0.1:8787 (ANTIPHON_PORT / ELEVENLABS_API_KEY respected).
+# Run the hub on 127.0.0.1:8787 (ANTIPHON_PORT respected; API keys come from Settings).
 serve: build
     ./bin/antiphond serve

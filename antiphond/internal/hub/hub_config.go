@@ -70,10 +70,11 @@ func (h *Hub) voiceEnabled(cfg config.Config, provider, id string) bool {
 
 const voicePoolTTL = 10 * time.Minute
 
-// envKeyVar maps provider name → API-key env var (the pre-config fallback).
-var envKeyVar = map[string]string{
-	"elevenlabs": "ELEVENLABS_API_KEY",
-	"openai":     "OPENAI_API_KEY",
+// needsKey marks the cloud providers — they stay locked until Settings saves
+// a key (no environment-variable fallbacks; too magical for a GUI-first app).
+var needsKey = map[string]bool{
+	"elevenlabs": true,
+	"openai":     true,
 }
 
 // knownProviders is the fixed set the settings UI shows, in ladder order.
@@ -233,11 +234,10 @@ func (h *Hub) writeConfigView(w http.ResponseWriter) {
 	}
 	out := map[string]view{}
 	for _, name := range knownProviders {
-		env := envKeyVar[name]
 		out[name] = view{
 			Enabled:  cfg.Provider(name).On(),
-			NeedsKey: env != "",
-			KeySet:   env == "" || cfg.Key(name, env) != "",
+			NeedsKey: needsKey[name],
+			KeySet:   !needsKey[name] || cfg.Key(name) != "",
 			Active:   active[name],
 		}
 	}

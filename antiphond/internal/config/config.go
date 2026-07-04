@@ -1,7 +1,7 @@
 // Package config is antiphond's persisted settings: ~/.antiphon/config.json,
 // written by the app's Settings UI (PUT /config) and read at startup and on
-// every change. Environment variables (ELEVENLABS_API_KEY, OPENAI_API_KEY)
-// remain as fallbacks so existing setups keep working without a file.
+// every change. API keys come ONLY from here — a GUI-first app must not
+// change behavior based on invisible environment variables.
 package config
 
 import (
@@ -31,12 +31,10 @@ type Config struct {
 // Provider returns the (possibly zero) settings for a provider name.
 func (c Config) Provider(name string) Provider { return c.Providers[name] }
 
-// Key resolves a provider's API key: the config file wins, else the env var.
-func (c Config) Key(provider, envVar string) string {
-	if k := c.Providers[provider].APIKey; k != "" {
-		return k
-	}
-	return os.Getenv(envVar)
+// Key returns a provider's API key from the config file (Settings) — the
+// only place keys live.
+func (c Config) Key(provider string) string {
+	return c.Providers[provider].APIKey
 }
 
 // Load reads the config file; a missing file is a valid empty config.
