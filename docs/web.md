@@ -33,7 +33,8 @@ just sandbox          # THE dev tool: 3D scene editor over the engine (/sandbox.
   (agents + build time); webcam head tracking with eyes-open detection and an **immersion
   fade toggle (default off — manual immersion slider instead)**. Scenes autosave to
   localStorage and export/import as JSON.
-- `bridge/` — the Bun MCP/WebSocket/TTS server for live mode (`just bridge`, `?live`).
+- live mode (`/demo.html?live`) — connects to chamberd's /stream (the Go daemon
+  replaced the old Bun bridge; see docs/agent-bridge.md).
 
 ## Notes
 - Single-threaded worklet → no SharedArrayBuffer / COOP-COEP headers needed.
