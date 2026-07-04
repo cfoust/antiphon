@@ -12,19 +12,10 @@ the `antiphond` daemon, and the baked HRTF assets.
 
 Grab the latest release:
 
-**[Download Antiphon for macOS](https://github.com/cfoust/antiphon/releases/latest/download/Antiphon-macOS.zip)**
+**[Download Antiphon for macOS](https://github.com/cfoust/antiphon/releases/latest)** — grab `Antiphon-<version>-macOS.zip`.
 
-Unzip and drag `Antiphon.app` into `/Applications`.
-
-:::note Gatekeeper
-Release builds are not yet notarized with an Apple Developer ID. The first time you launch,
-macOS will refuse politely; clear the quarantine flag and open it:
-
-```bash
-xattr -d com.apple.quarantine /Applications/Antiphon.app
-open /Applications/Antiphon.app
-```
-:::
+Unzip and drag `Antiphon.app` into `/Applications`. Releases are signed and notarized
+with an Apple Developer ID — it opens like any other app.
 
 On first launch the app walks you through choosing a camera, a ten-second calibration, and
 a fit adjustment for your ears. Wear headphones — the entire product is binaural.

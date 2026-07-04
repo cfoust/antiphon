@@ -14,7 +14,9 @@ import { VERSION } from "../version";
 import { detectLang, saveLang, LANGS, LANG_LABELS, SITE, type Lang } from "./i18n";
 
 const GITHUB_URL = "https://github.com/cfoust/antiphon";
-const DOWNLOAD_URL = `${GITHUB_URL}/releases/latest/download/Antiphon-macOS.zip`;
+// Fallback: the releases page. resolveDownloadLinks() upgrades every
+// a[data-dl] to the latest versioned Antiphon-<v>-macOS.zip once known.
+const DOWNLOAD_URL = `${GITHUB_URL}/releases/latest`;
 
 // Concentric-circle mati eye mark, at several sizes.
 const navEyeSvg = `<svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="12" fill="#2743B8"/><circle cx="13" cy="13" r="7.5" fill="#FBF7F0"/><circle cx="13" cy="13" r="3.4" fill="#2A231B"/></svg>`;
@@ -81,7 +83,7 @@ function page(lang: Lang): string {
   <h1>${S.hero.h1}</h1>
   <p class="anph-hero-sub">${S.hero.sub}</p>
   <div class="anph-hero-ctas">
-    <a href="${DOWNLOAD_URL}" class="anph-btn anph-btn--primary">${S.hero.download}</a>
+    <a href="${DOWNLOAD_URL}" data-dl class="anph-btn anph-btn--primary">${S.hero.download}</a>
     <a href="/demo.html" class="anph-btn anph-btn--secondary">${S.hero.browser}</a>
   </div>
   <div class="anph-fineprint">${S.hero.fineprint}</div>
@@ -194,7 +196,7 @@ function page(lang: Lang): string {
     <h2>${S.get.h2}</h2>
     <p class="anph-get-sub">${S.get.sub}</p>
     <div class="anph-get-ctas">
-      <a href="${DOWNLOAD_URL}" class="anph-btn anph-btn--primary">${S.get.download}</a>
+      <a href="${DOWNLOAD_URL}" data-dl class="anph-btn anph-btn--primary">${S.get.download}</a>
       <a href="/demo.html" class="anph-btn anph-btn--secondary">${S.get.demo}</a>
     </div>
     <div class="anph-fineprint">${S.get.fineprint}</div>
@@ -218,6 +220,26 @@ function page(lang: Lang): string {
 </footer>`;
 
   return nav + hero + listen + feel + choir + engineering + get + footer;
+}
+
+let dlResolved: string | null = null;
+async function resolveDownloadLinks(): Promise<void> {
+  try {
+    if (!dlResolved) {
+      const r = await fetch("https://api.github.com/repos/cfoust/antiphon/releases/latest");
+      if (!r.ok) return;
+      const j = (await r.json()) as { assets?: { name: string; browser_download_url: string }[] };
+      dlResolved =
+        j.assets?.find((a) => /^Antiphon-.*-macOS\.zip$/.test(a.name))?.browser_download_url ?? null;
+    }
+    if (dlResolved) {
+      document.querySelectorAll<HTMLAnchorElement>("a[data-dl]").forEach((a) => {
+        a.href = dlResolved!;
+      });
+    }
+  } catch {
+    /* the releases-page fallback href stands */
+  }
 }
 
 function initPupilTracking(): void {
@@ -252,6 +274,7 @@ function render(lang: Lang): void {
   root.innerHTML = page(lang);
   mountHero(document.getElementById("listen-panel"), lang, SITE[lang].hx);
   initPupilTracking();
+  void resolveDownloadLinks();
   root.querySelectorAll<HTMLButtonElement>(".anph-lang-btn").forEach((b) => {
     b.addEventListener("click", () => {
       const l = b.dataset.lang as Lang;

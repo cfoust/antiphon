@@ -29,14 +29,10 @@ Open your eyes and a reply box is waiting.
 
 macOS 14+ on Apple Silicon:
 
-1. **[Download Antiphon](https://github.com/cfoust/antiphon/releases/latest/download/Antiphon-macOS.zip)**,
-   unzip, drag to `/Applications`.
-2. Clear quarantine (releases aren't notarized yet) and launch:
-   ```bash
-   xattr -d com.apple.quarantine /Applications/Antiphon.app
-   open /Applications/Antiphon.app
-   ```
-3. Connect your agent — e.g. for Claude Code:
+1. **[Download Antiphon](https://github.com/cfoust/antiphon/releases/latest)**
+   (`Antiphon-<version>-macOS.zip`), unzip, drag to `/Applications`, launch.
+   Releases are signed and notarized.
+2. Connect your agent — e.g. for Claude Code:
    ```bash
    claude plugin marketplace add cfoust/antiphon
    claude plugin install antiphon@antiphon

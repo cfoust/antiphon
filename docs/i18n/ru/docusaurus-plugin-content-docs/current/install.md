@@ -12,19 +12,10 @@ Antiphon работает на macOS (Apple Silicon). В приложении е
 
 Возьмите свежий релиз:
 
-**[Скачать Antiphon для macOS](https://github.com/cfoust/antiphon/releases/latest/download/Antiphon-macOS.zip)**
+**[Скачать Antiphon для macOS](https://github.com/cfoust/antiphon/releases/latest)** — берите `Antiphon-<версия>-macOS.zip`.
 
-Распакуйте архив и перетащите `Antiphon.app` в `/Applications`.
-
-:::note Gatekeeper
-Релизные сборки пока не нотаризованы под Apple Developer ID. При первом запуске macOS
-вежливо откажет; снимите флаг карантина и откройте приложение:
-
-```bash
-xattr -d com.apple.quarantine /Applications/Antiphon.app
-open /Applications/Antiphon.app
-```
-:::
+Распакуйте архив и перетащите `Antiphon.app` в `/Applications`. Релизы подписаны и
+нотаризованы Apple Developer ID — приложение открывается как любое другое.
 
 При первом запуске приложение проведёт вас через выбор камеры, десятисекундную калибровку
 и подстройку под ваши уши. Наденьте наушники — весь продукт бинауральный.
