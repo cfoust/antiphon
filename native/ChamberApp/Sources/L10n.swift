@@ -112,7 +112,7 @@ private let TBL: [String: (String, String, String)] = [
         ("Antiphon даёт каждому агенту голос, размещённый в комнате вокруг вас. Наденьте наушники и слушайте, как идёт работа.",
          "Antiphon 为每个编程智能体赋予声音，安放在你周围的房间里。戴上耳机，聆听工作的进行。",
          "Antiphon 為每個編程智能體賦予聲音，安放在你周圍的房間裡。戴上耳機，聆聽工作的進行。"),
-    "Headphones required": ("Нужны наушники", "需要耳机", "需要耳機"),
+    "By Caleb Foust": ("Автор — Caleb Foust", "作者：Caleb Foust", "作者：Caleb Foust"),
     "Turn your head to face agents. Video never leaves your device.":
         ("Поворачивайте голову к агентам. Видео не покидает ваше устройство.",
          "转头面向智能体。视频不会离开你的设备。",

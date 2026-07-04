@@ -148,14 +148,10 @@ struct WelcomeView: View {
                     }
 
                     Spacer(minLength: 24)
-                    HStack(spacing: 6) {
-                        Text("🎧 \(L("Headphones required"))")
-                        Text("·").foregroundStyle(AN.muted)
-                        if !engine.hrtfName.isEmpty { Text(engine.hrtfName) }
-                    }
-                    .font(.system(size: 11))
-                    .foregroundStyle(AN.muted)
-                    .padding(.bottom, 16)
+                    Text(L("By Caleb Foust"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(AN.muted)
+                        .padding(.bottom, 16)
                 }
                 .frame(maxWidth: .infinity)
             }
