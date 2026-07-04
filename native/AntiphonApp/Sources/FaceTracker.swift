@@ -81,7 +81,7 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     private var framePTS = 0.0          // host-clock capture time of the current frame (seconds)
     /// Approximate 6DoF head position in metres (x = right, y = up, z = back). Estimated
     /// from the face bounding box; needs a scale prior to be truly metric (assumed face
-    /// height), so treat as relative/approximate — see docs/conventions.md.
+    /// height), so treat as relative/approximate — see docs/internal/conventions.md.
     var onPosition: ((Double, Double, Double) -> Void)?
     private var sPx = 0.0, sPy = 0.0, sPz = 0.0
     private var nPx = 0.0, nPy = 0.0, nPz = 0.0, posInit = false

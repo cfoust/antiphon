@@ -1,7 +1,7 @@
 # plugins/claude-code — Claude Code plugin for Antiphon
 
 Narrates a Claude Code session into the Antiphon spatial-audio monitor via
-`antiphond` (see `docs/agent-bridge.md`). Ported from the voice-antiphon
+`antiphond` (see `docs/internal/agent-bridge.md`). Ported from the voice-chamber
 prototype; the Bun subprocess is replaced by `antiphond channel` (one static Go
 binary, no runtime dependency on the agent side).
 

@@ -39,7 +39,7 @@ jobs:
           bun run build
 
       - name: Build docs
-        working-directory: docs-site
+        working-directory: docs
         run: |
           bun install --frozen-lockfile
           bun run build
@@ -48,7 +48,7 @@ jobs:
         run: |
           mkdir -p _site/docs
           cp -r web/dist/* _site/
-          cp -r docs-site/build/* _site/docs/
+          cp -r docs/build/* _site/docs/
           echo antiphon.dev > _site/CNAME
 
       - uses: actions/upload-pages-artifact@v3

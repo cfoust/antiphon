@@ -34,7 +34,7 @@ just sandbox          # THE dev tool: 3D scene editor over the engine (/sandbox.
   fade toggle (default off — manual immersion slider instead)**. Scenes autosave to
   localStorage and export/import as JSON.
 - live mode (`/demo.html?live`) — connects to antiphond's /stream (the Go daemon
-  replaced the old Bun bridge; see docs/agent-bridge.md).
+  replaced the old Bun bridge; see docs/internal/agent-bridge.md).
 
 ## Notes
 - Single-threaded worklet → no SharedArrayBuffer / COOP-COEP headers needed.

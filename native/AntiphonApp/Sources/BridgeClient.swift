@@ -1,6 +1,6 @@
 import Foundation
 
-// BridgeClient — connects the native app to antiphond (docs/agent-bridge.md, M3).
+// BridgeClient — connects the native app to antiphond (docs/internal/agent-bridge.md, M3).
 //
 // The app OWNS the daemon: adopt one that's already running (discovery file with a
 // live pid), else spawn the bundled binary and supervise it. The /stream WebSocket
@@ -9,7 +9,7 @@ import Foundation
 // summary + the existing done/ping/linger flow. If neither adopting nor spawning
 // works, the app quietly stays in demo mode.
 
-/// One /stream frame (superset of all types; see docs/agent-bridge.md).
+/// One /stream frame (superset of all types; see docs/internal/agent-bridge.md).
 private struct Frame: Decodable {
     let type: String
     let seat: Int?

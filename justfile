@@ -34,9 +34,22 @@ daemon:
 wasm:
     bash tools/build-web.sh
 
-# Serve the marketing site + demo locally
+# Serve the marketing site + web demo locally (vite, :5173)
 serve:
     cd web && bun run dev
+
+# Serve the documentation site locally (docusaurus, :3000/docs/)
+docs:
+    cd docs && bun run start
+
+# Serve the marketing site AND the docs together
+sites:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    trap 'kill 0' EXIT
+    (cd docs && bun run start -- --no-open) &
+    (cd web && bun run dev) &
+    wait
 
 # Ship a CalVer release tag (stamps versions, commits, tags, pushes)
 tag:

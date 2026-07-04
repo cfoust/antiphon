@@ -21,7 +21,7 @@ native/AntiphonApp  SwiftUI 宿主（仅用 swiftc——没有 Xcode 工程）
 antiphond/          Go 守护进程：智能体注册表、TTS 阶梯、WS 中枢
 plugins/            各智能体适配器（claude-code、codex、opencode、pi、aider）
 web/                营销站 + 网页演示（Vite/Bun + AudioWorklet）
-docs-site/          本文档（Docusaurus）
+docs/          本文档（Docusaurus）
 ```
 
 ## 常用任务
@@ -43,7 +43,7 @@ just tag      # 发布一个 CalVer 版本标签
 ## 两条不变量
 
 1. **原生↔wasm 一致性。**对 `antiphon-dsp` 或 `antiphon-ffi` 的任何改动都必须保证 `just parity` 通过（误差 < −90 dBFS；实际约在 −155）。避免依赖平台的浮点行为、线程，以及热路径上的内存分配。
-2. **唯一坐标系。**DSP crate 拥有几何定义（右手系，正前方 = −z，方位角朝 +左）。宿主在各自的边界处转换。改动任何与姿态或 ITD 相关的代码之前，先阅读仓库中的 `docs/conventions.md`——ITD 的符号一猜就会左右颠倒。
+2. **唯一坐标系。**DSP crate 拥有几何定义（右手系，正前方 = −z，方位角朝 +左）。宿主在各自的边界处转换。改动任何与姿态或 ITD 相关的代码之前，先阅读仓库中的 `docs/internal/conventions.md`——ITD 的符号一猜就会左右颠倒。
 
 ## 质量关卡是你的耳朵
 

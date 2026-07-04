@@ -36,7 +36,7 @@ const config: Config = {
         docs: {
           routeBasePath: "/", // antiphon.dev/docs/ IS the docs
           sidebarPath: "./sidebars.ts",
-          editUrl: "https://github.com/cfoust/antiphon/tree/main/docs-site/",
+          editUrl: "https://github.com/cfoust/antiphon/tree/main/docs/",
         },
         blog: {
           routeBasePath: "blog",

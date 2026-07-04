@@ -1,6 +1,6 @@
 /**
  * antiphon-pi — Pi (badlogic/pi-mono coding-agent) extension narrating the
- * session into Antiphon, the spatial-audio agent monitor (docs/agent-bridge.md).
+ * session into Antiphon, the spatial-audio agent monitor (docs/internal/agent-bridge.md).
  *
  * Runs in-process, so it holds one persistent /agent WebSocket: identity hello
  * on (re)connect, narration frames from four registered antiphon_* tools, tool

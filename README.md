@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/img/readme-banner.png" alt="Antiphon — your agents, speaking. You, listening." width="100%">
+  <img src="docs/static/img/readme-banner.png" alt="Antiphon — your agents, speaking. You, listening." width="100%">
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@ falls away, and the room comes up. Turn toward a voice, linger, and it delivers 
 Open your eyes and a reply box is waiting.
 
 <p align="center">
-  <img src="docs/img/readme-radar.png" alt="The room, from above — an agent delivering its summary" width="85%">
+  <img src="docs/static/img/readme-radar.png" alt="The room, from above — an agent delivering its summary" width="85%">
 </p>
 
 ## Install

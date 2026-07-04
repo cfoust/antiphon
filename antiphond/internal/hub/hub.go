@@ -1,7 +1,7 @@
 // Package hub is antiphond's network surface: the /agent and /stream WebSocket
-// endpoints (wire-compatible with the voice-antiphon prototype so the existing
+// endpoints (wire-compatible with the voice-chamber prototype so the existing
 // web ?live page works unmodified), the /events HTTP adapter for non-MCP
-// agents, and the management/debug endpoints. See docs/agent-bridge.md.
+// agents, and the management/debug endpoints. See docs/internal/agent-bridge.md.
 package hub
 
 import (

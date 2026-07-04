@@ -522,7 +522,7 @@ final class AntiphonEngine: ObservableObject {
         }
 
         // pose: head yaw. forward = (sin orient, 0, -cos orient) => quaternion about +y of
-        // -orient (see docs/conventions.md). 6DoF head position is always fed below (true parallax).
+        // -orient (see docs/internal/conventions.md). 6DoF head position is always fed below (true parallax).
         // Close the latency loop: this pose was captured at poseCaptureTime; it is reaching the
         // output now + the device output latency. (CACurrentMediaTime is mach-based, lock-free.)
         if poseCaptureTime > 0 {
