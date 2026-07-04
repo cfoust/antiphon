@@ -94,7 +94,7 @@ func serve(args []string) {
 	}
 
 	// Provider ladder in priority order; macos-say is the free offline floor.
-	// Built from ~/.antiphon/config.json (+ env-var key fallbacks) and rebuilt
+	// Built from ~/.antiphon/config.json (the only place keys live) and rebuilt
 	// live whenever the settings UI PUTs /config.
 	cacheDir := filepath.Join(*stateDir, "tts-cache")
 	buildTTS := func(cfg config.Config) hub.TTSSetup {
