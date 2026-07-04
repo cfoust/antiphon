@@ -191,6 +191,10 @@ struct ContentView: View {
             menuBar.install()
             // menu-bar eye mirrors the in-window one; both flip watching
             menuBar.onToggle = { setWatching(!engine.watching) }
+            menuBar.onCheckUpdates = {
+                updates.check()
+                NotificationCenter.default.post(name: .init("antiphon.showSettings"), object: nil)
+            }
             // launched as a login item → start asleep; waking is one click,
             // being ambushed by a listening room at boot is not
             if AppDelegate.launchedAtLogin { setWatching(false) }
