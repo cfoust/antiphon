@@ -36,8 +36,8 @@ better ones, open **Settings → Voices** in the app and add an
 agent session is assigned a persistent voice at random from whatever providers you've
 enabled; you can toggle individual voices on or off.
 
-Keys are stored in `~/.antiphon/config.json` (mode `0600`, local only). The
-`ELEVENLABS_API_KEY` and `OPENAI_API_KEY` environment variables work as fallbacks.
+Keys are stored in `~/.antiphon/config.json` (mode `0600`, local only) and are only ever
+set through Settings — Antiphon deliberately ignores environment variables.
 
 ## Homebrew
 

@@ -41,6 +41,12 @@ final class AntiphonRenderer {
     func setAttentionAgents(_ n: Int) { antiphon_renderer_set_attention_agents(handle, UInt32(max(0, n))) }
     func setAttentionBuildMinutes(_ m: Float) { antiphon_renderer_set_attention_build_minutes(handle, m) }
     func setImmersion(_ g: Float) { antiphon_renderer_set_immersion(handle, g) }
+    /// Footprint of a room preset (width, height, depth in metres), or nil.
+    func roomDims(_ room: Int) -> SIMD3<Float>? {
+        var out: [Float] = [0, 0, 0]
+        guard antiphon_renderer_room_dims(handle, UInt32(room), &out) != 0 else { return nil }
+        return SIMD3(out[0], out[1], out[2])
+    }
     func immersion() -> Float { antiphon_renderer_immersion(handle) }
 
     @inline(__always)
@@ -61,6 +67,9 @@ struct AgentVM: Identifiable {
     let z: Double
     let state: AgentState
     let pingAge: Double
+    let title: String
+    let lastLine: String // most recent narration — the radar's hover bubble
+    let lastAt: TimeInterval // when it was said (the bubble shows the age)
 }
 
 /// One row of the sidebar's agent list (built on `q`, published ~2 Hz).
@@ -69,6 +78,9 @@ struct AgentListVM: Identifiable, Equatable {
     let name: String
     let kind: String
     let title: String
+    let repo: String
+    let cwd: String
+    let branch: String
     let hex: String
     let status: String
     let lastLine: String
@@ -223,10 +235,25 @@ final class AntiphonEngine: ObservableObject {
     // cue. Parity is untouched (immersion defaults to 1.0 ⇒ every source ×1.0). `immersionArmed`
     // gates it to the live experience; before the user starts, the target holds at full so intro/
     // calibration audio is audible. `immersionInvert` swaps the eyes→fade mapping for debug testing.
+    private var roomIndexQ = 5 // q-side copy of the active room (bounds for drag)
+    // The eyes-open "agents are waiting" chord. Off = the room stays silent
+    // until you choose to close your eyes; the sidebar's gold dots remain.
+    private var attentionEnabled = UserDefaults.standard.object(forKey: "attention.enabled") as? Bool ?? true
+    /// Main-thread mirror for the Settings toggle.
+    private(set) var attentionCue: Bool = UserDefaults.standard.object(forKey: "attention.enabled") as? Bool ?? true
     private var immersionTarget: Float = 1
     private var immersionArmed = false
     private var immersionInvert = false        // DEBUG: swap the eyes→fade mapping (test with audio)
     private var lastEyesClosedState = false     // last committed eye state, so arm/invert re-evaluate now
+    // Blink filter: eyes must stay closed this long before the scene fades in
+    // (user-adjustable). Scene-in is what gates dwell/summaries — a blink that
+    // happens to point at an agent must not open the letter.
+    private var fadeDelaySecs = UserDefaults.standard.object(forKey: "immersion.fadeDelay") as? Double ?? 0.6
+    private var pendingSceneIn = false
+    private var eyesClosedAt = 0.0
+    private var sceneInSince = 0.0 // 0 = the scene is not in
+    /// Main-thread mirror for the Settings slider.
+    private(set) var fadeDelay: Double = UserDefaults.standard.object(forKey: "immersion.fadeDelay") as? Double ?? 0.6
 
     // "An agent is waiting" attention cue: synthesized + spatialized INSIDE the main renderer
     // (antiphon-dsp AttentionCue), crossfaded against the scene by the same immersion value — so it is
@@ -299,7 +326,7 @@ final class AntiphonEngine: ObservableObject {
     /// After a dismiss, don't immediately re-dwell on the same agent — wait until the
     /// gaze leaves it or the eyes reopen (otherwise send-with-eyes-closed re-locks).
     private var cooldownSeat = -1
-    private let dwellSecs = 0.9
+    private let dwellSecs = 1.0 // linger this long (counted only in-scene) to lock
     /// A given agent's dwell hum sounds at most this often.
     private let bloomCooldownSecs = 30.0
 
@@ -537,7 +564,7 @@ final class AntiphonEngine: ObservableObject {
         renderer.setImmersion((immersionHold || audTarget > 0) ? 1 : immersionTarget)
         var waiting = 0
         for a in agents where a.state == .done && !a.snoozed { waiting += 1 } // agents wanting to summarize
-        renderer.setAttentionAgents(waiting)
+        renderer.setAttentionAgents(attentionEnabled ? waiting : 0)
 
         let h = 0.5 * orient
         // 6DoF is always on: feed the (filtered, neutral-relative, ±1 m-clamped) head position so
@@ -564,6 +591,8 @@ final class AntiphonEngine: ObservableObject {
         q.async {
             self.immersionArmed = on
             self.immersionTarget = on ? self.immersionTargetFor(self.lastEyesClosedState) : 1
+            self.pendingSceneIn = false
+            self.sceneInSince = self.immersionTarget == 1 && on ? self.now() : 0
         }
         DispatchQueue.main.async { self.immersionArmedPub = on }
     }
@@ -581,11 +610,30 @@ final class AntiphonEngine: ObservableObject {
     func setEyesClosed(_ closed: Bool) {
         q.async {
             self.lastEyesClosedState = closed
-            if self.immersionArmed { self.immersionTarget = self.immersionTargetFor(closed) }
+            if self.immersionArmed {
+                if self.immersionTargetFor(closed) == 1 {
+                    // entering: hold for the blink filter — tick() completes it
+                    self.pendingSceneIn = true
+                    self.eyesClosedAt = self.now()
+                    if self.fadeDelaySecs <= 0.01 { self.enterScene(at: self.now()) }
+                } else {
+                    // leaving is always immediate
+                    self.pendingSceneIn = false
+                    self.sceneInSince = 0
+                    self.immersionTarget = 0
+                }
+            }
             if self.lockedSeat >= 0 { // lantern (closed) ↔ letter (open)
                 DispatchQueue.main.async { self.talkback.setEyesClosed(closed) }
             }
         }
+    }
+
+    /// Runs on `q`: the blink filter elapsed — bring the room in.
+    private func enterScene(at t: Double) {
+        pendingSceneIn = false
+        immersionTarget = 1
+        sceneInSince = t
     }
     /// Host-clock capture time of the most recent pose (from FaceTracker), for the latency oracle.
     func setPoseStamp(_ t: Double) { q.async { self.poseCaptureTime = t } }
@@ -598,7 +646,7 @@ final class AntiphonEngine: ObservableObject {
     }
     func finishOne() { q.async { self.finishRandom() } }
     func setRoom(_ i: Int) {
-        q.async { self.renderer?.setRoom(i) }
+        q.async { self.renderer?.setRoom(i); self.roomIndexQ = i }
         DispatchQueue.main.async { self.roomIndex = i }
     }
     /// 0 = parametric FDN tail, 1 = measured BRIR tail (only affects rooms that have a BRIR).
@@ -606,6 +654,21 @@ final class AntiphonEngine: ObservableObject {
         q.async { self.renderer?.setReverbBlend(Float(b)) }
         DispatchQueue.main.async { self.reverbBlend = b }
     }
+    /// The waiting cue (eyes-open bloom): on/off.
+    func setAttentionCue(_ on: Bool) {
+        attentionCue = on
+        UserDefaults.standard.set(on, forKey: "attention.enabled")
+        q.async { self.attentionEnabled = on }
+    }
+
+    /// Blink filter: seconds of closed eyes before the room fades in.
+    func setFadeDelay(_ secs: Double) {
+        let v = max(0, min(3, secs))
+        fadeDelay = v
+        UserDefaults.standard.set(v, forKey: "immersion.fadeDelay")
+        q.async { self.fadeDelaySecs = v }
+    }
+
     /// HRTF "fit": frequency-scale the HRTF to better match the listener's pinna (front-back cue).
     /// Personal — persisted, set during onboarding and adjustable in Settings.
     func setFreqScale(_ s: Double) {
@@ -620,6 +683,28 @@ final class AntiphonEngine: ObservableObject {
     /// back to English) from `bearingDeg`. While it plays, agents duck and the
     /// eye fade holds open. `loop` repeats with a breath of silence (the fit
     /// loop); one-shots just end.
+    /// Play raw audio (the settings' live voice audition) through the audition
+    /// slot: same ducking, same immersion hold, self-releasing one-shot.
+    func auditionPlay(data: Data, ext: String, bearingDeg: Double = 0) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voice-audition.\(ext)")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            do { try data.write(to: url) } catch { return }
+            guard let samples = loadMono(url), !samples.isEmpty else { return }
+            self.q.async {
+                guard self.started else { return }
+                let b = rad(bearingDeg)
+                self.srcArr[self.audSlot].x = Float(sin(b)) * self.radius
+                self.srcArr[self.audSlot].z = Float(-cos(b)) * self.radius
+                self.audStaged = samples
+                self.audStagedLoop = false
+                self.audTarget = 1
+                self.audTrig += 1
+            }
+        }
+    }
+
     func onboardPlay(_ name: String, loop: Bool = false, bearingDeg: Double = 0) {
         let lang = I18n.shared.lang.rawValue
         guard let res = Bundle.main.resourceURL else { return }
@@ -707,13 +792,21 @@ final class AntiphonEngine: ObservableObject {
         }
     }
 
-    /// Runs on `q`. Clamps to a sane annulus (too close is deafening, too far
-    /// is inaudible) and keeps position, bearing and the DSP source in sync.
+    /// Runs on `q`. Too close is deafening (keep a 0.45 m bubble); beyond the
+    /// room's walls the reverb model no longer matches and voices go flat, so
+    /// the reverb chamber itself is the outer bound.
     private func place(seat: Int, x: Double, z: Double) {
         guard agents.indices.contains(seat) else { return }
         var wx = x, wz = z
+        if let dims = renderer?.roomDims(roomIndexQ) {
+            let margin: Double = 0.35 // off the walls — image sources misbehave at 0
+            let hx = max(0.6, Double(dims.x) / 2 - margin)
+            let hz = max(0.6, Double(dims.z) / 2 - margin)
+            wx = min(max(wx, -hx), hx)
+            wz = min(max(wz, -hz), hz)
+        }
         let d = max(sqrt(wx * wx + wz * wz), 1e-6)
-        let clamped = min(max(d, 0.45), 2.6)
+        let clamped = max(d, 0.45)
         wx *= clamped / d; wz *= clamped / d
         let a = agents[seat]
         a.posX = Float(wx); a.posZ = Float(wz)
@@ -769,7 +862,8 @@ final class AntiphonEngine: ObservableObject {
     }
 
     func bridgeBind(seat: Int, agent: String? = nil, name: String? = nil, kind: String? = nil,
-                    title: String? = nil, input: String? = nil) {
+                    title: String? = nil, input: String? = nil,
+                    repo: String? = nil, cwd: String? = nil, branch: String? = nil) {
         q.async {
             var m = self.seatMeta[seat] ?? TalkbackSeatMeta()
             // a different session on the same seat is a new tenant — its
@@ -782,6 +876,9 @@ final class AntiphonEngine: ObservableObject {
             if let name, !name.isEmpty { m.name = name }
             if let kind, !kind.isEmpty { m.kind = kind }
             if let title, !title.isEmpty { m.title = title }
+            if let repo, !repo.isEmpty { m.repo = repo }
+            if let cwd, !cwd.isEmpty { m.cwd = cwd }
+            if let branch { m.branch = branch } // "" clears (branch switched away)
             m.input = input ?? ""
             self.seatMeta[seat] = m
             if newTenant { self.seatLines[seat] = [] }
@@ -802,7 +899,7 @@ final class AntiphonEngine: ObservableObject {
         q.async {
             var lines = self.seatLines[seat] ?? []
             lines.append(TalkbackLine(kind: kind, text: text, at: Date().timeIntervalSince1970))
-            if lines.count > 3 { lines.removeFirst(lines.count - 3) }
+            if lines.count > 24 { lines.removeFirst(lines.count - 24) } // a conversation, not a marquee
             self.seatLines[seat] = lines
             if self.agents.indices.contains(seat) { self.agents[seat].lastActivity = self.now() }
             if self.lockedSeat == seat { self.pushTalkback(present: false) }
@@ -891,6 +988,10 @@ final class AntiphonEngine: ObservableObject {
         guard started else { return }
         let t = now()
 
+        // blink filter: the eyes have stayed closed long enough — scene in
+        if pendingSceneIn, immersionArmed, lastEyesClosedState,
+           t - eyesClosedAt >= fadeDelaySecs { enterScene(at: t) }
+
         // live narration: feed the next queued line into the one-shot slot when idle
         if liveBridge {
             for a in agents where a.present {
@@ -943,7 +1044,7 @@ final class AntiphonEngine: ObservableObject {
         // Summaries are an eyes-closed moment once the fade is armed: an
         // eyes-open glance must not start one into a silent scene (it would
         // be consumed unheard). Unarmed (demo/debug) keeps the old behavior.
-        let listening = !immersionArmed || lastEyesClosedState
+        let listening = !immersionArmed || (lastEyesClosedState && sceneInSince > 0)
         if fi >= 0, listening, lookGate > 0.6, agents[fi].state == .done {
             if lingerIdx != fi { lingerIdx = fi; lingerStart = t }
             else if t - lingerStart >= LINGER_SECS { startSummary(agents[fi]) }
@@ -961,7 +1062,10 @@ final class AntiphonEngine: ObservableObject {
     /// the lock to another agent via the same dwell. Eyes open freeze the lock; only the
     /// panel dismiss (esc / click-away / send) releases it.
     private func updateTalkback(fi: Int, t: Double) {
-        if lastEyesClosedState {
+        // dwell exists only INSIDE the scene: the clock starts after the blink
+        // filter has brought the room in, never during an eyes-open glance
+        let inScene = lastEyesClosedState && (!immersionArmed || sceneInSince > 0)
+        if inScene {
             if fi != cooldownSeat { cooldownSeat = -1 }
             if fi >= 0, fi != lockedSeat, fi != cooldownSeat {
                 if dwellSeat != fi {
@@ -1011,6 +1115,9 @@ final class AntiphonEngine: ObservableObject {
             colorHex: def.hex,
             kind: meta?.kind ?? (liveBridge ? "" : "demo"),
             title: meta?.title ?? "",
+            repo: meta?.repo ?? "",
+            cwd: meta?.cwd ?? "",
+            branch: meta?.branch ?? "",
             input: meta?.input ?? (liveBridge ? "" : "demo"),
             lines: seatLines[seat] ?? [])
     }
@@ -1039,11 +1146,18 @@ final class AntiphonEngine: ObservableObject {
     func talkbackSend(_ text: String) {
         q.async {
             guard self.lockedSeat >= 0 else { return }
+            let seat = self.lockedSeat
             if self.liveBridge {
-                self.bridge?.sendSay(seat: self.lockedSeat, text: text)
+                self.bridge?.sendSay(seat: seat, text: text)
             } else {
-                NSLog("[talkback] (demo) say seat=%d: %@", self.lockedSeat, text)
+                NSLog("[talkback] (demo) say seat=%d: %@", seat, text)
             }
+            // your side of the conversation belongs in the transcript too
+            var lines = self.seatLines[seat] ?? []
+            lines.append(TalkbackLine(kind: "you", text: text, at: Date().timeIntervalSince1970))
+            if lines.count > 24 { lines.removeFirst(lines.count - 24) }
+            self.seatLines[seat] = lines
+            if self.lockedSeat == seat { self.pushTalkback(present: false) }
         }
     }
 
@@ -1055,10 +1169,13 @@ final class AntiphonEngine: ObservableObject {
             let now = Date().timeIntervalSince1970
             self.seatMeta[2] = TalkbackSeatMeta(
                 name: "wren", kind: "claude-code",
-                title: "antiphon — talk-back panel", input: "tmux")
+                title: "wiring the reconnect path in BridgeClient",
+                repo: "cfoust/antiphon", cwd: NSHomeDirectory() + "/Developer/cfoust/chamber",
+                branch: "fix/room-polish", input: "tmux")
             self.seatLines[2] = [
                 TalkbackLine(kind: "task", text: "Wiring the reconnect path in BridgeClient", at: now - 240),
-                TalkbackLine(kind: "progress", text: "Backoff works; adding the respawn guard", at: now - 70),
+                TalkbackLine(kind: "progress", text: "Backoff works; adding the respawn guard so a dead daemon comes back without dropping any narration frames on the floor", at: now - 70),
+                TalkbackLine(kind: "you", text: "Keep the backoff under a second — the room going quiet is worse than a little churn.", at: now - 40),
                 TalkbackLine(kind: "blocked", text: "Should the daemon keep port 8787 when the discovery file is stale?", at: now - 12),
             ]
             self.lock(seat: 2)
@@ -1143,7 +1260,10 @@ final class AntiphonEngine: ObservableObject {
         let vms = agents.filter { $0.present && !$0.snoozed }.map {
             AgentVM(id: $0.idx, hex: $0.def.hex, bearing: $0.bearing,
                     x: Double($0.posX), z: Double($0.posZ), state: $0.state,
-                    pingAge: $0.lastPingWall > 0 ? t - $0.lastPingWall : 99)
+                    pingAge: $0.lastPingWall > 0 ? t - $0.lastPingWall : 99,
+                    title: seatMeta[$0.idx]?.title ?? "",
+                    lastLine: seatLines[$0.idx]?.last?.text ?? "",
+                    lastAt: seatLines[$0.idx]?.last?.at ?? 0)
         }
         let o = orient, g = lookGate
         let hp = SIMD3(headX, headY, headZ)
@@ -1153,10 +1273,23 @@ final class AntiphonEngine: ObservableObject {
         let listChanged = list != lastAgentList
         if listChanged { lastAgentList = list }
         DispatchQueue.main.async {
-            self.snapshot = vms; self.orientRad = o; self.lookGatePub = g; self.facedPub = facedIdx
-            self.headPos = hp
-            self.latencyMs = lat
-            self.immersionLevel = imm
+            // every @Published set fires objectWillChange — at 30 Hz that re-rendered
+            // every observing view continuously (janky settings scroll). Guard each.
+            let vmsChanged = vms.count != self.snapshot.count
+                || zip(vms, self.snapshot).contains { a, b in
+                    a.id != b.id || a.state != b.state
+                        || a.lastLine != b.lastLine || a.title != b.title
+                        || abs(a.x - b.x) > 0.0005 || abs(a.z - b.z) > 0.0005
+                        || (a.pingAge < 1.2 || b.pingAge < 1.2) && a.pingAge != b.pingAge
+                }
+            if vmsChanged { self.snapshot = vms }
+            if abs(self.orientRad - o) > 0.0015 { self.orientRad = o }
+            if abs(self.lookGatePub - g) > 0.004 { self.lookGatePub = g }
+            if self.facedPub != facedIdx { self.facedPub = facedIdx }
+            let hpDelta = max(abs(self.headPos.x - hp.x), max(abs(self.headPos.y - hp.y), abs(self.headPos.z - hp.z)))
+            if hpDelta > 0.002 { self.headPos = hp }
+            if abs(self.latencyMs - lat) > 0.5 { self.latencyMs = lat }
+            if abs(self.immersionLevel - imm) > 0.004 { self.immersionLevel = imm }
             if listChanged { self.agentList = list }
         }
     }
@@ -1182,6 +1315,9 @@ final class AntiphonEngine: ObservableObject {
                 name: meta?.name ?? a.def.name,
                 kind: meta?.kind ?? (liveBridge ? "" : "demo"),
                 title: meta?.title ?? "",
+                repo: meta?.repo ?? "",
+                cwd: meta?.cwd ?? "",
+                branch: meta?.branch ?? "",
                 hex: a.def.hex,
                 status: status,
                 lastLine: last?.text ?? "",

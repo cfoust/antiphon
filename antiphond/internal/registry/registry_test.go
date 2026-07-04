@@ -8,10 +8,10 @@ import (
 
 func TestReclaimBySessionKeepsIdentityAndVoice(t *testing.T) {
 	r, _ := Open("")
-	a := r.Upsert("session-1", "claude-code", "cfoust/antiphon", "fix bug")
+	a := r.Upsert("session-1", "claude-code", "cfoust/antiphon", "fix bug", "/tmp/antiphon", "main")
 	r.BindVoice(a.ID, "wren")
 
-	b := r.Upsert("session-1", "claude-code", "", "")
+	b := r.Upsert("session-1", "claude-code", "", "", "", "")
 	if b.ID != a.ID {
 		t.Fatalf("reclaim changed id: %s -> %s", a.ID, b.ID)
 	}
@@ -29,7 +29,7 @@ func TestReclaimBySessionKeepsIdentityAndVoice(t *testing.T) {
 
 func TestBindVoiceIsSticky(t *testing.T) {
 	r, _ := Open("")
-	a := r.Upsert("s", "debug", "", "")
+	a := r.Upsert("s", "debug", "", "", "", "")
 	if v := r.BindVoice(a.ID, "atlas"); v != "atlas" {
 		t.Fatalf("first bind: %q", v)
 	}
@@ -42,7 +42,7 @@ func TestTouchSeparatesSeenFromEvent(t *testing.T) {
 	r, _ := Open("")
 	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
 	r.Now = func() time.Time { return now }
-	a := r.Upsert("s", "debug", "", "")
+	a := r.Upsert("s", "debug", "", "", "", "")
 
 	now = now.Add(time.Minute)
 	r.Touch(a.ID, false) // heartbeat, not an event
@@ -68,7 +68,7 @@ func TestPersistenceRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := r.Upsert("session-x", "claude-code", "repo", "title")
+	a := r.Upsert("session-x", "claude-code", "repo", "title", "", "")
 	r.BindVoice(a.ID, "iris")
 
 	r2, err := Open(path)
@@ -86,7 +86,7 @@ func TestPersistenceRoundtrip(t *testing.T) {
 
 func TestEvict(t *testing.T) {
 	r, _ := Open("")
-	a := r.Upsert("s", "debug", "", "")
+	a := r.Upsert("s", "debug", "", "", "", "")
 	if !r.Evict(a.ID) {
 		t.Fatal("evict reported failure")
 	}

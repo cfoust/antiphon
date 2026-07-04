@@ -7,6 +7,9 @@ import SwiftUI
 struct AgentSidebar: View {
     @ObservedObject var engine: AntiphonEngine
     @ObservedObject private var i18n = I18n.shared
+    @AppStorage("sidebar.width") private var width = 300.0
+    @State private var dragStartWidth: Double?
+    static let widthRange = 240.0...420.0
 
     var body: some View {
         let rows = engine.agentList
@@ -60,14 +63,33 @@ struct AgentSidebar: View {
                 }
             }
         }
-        .frame(width: 272)
+        .frame(width: width)
         .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.07)))
+        // the rail's edge is draggable: a slim, invisible grip
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(.clear)
+                .frame(width: 9)
+                .contentShape(Rectangle())
+                .onHover { over in (over ? NSCursor.resizeLeftRight : NSCursor.arrow).set() }
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { v in
+                            let start = dragStartWidth ?? width
+                            dragStartWidth = start
+                            width = (start - v.translation.width)
+                                .clamped(to: AgentSidebar.widthRange)
+                        }
+                        .onEnded { _ in dragStartWidth = nil }
+                )
+        }
         .fontDesign(.rounded)
     }
 
     private func row(_ vm: AgentListVM) -> some View {
         AgentRowView(vm: vm,
+                     spotlit: engine.hoveredSeat == vm.id && !vm.snoozed,
                      onHover: { over in engine.setHovered(over ? vm.id : -1) },
                      onSnooze: { engine.setSnoozed(vm.id, !vm.snoozed) })
             // section membership is part of the view's identity — moving between
@@ -78,58 +100,60 @@ struct AgentSidebar: View {
 
 private struct AgentRowView: View {
     let vm: AgentListVM
+    let spotlit: Bool // the radar's hover, mirrored back into the list
     let onHover: (Bool) -> Void
     let onSnooze: () -> Void
     @State private var hovering = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
+            // the identity dot carries status: glow = working, gold ring =
+            // waiting for you, dim = idle/resting — no words needed
             Circle()
-                .fill(Color(hex: vm.hex).opacity(vm.snoozed ? 0.35 : 1))
+                .fill(Color(hex: vm.hex).opacity(dotOpacity))
                 .frame(width: 9, height: 9)
-                .shadow(color: vm.snoozed ? .clear : Color(hex: vm.hex).opacity(0.7), radius: 4)
+                .shadow(color: dotGlow, radius: 4.5)
+                .overlay {
+                    if vm.waiting {
+                        Circle().stroke(Color(hex: "#ffce6b"), lineWidth: 1.8)
+                            .frame(width: 15, height: 15)
+                    }
+                }
                 .padding(.top, 4)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(vm.name.isEmpty ? "—" : vm.name)
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.white.opacity(vm.snoozed ? 0.45 : 0.92))
-                    if !vm.kind.isEmpty {
-                        Text(prettyAgentKind(vm.kind))
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.45))
-                            .padding(.horizontal, 5).padding(.vertical, 1.5)
-                            .background(.white.opacity(0.08), in: Capsule())
-                    }
-                    Spacer(minLength: 0)
-                    if vm.waiting {
-                        // an unheard summary is waiting — the whole point of the room
-                        Circle().fill(Color(hex: "#ffce6b")).frame(width: 7, height: 7)
-                            .shadow(color: Color(hex: "#ffce6b").opacity(0.8), radius: 3)
-                    }
-                }
-                if !vm.title.isEmpty {
-                    Text(vm.title)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .lineLimit(1)
-                }
-                HStack(spacing: 5) {
-                    Text(LStatus(vm.status))
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(statusColor.opacity(vm.snoozed ? 0.5 : 1))
-                    if !vm.lastLine.isEmpty {
-                        Text("· \(vm.lastLine)")
+            // C · title + chips: the title owns the row; one scannable chip
+            // line (status · branch · folder); the last words appear only when
+            // the agent is waiting/reporting — that's when they matter
+            VStack(alignment: .leading, spacing: 3.5) {
+                Text(vm.title.isEmpty ? (vm.name.isEmpty ? "—" : vm.name) : vm.title)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white.opacity(vm.snoozed ? 0.45 : 0.92))
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !vm.snoozed {
+                    if showPreview {
+                        Text(vm.lastLine)
                             .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.42))
+                            .foregroundStyle(.white.opacity(0.45))
                             .lineLimit(1)
                     }
+                    HStack(spacing: 5) {
+                        chip(LStatus(vm.status), fg: statusColor,
+                             bg: statusColor.opacity(vm.status == "idle" || vm.status == "resting" ? 0.07 : 0.16))
+                        if !vm.branch.isEmpty {
+                            chip("⎇ \(vm.branch)", fg: Color(hex: "#93a7ee"),
+                                 bg: Color(hex: "#7d93e8").opacity(0.13))
+                        }
+                        if !vm.cwd.isEmpty {
+                            chip(shortDir, fg: .white.opacity(0.5), bg: .white.opacity(0.07))
+                        }
+                    }
+                    .clipped()
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            // a snoozed row always shows its moon — the way back must never
-            // hide behind a hover; active rows reveal theirs on hover
             if hovering || vm.snoozed {
                 Button(action: onSnooze) {
                     Image(systemName: vm.snoozed ? "moon.zzz.fill" : "moon.zzz")
@@ -143,9 +167,10 @@ private struct AgentRowView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 7)
-        .background(hovering ? Color.white.opacity(0.06) : .clear,
+        .background(hovering || spotlit ? Color.white.opacity(0.06) : .clear,
                     in: RoundedRectangle(cornerRadius: 10))
         .contentShape(RoundedRectangle(cornerRadius: 10))
+        .help(fullContext) // the whole story on hover: kind · repo ⎇ branch · full path
         .onTapGesture {
             if vm.snoozed { onSnooze() } // the whole snoozed row is a wake button
         }
@@ -154,6 +179,45 @@ private struct AgentRowView: View {
             if !vm.snoozed { onHover(over) } // snoozed agents aren't in the world
         }
         .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+
+    private func chip(_ text: String, fg: Color, bg: Color) -> some View {
+        Text(text)
+            .font(.system(size: 9.5, weight: .semibold))
+            .foregroundStyle(fg)
+            .padding(.horizontal, 6.5).padding(.vertical, 2)
+            .background(bg, in: Capsule())
+            .lineLimit(1)
+    }
+
+    /// The last words matter when the agent wants you (waiting) or is mid-report.
+    private var showPreview: Bool {
+        !vm.lastLine.isEmpty && (vm.waiting || vm.status == "reporting" || vm.status.hasPrefix("waiting"))
+    }
+
+    /// "~/chamber" — just the folder, the full path lives in the tooltip.
+    private var shortDir: String {
+        let name = (vm.cwd as NSString).lastPathComponent
+        return name.isEmpty ? tildePath(vm.cwd) : "~/" + name
+    }
+
+    private var dotOpacity: Double {
+        if vm.snoozed { return 0.35 }
+        return vm.status == "idle" || vm.status == "resting" ? 0.4 : 1
+    }
+
+    private var dotGlow: Color {
+        if vm.snoozed { return .clear }
+        return vm.status == "working" ? Color(hex: vm.hex).opacity(0.85) : .clear
+    }
+
+    private var fullContext: String {
+        var parts: [String] = []
+        if !vm.kind.isEmpty { parts.append(prettyAgentKind(vm.kind)) }
+        if !vm.repo.isEmpty { parts.append(vm.branch.isEmpty ? vm.repo : "\(vm.repo) ⎇ \(vm.branch)") }
+        else if !vm.branch.isEmpty { parts.append("⎇ \(vm.branch)") }
+        if !vm.cwd.isEmpty { parts.append(tildePath(vm.cwd)) }
+        return parts.joined(separator: " · ")
     }
 
     private var statusColor: Color {
@@ -170,4 +234,10 @@ private struct AgentRowView: View {
 func prettyAgentKind(_ kind: String) -> String {
     kind.split(separator: "-").map { $0.prefix(1).uppercased() + $0.dropFirst() }
         .joined(separator: " ")
+}
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+    }
 }

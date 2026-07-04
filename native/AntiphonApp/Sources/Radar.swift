@@ -20,6 +20,31 @@ struct RadarView: View {
     @ObservedObject var engine: AntiphonEngine
     @State private var dragging = -1
     @State private var dragMissed = false
+    @State private var hoverHit = -1 // dot under the cursor (drives the grab cursor)
+    @State private var bubbleSize: CGSize = .zero // measured, so clamping is exact
+    @AppStorage("sidebar.width") private var sidebarWidth = 300.0
+
+    /// Keep draggable dots clear of the right rail (live width + its 16 pt
+    /// padding) and the window edges — a dot must never be *lost* under UI.
+    /// The bubble prefers floating above its dot; near the top it flips below,
+    /// and it never crosses the window edges or slides under the rail.
+    private func bubblePosition(anchor: CGPoint, in size: CGSize) -> CGPoint {
+        let m: CGFloat = 10, clearance: CGFloat = 22
+        let halfW = bubbleSize.width / 2, halfH = bubbleSize.height / 2
+        let rightBound = size.width - CGFloat(sidebarWidth) - 16 - 12 - halfW
+        let x = min(max(anchor.x, m + halfW), max(m + halfW, rightBound))
+        var y = anchor.y - clearance - halfH
+        if y - halfH < m { y = anchor.y + clearance + halfH } // flip below the dot
+        y = min(max(y, m + halfH), size.height - m - halfH)
+        return CGPoint(x: x, y: y)
+    }
+
+    private func clampToVisible(_ p: CGPoint, _ size: CGSize) -> CGPoint {
+        let sidebar: CGFloat = CGFloat(sidebarWidth) + 16 + 14
+        let m: CGFloat = 14
+        return CGPoint(x: min(max(p.x, m), max(m, size.width - sidebar)),
+                       y: min(max(p.y, m), size.height - m))
+    }
 
     /// px-per-metre chosen so the default 1.3 m arc sits well inside the window.
     private func scale(_ size: CGSize) -> CGFloat {
@@ -151,15 +176,89 @@ struct RadarView: View {
                             }
                         }
                         guard dragging >= 0 else { return }
-                        let w = toWorld(v.location, size)
+                        NSCursor.closedHand.set()
+                        let w = toWorld(clampToVisible(v.location, size), size)
                         engine.dragMoved(dragging, x: w.x, z: w.z)
                     }
                     .onEnded { _ in
                         if dragging >= 0 { engine.dragEnded() }
                         dragging = -1
                         dragMissed = false
+                        (hoverHit >= 0 ? NSCursor.openHand : NSCursor.arrow).set()
                     }
             )
+            // the grab affordance: an open hand over a dot, closed while carrying —
+            // and hovering a dot spotlights its row in the sidebar (the mirror of
+            // the sidebar hover lighting the dot up out here)
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let pt):
+                    let hit = hitTest(pt, size) ?? -1
+                    if hit != hoverHit {
+                        hoverHit = hit
+                        engine.setHovered(hit)
+                        if dragging < 0 { (hit >= 0 ? NSCursor.openHand : NSCursor.arrow).set() }
+                    }
+                case .ended:
+                    if hoverHit >= 0 { engine.setHovered(-1) }
+                    hoverHit = -1
+                    if dragging < 0 { NSCursor.arrow.set() }
+                }
+            }
+            // the hover bubble: whichever agent is spotlit (from either side)
+            // speaks its latest line in place, over its dot
+            .overlay {
+                if dragging < 0, engine.hoveredSeat >= 0,
+                   let vm = engine.snapshot.first(where: { $0.id == engine.hoveredSeat }) {
+                    let text = vm.lastLine.isEmpty ? vm.title : vm.lastLine
+                    if !text.isEmpty {
+                        HoverBubble(text: text,
+                                    age: vm.lastLine.isEmpty ? "" : LAge(vm.lastAt),
+                                    hex: vm.hex)
+                            .background(GeometryReader { g in
+                                Color.clear.preference(key: BubbleSizeKey.self, value: g.size)
+                            })
+                            .onPreferenceChange(BubbleSizeKey.self) { bubbleSize = $0 }
+                            .position(bubblePosition(anchor: toScreen(vm.x, vm.z, size), in: size))
+                            .allowsHitTesting(false)
+                            // measured size arrives a frame late — don't flash at the wrong spot
+                            .opacity(bubbleSize == .zero ? 0 : 1)
+                            .transition(.opacity)
+                    }
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: engine.hoveredSeat)
         }
     }
+}
+
+/// The radar's speech bubble: the agent's latest words (+ how long ago),
+/// floated above its dot.
+private struct HoverBubble: View {
+    let text: String
+    let age: String
+    let hex: String
+
+    var body: some View {
+        (Text(text)
+            + Text(age.isEmpty ? "" : "  \(age)")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.45)))
+            .font(.system(size: 11.5))
+            .fontDesign(.rounded)
+            .foregroundStyle(.white.opacity(0.92))
+            .lineLimit(3)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: 250, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: hex).opacity(0.35)))
+            .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
+    }
+}
+
+private struct BubbleSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
 }

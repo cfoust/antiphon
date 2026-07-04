@@ -16,12 +16,36 @@ export function prettyAgentKind(kind: string): string {
     .join(" ");
 }
 
-/** Status → color (mirrors AgentRowView.statusColor in Sidebar.swift). */
-function statusColor(status: string): string {
-  if (status === "working") return "#7D9F77"; // sage — alive
-  if (status === "reporting") return "#5fd0c5";
-  if (status.startsWith("finished")) return "#ffce6b";
-  return "rgba(255,255,255,0.45)"; // idle / resting
+/** Status → a CSS class stem (mirrors AgentRowView.statusColor in Sidebar.swift:
+ *  sage = working, teal = reporting, gold = waiting, dim = idle/resting). */
+function statusKind(status: string): "working" | "reporting" | "waiting" | "idle" {
+  if (status === "working") return "working";
+  if (status === "reporting") return "reporting";
+  if (status.startsWith("finished")) return "waiting";
+  return "idle"; // idle / resting
+}
+
+/** "/Users/dev/work/auth-service" → "~/auth-service" — just the folder; the
+ *  full path lives in the tooltip. (mirrors AgentRowView.shortDir) */
+function shortDir(cwd: string): string {
+  const last = cwd.split("/").filter(Boolean).pop();
+  return last ? "~/" + last : tildePath(cwd);
+}
+
+/** Home-relative path for the tooltip (mirrors tildePath in TalkbackPanel.swift). */
+function tildePath(p: string): string {
+  return p.replace(/^\/(?:Users|home)\/[^/]+/, "~");
+}
+
+/** The whole story on hover: kind · repo ⎇ branch · full path.
+ *  (mirrors AgentRowView.fullContext) */
+function fullContext(vm: AgentRow): string {
+  const parts: string[] = [];
+  if (vm.kind) parts.push(prettyAgentKind(vm.kind));
+  if (vm.repo) parts.push(vm.branch ? `${vm.repo} ⎇ ${vm.branch}` : vm.repo);
+  else if (vm.branch) parts.push(`⎇ ${vm.branch}`);
+  if (vm.cwd) parts.push(tildePath(vm.cwd));
+  return parts.join(" · ");
 }
 
 const MOON_SVG =
@@ -46,13 +70,25 @@ export function initAgentList(engine: Antiphon, root: HTMLElement): void {
   let lastKey = "";
   let tappedSeat = -1; // touch highlight (no hover on phones): tap toggles
 
+  // Design C (mirrors AgentRowView in Sidebar.swift): the title owns the row
+  // (session title, persona-name fallback, 2-line clamp); the last words appear
+  // only when the agent is waiting/reporting — that's when they matter; then ONE
+  // scannable chip line (status · ⎇ branch · ~/folder). The identity dot carries
+  // status: glow = working, gold ring = waiting for you, dim = idle/resting.
+  // The full kind · repo ⎇ branch · path story lives in the row tooltip.
+  // Snoozed rows collapse to the title alone.
   function rowEl(vm: AgentRow): HTMLElement {
+    const kind = statusKind(vm.status);
     const el = document.createElement("div");
     el.className =
-      "agent-row" +
+      "agent-row st-" +
+      kind +
       (vm.snoozed ? " snoozed" : "") +
+      (vm.waiting && !vm.snoozed ? " waiting" : "") +
       (vm.seat === engine.hoveredSeat ? " hl" : "");
     el.dataset.seat = String(vm.seat);
+    const context = fullContext(vm);
+    if (context) el.title = context;
 
     const dot = document.createElement("span");
     dot.className = "a-dot";
@@ -61,47 +97,40 @@ export function initAgentList(engine: Antiphon, root: HTMLElement): void {
     const main = document.createElement("div");
     main.className = "a-main";
 
-    const top = document.createElement("div");
-    top.className = "a-top";
-    const name = document.createElement("span");
-    name.className = "a-name";
-    name.textContent = vm.name || "—";
-    top.appendChild(name);
-    if (vm.kind) {
-      const chip = document.createElement("span");
-      chip.className = "a-kind";
-      chip.textContent = prettyAgentKind(vm.kind);
-      top.appendChild(chip);
-    }
-    if (vm.waiting) {
-      // an unheard summary is waiting — the whole point of the room
-      const wait = document.createElement("span");
-      wait.className = "a-wait";
-      top.appendChild(wait);
-    }
-    main.appendChild(top);
+    const title = document.createElement("div");
+    title.className = "a-title";
+    title.textContent = vm.title || vm.name || "—";
+    main.appendChild(title);
 
-    if (vm.title) {
-      const title = document.createElement("div");
-      title.className = "a-title";
-      title.textContent = vm.title;
-      main.appendChild(title);
-    }
+    if (!vm.snoozed) {
+      // the last words matter when the agent wants you (waiting) or is mid-report
+      if (vm.lastLine && (vm.waiting || vm.status === "reporting")) {
+        const preview = document.createElement("div");
+        preview.className = "a-preview";
+        preview.textContent = vm.lastLine;
+        main.appendChild(preview);
+      }
 
-    const st = document.createElement("div");
-    st.className = "a-status";
-    const word = document.createElement("span");
-    word.className = "a-word";
-    word.style.color = statusColor(vm.status);
-    word.textContent = D.status[vm.status] ?? vm.status;
-    st.appendChild(word);
-    if (vm.lastLine) {
-      const line = document.createElement("span");
-      line.className = "a-line";
-      line.textContent = "· " + vm.lastLine;
-      st.appendChild(line);
+      const chips = document.createElement("div");
+      chips.className = "a-chips";
+      const status = document.createElement("span");
+      status.className = "chip chip-st chip-st-" + kind;
+      status.textContent = D.status[vm.status] ?? vm.status;
+      chips.appendChild(status);
+      if (vm.branch) {
+        const branch = document.createElement("span");
+        branch.className = "chip chip-branch";
+        branch.textContent = "⎇ " + vm.branch;
+        chips.appendChild(branch);
+      }
+      if (vm.cwd) {
+        const dir = document.createElement("span");
+        dir.className = "chip chip-dir";
+        dir.textContent = shortDir(vm.cwd);
+        chips.appendChild(dir);
+      }
+      main.appendChild(chips);
     }
-    main.appendChild(st);
 
     const snooze = document.createElement("button");
     snooze.type = "button";
@@ -125,9 +154,14 @@ export function initAgentList(engine: Antiphon, root: HTMLElement): void {
       if (engine.hoveredSeat === vm.seat) engine.setHovered(-1);
       el.classList.remove("hover");
     });
-    // tap = the hover equivalent on touch: toggle the highlight
+    // tap = the hover equivalent on touch: toggle the highlight; a snoozed
+    // row is one big wake button (mirrors AgentRowView.onTapGesture)
     el.addEventListener("click", () => {
-      if (vm.snoozed) return;
+      if (vm.snoozed) {
+        engine.setSnoozed(vm.seat, false);
+        render(true);
+        return;
+      }
       tappedSeat = tappedSeat === vm.seat ? -1 : vm.seat;
       engine.setHovered(tappedSeat);
       render(true);

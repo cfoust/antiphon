@@ -263,7 +263,7 @@ func (c *Channel) hubLoop() {
 
 		hello := map[string]any{
 			"type": "hello", "session": c.session, "kind": c.kind,
-			"repo": c.repo, "cwd": cwd(),
+			"repo": c.repo, "cwd": cwd(), "branch": branchName(),
 		}
 		if inp := input.Detect(); inp != nil {
 			hello["input"] = inp // talk-back target (tmux pane etc.)
@@ -361,7 +361,14 @@ func cwdHash() string {
 	return hex.EncodeToString(h[:])[:8]
 }
 
+// repoName prefers the forge slug (owner/name) so the UI can show something
+// meaningful across checkouts; falls back to the toplevel dir basename.
 func repoName() string {
+	if url, err := exec.Command("git", "config", "--get", "remote.origin.url").Output(); err == nil {
+		if slug := slugFromRemote(strings.TrimSpace(string(url))); slug != "" {
+			return slug
+		}
+	}
 	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err == nil {
 		if top := strings.TrimSpace(string(out)); top != "" {
@@ -369,6 +376,35 @@ func repoName() string {
 		}
 	}
 	return filepath.Base(cwd())
+}
+
+// slugFromRemote extracts owner/name from ssh or https git remotes.
+func slugFromRemote(url string) string {
+	url = strings.TrimSuffix(url, ".git")
+	// ssh: git@host:owner/name — https: https://host/owner/name
+	if i := strings.Index(url, ":"); i >= 0 && strings.Count(url[i+1:], "/") == 1 && !strings.Contains(url, "//") {
+		return url[i+1:]
+	}
+	parts := strings.Split(url, "/")
+	if len(parts) >= 2 {
+		owner, name := parts[len(parts)-2], parts[len(parts)-1]
+		if owner != "" && name != "" && !strings.Contains(owner, ":") {
+			return owner + "/" + name
+		}
+	}
+	return ""
+}
+
+func branchName() string {
+	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	b := strings.TrimSpace(string(out))
+	if b == "HEAD" {
+		return "" // detached — not worth showing
+	}
+	return b
 }
 
 func cwd() string {

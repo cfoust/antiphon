@@ -18,6 +18,9 @@ private struct Frame: Decodable {
     let kind: String?
     let title: String?
     let input: String?
+    let repo: String?
+    let cwd: String?
+    let branch: String?
     let headline: String?
     let note: String?
     let summary: String?
@@ -238,7 +241,8 @@ final class BridgeClient: NSObject {
                 if let seat = f.seat {
                     NSLog("[bridge] bind seat=%d name=%@ input=%@", seat, f.name ?? "?", f.input ?? "-")
                     engine.bridgeBind(seat: seat, agent: f.agent, name: f.name, kind: f.kind,
-                                      title: f.title, input: f.input)
+                                      title: f.title, input: f.input,
+                                      repo: f.repo, cwd: f.cwd, branch: f.branch)
                 }
             case "tool":
                 if let seat = f.seat { engine.bridgeTool(seat: seat) }

@@ -177,12 +177,41 @@ private let TBL: [String: (String, String, String)] = [
     "Documentation": ("Документация", "文档", "文件"),
     "Report an issue": ("Сообщить о проблеме", "报告问题", "回報問題"),
     "Antiphon Documentation": ("Документация Antiphon", "Antiphon 文档", "Antiphon 文件"),
+    "About Antiphon": ("Об Antiphon", "关于 Antiphon", "關於 Antiphon"),
+    "Settings…": ("Настройки…", "设置…", "設定…"),
+    "Quit Antiphon": ("Завершить Antiphon", "退出 Antiphon", "結束 Antiphon"),
     "Check for Updates…": ("Проверить обновления…", "检查更新…", "檢查更新…"),
     "Updates": ("Обновления", "更新", "更新"),
     "Up to date": ("У вас последняя версия", "已是最新版本", "已是最新版本"),
     "New version: %@": ("Новая версия: %@", "新版本：%@", "新版本：%@"),
     "Download": ("Скачать", "下载", "下載"),
     "Check now": ("Проверить сейчас", "立即检查", "立即檢查"),
+
+    // ---- settings: immersion + language ----
+    "Immersion": ("Погружение", "沉浸", "沉浸"),
+    "Fade-in delay": ("Задержка появления", "淡入延迟", "淡入延遲"),
+    "How long your eyes stay closed before the room fades in — raise it if blinks trigger it":
+        ("Сколько глаза должны быть закрыты, прежде чем комната проявится — увеличьте, если срабатывает от морганий",
+         "闭眼多久后房间才淡入——如果眨眼就会误触发，请调大",
+         "閉眼多久後房間才淡入——如果眨眼就會誤觸發，請調大"),
+    "send": ("отправить", "发送", "傳送"),
+    "Waiting cue": ("Сигнал ожидания", "等待提示音", "等待提示音"),
+    "With your eyes open, agents that finished build a quiet chord over minutes":
+        ("Пока глаза открыты, закончившие агенты за несколько минут наращивают тихий аккорд",
+         "睁眼时，已完成的智能体会在几分钟里慢慢积累一段安静的和声",
+         "睜眼時，已完成的代理會在幾分鐘裡慢慢累積一段安靜的和聲"),
+    "Save": ("Сохранить", "保存", "儲存"),
+    "Use these voices": ("Использовать эти голоса", "使用这些声音", "使用這些聲音"),
+    "Hear this voice": ("Послушать этот голос", "试听这个声音", "試聽這個聲音"),
+    "An agent is using this voice right now": ("Этот голос сейчас у одного из агентов", "有智能体正在使用这个声音", "有代理正在使用這個聲音"),
+    "No voices discovered yet": ("Голоса ещё не обнаружены", "尚未发现声音", "尚未發現聲音"),
+    "In the pool: %@": ("В пуле: %@", "声音池：%@", "聲音池：%@"),
+    "A voice for your room — steady, close, and easy to live with.":
+        ("Голос для вашей комнаты — ровный, близкий, с ним легко жить.",
+         "一个属于你房间的声音——安稳、贴近、久处不厌。",
+         "一個屬於你房間的聲音——安穩、貼近、久處不厭。"),
+    "Menus, statuses, and the spoken cues":
+        ("Меню, статусы и голосовые подсказки", "菜单、状态与语音提示", "選單、狀態與語音提示"),
     "Check automatically": ("Проверять автоматически", "自动检查", "自動檢查"),
     "Once a day, from GitHub — nothing is sent":
         ("Раз в день, через GitHub — ничего не отправляется",

@@ -78,6 +78,8 @@ func Run(args []string) int {
 		"session": session,
 		"kind":    kind,
 		"repo":    repoName(),
+		"cwd":     cwdPath(),
+		"branch":  branchName(),
 		"type":    typ,
 		"text":    text,
 	}
@@ -126,7 +128,40 @@ func discoverPort(stateDir string) (int, bool) {
 	return d.Port, true
 }
 
+func cwdPath() string {
+	d, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return d
+}
+
+func branchName() string {
+	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	b := strings.TrimSpace(string(out))
+	if b == "HEAD" {
+		return ""
+	}
+	return b
+}
+
 func repoName() string {
+	// prefer the forge slug (owner/name); fall back to the toplevel basename
+	if url, err := exec.Command("git", "config", "--get", "remote.origin.url").Output(); err == nil {
+		u := strings.TrimSuffix(strings.TrimSpace(string(url)), ".git")
+		if i := strings.Index(u, ":"); i >= 0 && !strings.Contains(u, "//") && strings.Count(u[i+1:], "/") == 1 {
+			return u[i+1:]
+		}
+		if parts := strings.Split(u, "/"); len(parts) >= 2 {
+			owner, name := parts[len(parts)-2], parts[len(parts)-1]
+			if owner != "" && name != "" && !strings.Contains(owner, ":") {
+				return owner + "/" + name
+			}
+		}
+	}
 	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err == nil {
 		if top := strings.TrimSpace(string(out)); top != "" {

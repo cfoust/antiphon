@@ -68,6 +68,35 @@ enum SettingsClient {
         return (try? JSONDecoder().decode(R.self, from: data))?.providers
     }
 
+    /// Live per-voice sample: the daemon synthesizes with ITS key, we play it.
+    static func audition(provider: String, voice: String, text: String) async -> (Data, String)? {
+        guard var comps = base().flatMap({ URLComponents(url: $0.appendingPathComponent("audition"),
+                                                         resolvingAgainstBaseURL: false) }) else { return nil }
+        comps.queryItems = [.init(name: "provider", value: provider),
+                            .init(name: "voice", value: voice),
+                            .init(name: "text", value: text)]
+        guard let url = comps.url,
+              let (data, resp) = try? await URLSession.shared.data(from: url),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+        let ext = http.value(forHTTPHeaderField: "x-audition-ext") ?? "wav"
+        return (data, ext)
+    }
+
+    /// Which persona is using which spoken voice right now (assignment dots).
+    struct AgentVoice: Decodable {
+        let seat: Int?
+        let connected: Bool?
+        let tts_provider: String?
+        let tts_voice: String?
+    }
+    static func getAgents() async -> [AgentVoice]? {
+        guard let url = base()?.appendingPathComponent("agents"),
+              let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        struct R: Decodable { let agents: [AgentVoice]? }
+        if let r = try? JSONDecoder().decode(R.self, from: data) { return r.agents }
+        return try? JSONDecoder().decode([AgentVoice].self, from: data)
+    }
+
     static func getVoices(refresh: Bool) async -> (voices: [VoicePoolEntry], errors: [String: String])? {
         guard var url = base()?.appendingPathComponent("voices") else { return nil }
         if refresh { url.append(queryItems: [URLQueryItem(name: "refresh", value: "1")]) }
@@ -84,11 +113,13 @@ enum SettingsClient {
 // MARK: - the window
 
 struct SettingsView: View {
-    @ObservedObject var engine: AntiphonEngine
+    let engine: AntiphonEngine // deliberately NOT observed — see GeneralPane
     @ObservedObject var updates: UpdateChecker
     var onClose: () -> Void = {}
     @ObservedObject private var i18n = I18n.shared
-    @State private var pane = "general"
+    // dev: ANTIPHON_DEV containing "voices" opens straight onto the Voices pane
+    @State private var pane = ProcessInfo.processInfo
+        .environment["ANTIPHON_DEV"]?.contains("voices") == true ? "voices" : "general"
 
     var body: some View {
         HStack(spacing: 0) {
@@ -116,7 +147,7 @@ struct SettingsView: View {
                     if pane == "general" {
                         GeneralPane(engine: engine, updates: updates)
                     } else {
-                        VoicesPane()
+                        VoicesPane(engine: engine)
                     }
                 }
                 .padding(26)
@@ -165,10 +196,16 @@ struct SettingsView: View {
 // MARK: - General
 
 private struct GeneralPane: View {
-    @ObservedObject var engine: AntiphonEngine
+    // NOT @ObservedObject: the engine publishes pose/immersion at 30-60 Hz and
+    // observing it re-rendered this whole pane on every tick (janky scrolling).
+    // The pane reads once and mirrors what it edits in local state.
+    let engine: AntiphonEngine
     @ObservedObject var updates: UpdateChecker
     @ObservedObject private var i18n = I18n.shared
     @State private var loginItem = SMAppService.mainApp.status == .enabled
+    @State private var fit = 2.0
+    @State private var fadeDelay = 0.6
+    @State private var waitingCue = true
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -176,22 +213,47 @@ private struct GeneralPane: View {
 
     var body: some View {
         Text(L("General")).font(.title2.weight(.semibold)).foregroundStyle(SD.ink)
+            .onAppear {
+                fit = engine.freqScale
+                fadeDelay = engine.fadeDelay
+                waitingCue = engine.attentionCue
+            }
 
         card(L("Sound")) {
             // hovering the row takes over the room: the guide voice loops from
             // straight ahead until it sits truly out in front of you
             labeledRow(L("Fit"), L("Adjust until my voice sits straight ahead of you")) {
                 HStack(spacing: 8) {
-                    Slider(value: Binding(get: { engine.freqScale },
-                                          set: { engine.setFreqScale($0) }), in: 0.7...2.2)
+                    Slider(value: Binding(get: { fit },
+                                          set: { fit = $0; engine.setFreqScale($0) }), in: 0.7...2.2)
                         .frame(width: 170)
-                    Text(String(format: "%.2f", engine.freqScale))
+                    Text(String(format: "%.2f", fit))
                         .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
                 }
             }
             .onHover { over in
                 if over { engine.onboardPlay("fit", loop: true, bearingDeg: 0) }
                 else { engine.onboardStop() }
+            }
+        }
+
+        card(L("Immersion")) {
+            labeledRow(L("Waiting cue"),
+                       L("With your eyes open, agents that finished build a quiet chord over minutes")) {
+                Toggle("", isOn: Binding(get: { waitingCue },
+                                         set: { waitingCue = $0; engine.setAttentionCue($0) }))
+                    .labelsHidden().toggleStyle(.switch)
+            }
+            divider()
+            labeledRow(L("Fade-in delay"),
+                       L("How long your eyes stay closed before the room fades in — raise it if blinks trigger it")) {
+                HStack(spacing: 8) {
+                    Slider(value: Binding(get: { fadeDelay },
+                                          set: { fadeDelay = $0; engine.setFadeDelay($0) }), in: 0...3)
+                        .frame(width: 170)
+                    Text(String(format: "%.1f s", fadeDelay))
+                        .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
+                }
             }
         }
 
@@ -225,7 +287,7 @@ private struct GeneralPane: View {
         }
 
         card(L("Language")) {
-            labeledRow(L("Language"), L("For spot-checking the translations")) {
+            labeledRow(L("Language"), L("Menus, statuses, and the spoken cues")) {
                 Picker("", selection: Binding(get: { i18n.lang }, set: { i18n.lang = $0 })) {
                     ForEach(AppLang.allCases) { l in Text(l.label).tag(l) }
                 }
@@ -275,15 +337,18 @@ private struct GeneralPane: View {
 // MARK: - Voices
 
 private struct VoicesPane: View {
+    let engine: AntiphonEngine // audition playback (not observed — see GeneralPane)
     @ObservedObject private var i18n = I18n.shared
     @State private var providers: [String: ProviderStatus] = [:]
     @State private var voices: [String: [VoicePoolEntry]] = [:] // provider → all discovered voices
     @State private var errors: [String: String] = [:]
     @State private var keyDrafts: [String: String] = [:]
-    @State private var expanded: Set<String> = []
     @State private var loading = true
     @State private var applying = false
     @State private var daemonUp = true
+    @State private var selected = "openai" // the rail's active provider
+    @State private var assignments: [String: [String]] = [:] // "prov\0voice" → persona hexes
+    @State private var auditioning: String? // voice id mid-fetch (spinner)
 
     private var enabledTotal: Int { voices.values.flatMap { $0 }.filter(\.enabled).count }
 
@@ -307,97 +372,206 @@ private struct VoicesPane: View {
         } else if loading {
             ProgressView().controlSize(.small)
         } else {
-            // pool summary — agents draw from the ENABLED voices
-            HStack(spacing: 8) {
-                Image(systemName: "person.wave.2").foregroundStyle(SD.coral)
-                Text(LVoicePool(enabledTotal))
-                    .font(.callout.weight(.medium)).foregroundStyle(SD.ink)
+            // design C: providers on a rail, the selected one's voices beside it
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(order, id: \.id) { p in railItem(p.id, label: p.label) }
+                    Spacer(minLength: 0)
+                }
+                .padding(8)
+                .frame(width: 158, alignment: .leading)
+                .background(SD.card)
+
+                Rectangle().fill(SD.hairline).frame(width: 1)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    providerContent(selected)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 300, alignment: .top)
+            .background(SD.card.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            HStack {
+                Text(Lf("In the pool: %@", LVoiceCount(enabledTotal)))
+                    .font(.caption).foregroundStyle(SD.sub)
                 Spacer()
                 Button {
                     Task { await load(refresh: true) }
                 } label: {
                     Label(L("Refresh"), systemImage: "arrow.clockwise").font(.caption)
                 }
+                .buttonStyle(.plain).foregroundStyle(SD.sub)
             }
-            .padding(14)
-            .background(SD.card, in: RoundedRectangle(cornerRadius: 12))
-
-            ForEach(order, id: \.id) { p in
-                providerCard(p.id, label: p.label, blurb: L(p.blurb))
-            }
-
-            HStack {
-                Spacer()
-                Button {
-                    Task { await apply() }
-                } label: {
-                    Text(applying ? L("Applying…") : L("Apply"))
-                        .frame(minWidth: 80)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(SD.coral)
-                .disabled(applying)
-            }
+            .padding(.horizontal, 4)
         }
         Spacer(minLength: 0)
             .task { await load(refresh: false) }
     }
 
+    // MARK: rail
+
+    private func railItem(_ id: String, label: String) -> some View {
+        let st = providers[id]
+        let count = (voices[id] ?? []).filter(\.enabled).count
+        return Button {
+            selected = id
+        } label: {
+            HStack(spacing: 7) {
+                Circle().fill(railDot(st)).frame(width: 6, height: 6)
+                Text(label).font(.callout)
+                Spacer(minLength: 4)
+                if st?.active == true {
+                    Text("\(count)").font(.caption2.monospacedDigit()).foregroundStyle(SD.faint)
+                }
+            }
+            .padding(.horizontal, 9).padding(.vertical, 7)
+            .background(selected == id ? Color.white.opacity(0.09) : .clear,
+                        in: RoundedRectangle(cornerRadius: 7))
+            .foregroundStyle(selected == id ? SD.ink : SD.sub)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func railDot(_ st: ProviderStatus?) -> Color {
+        guard let st, st.enabled else { return .white.opacity(0.25) }
+        if st.needsKey && !st.keySet { return Color(red: 0.85, green: 0.56, blue: 0.38) }
+        return st.active ? Color(red: 0.49, green: 0.62, blue: 0.47) : .white.opacity(0.25)
+    }
+
+    // MARK: the selected provider
+
     @ViewBuilder
-    private func providerCard(_ id: String, label: String, blurb: String) -> some View {
+    private func providerContent(_ id: String) -> some View {
         let st = providers[id]
         let list = voices[id] ?? []
-        card(label) {
-            labeledRow(blurb, statusLine(id, st)) {
-                Toggle("", isOn: Binding(
-                    get: { st?.enabled ?? true },
-                    set: { on in
-                        var cur = providers[id] ?? ProviderStatus(enabled: on, needsKey: id != "macos-say", keySet: false, active: false)
-                        cur = ProviderStatus(enabled: on, needsKey: cur.needsKey, keySet: cur.keySet, active: cur.active)
-                        providers[id] = cur
-                    }))
-                    .labelsHidden().toggleStyle(.switch)
+        let meta = order.first { $0.id == id }
+
+        HStack(alignment: .firstTextBaseline) {
+            Text(statusLine(id, st)).font(.caption).foregroundStyle(SD.sub)
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { st?.enabled ?? true },
+                set: { on in setProviderEnabled(id, on) }))
+                .labelsHidden().toggleStyle(.switch).controlSize(.mini)
+                .help(L("Use these voices"))
+        }
+        .padding(.bottom, 2)
+        Text(meta.map { L($0.blurb) } ?? "")
+            .font(.caption).foregroundStyle(SD.faint)
+            .padding(.bottom, 8)
+
+        if st?.needsKey == true && st?.keySet != true {
+            // the cloud stays locked until a key arrives — voices below preview
+            // grayed, toggles and play disabled
+            HStack(spacing: 8) {
+                SecureField(L("paste key"), text: Binding(
+                    get: { keyDrafts[id] ?? "" },
+                    set: { keyDrafts[id] = $0 }))
+                    .textFieldStyle(.roundedBorder)
+                Button(applying ? L("Applying…") : L("Save")) {
+                    Task { await saveKey(id) }
+                }
+                .disabled((keyDrafts[id] ?? "").isEmpty || applying)
             }
-            if st?.needsKey == true {
-                divider()
-                labeledRow(L("API key"), st?.keySet == true ? L("A key is saved — enter a new one to replace it") : L("No key yet")) {
-                    SecureField(st?.keySet == true ? "••••••••" : L("paste key"), text: Binding(
-                        get: { keyDrafts[id] ?? "" },
-                        set: { keyDrafts[id] = $0 }))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 220)
+            .padding(.bottom, 10)
+        } else if st?.needsKey == true {
+            HStack(spacing: 8) {
+                Text(L("A key is saved — enter a new one to replace it"))
+                    .font(.caption2).foregroundStyle(SD.faint)
+                SecureField("••••••••", text: Binding(
+                    get: { keyDrafts[id] ?? "" },
+                    set: { keyDrafts[id] = $0 }))
+                    .textFieldStyle(.roundedBorder).frame(width: 150)
+                if !(keyDrafts[id] ?? "").isEmpty {
+                    Button(L("Save")) { Task { await saveKey(id) } }.disabled(applying)
                 }
             }
-            // every discovered voice, individually togglable — the pool agents
-            // draw from is exactly the ON set. Toggles apply immediately.
-            if !list.isEmpty {
-                divider()
-                DisclosureGroup(isExpanded: Binding(
-                    get: { expanded.contains(id) },
-                    set: { open in if open { expanded.insert(id) } else { expanded.remove(id) } })) {
-                    VStack(spacing: 2) {
-                        ForEach(list) { v in
-                            HStack {
-                                Text(v.name)
-                                    .font(.callout)
-                                    .foregroundStyle(v.enabled ? SD.ink : SD.faint)
-                                Spacer()
-                                Toggle("", isOn: Binding(
-                                    get: { v.enabled },
-                                    set: { on in setVoice(id, v.id, on) }))
-                                    .labelsHidden().toggleStyle(.switch).controlSize(.mini)
-                            }
-                            .padding(.vertical, 3)
-                        }
-                    }
-                    .padding(.top, 6)
-                } label: {
-                    Text("\(list.filter(\.enabled).count) / \(list.count) · \(L("Voices"))")
-                        .font(.callout).foregroundStyle(SD.sub)
+            .padding(.bottom, 10)
+        }
+
+        let unlocked = st?.active == true
+        if list.isEmpty {
+            Text(errors[id].map { Lf("discovery failed: %@", $0) } ?? L("No voices discovered yet"))
+                .font(.caption).foregroundStyle(SD.faint)
+        } else {
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(list) { v in voiceRow(id, v, unlocked: unlocked) }
                 }
-                .tint(SD.sub)
             }
         }
+    }
+
+    @ViewBuilder
+    private func voiceRow(_ provider: String, _ v: VoicePoolEntry, unlocked: Bool) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                Task { await audition(provider, v) }
+            } label: {
+                if auditioning == v.id {
+                    ProgressView().controlSize(.mini).frame(width: 18, height: 18)
+                } else {
+                    Image(systemName: "play.circle")
+                        .font(.system(size: 15))
+                        .foregroundStyle(unlocked ? SD.sub : SD.faint.opacity(0.5))
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(!unlocked || auditioning != nil)
+            .help(L("Hear this voice"))
+
+            Text(v.name)
+                .font(.callout)
+                .foregroundStyle(unlocked && v.enabled ? SD.ink : SD.faint)
+
+            HStack(spacing: 3) {
+                ForEach(assignments["\(provider)\u{0}\(v.id)"] ?? [], id: \.self) { hex in
+                    Circle().fill(Color(hex: hex)).frame(width: 7, height: 7)
+                        .help(L("An agent is using this voice right now"))
+                }
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { v.enabled },
+                set: { on in setVoice(provider, v.id, on) }))
+                .labelsHidden().toggleStyle(.switch).controlSize(.mini)
+                .disabled(!unlocked)
+        }
+        .padding(.vertical, 4)
+        .overlay(alignment: .bottom) { Rectangle().fill(SD.hairline.opacity(0.6)).frame(height: 1) }
+    }
+
+    private func audition(_ provider: String, _ v: VoicePoolEntry) async {
+        auditioning = v.id
+        defer { auditioning = nil }
+        if let (data, ext) = await SettingsClient.audition(
+            provider: provider, voice: v.id,
+            text: L("A voice for your room — steady, close, and easy to live with.")) {
+            engine.auditionPlay(data: data, ext: ext)
+        }
+    }
+
+    private func setProviderEnabled(_ id: String, _ on: Bool) {
+        if let cur = providers[id] {
+            providers[id] = ProviderStatus(enabled: on, needsKey: cur.needsKey,
+                                           keySet: cur.keySet, active: on && cur.active)
+        }
+        Task {
+            _ = await SettingsClient.putConfig([id: ["enabled": on]])
+            await load(refresh: false)
+        }
+    }
+
+    private func saveKey(_ id: String) async {
+        guard let draft = keyDrafts[id], !draft.isEmpty else { return }
+        applying = true
+        _ = await SettingsClient.putConfig([id: ["api_key": draft]])
+        keyDrafts[id] = ""
+        await load(refresh: true) // the new key unlocks discovery
+        applying = false
     }
 
     /// Flip one voice: optimistic local update, then persist (merged server-side).
@@ -436,6 +610,16 @@ private struct VoicesPane: View {
         }
         daemonUp = true
         providers = cfg
+        // which persona wears which voice, for the little assignment dots
+        if let rows = await SettingsClient.getAgents() {
+            var m: [String: [String]] = [:]
+            for r in rows {
+                guard let seat = r.seat, seat >= 0, r.connected == true,
+                      let pr = r.tts_provider, let vo = r.tts_voice, !vo.isEmpty else { continue }
+                m["\(pr)\u{0}\(vo)", default: []].append(AGENTS[seat % AGENTS.count].hex)
+            }
+            assignments = m
+        }
         if let v = await SettingsClient.getVoices(refresh: refresh) {
             var grouped: [String: [VoicePoolEntry]] = [:]
             for entry in v.voices { grouped[entry.provider, default: []].append(entry) }
@@ -445,21 +629,7 @@ private struct VoicesPane: View {
         loading = false
     }
 
-    private func apply() async {
-        applying = true
-        var body: [String: [String: Any]] = [:]
-        for (id, st) in providers {
-            var p: [String: Any] = ["enabled": st.enabled]
-            if let draft = keyDrafts[id], !draft.isEmpty { p["api_key"] = draft }
-            body[id] = p
-        }
-        if let updated = await SettingsClient.putConfig(body) {
-            providers = updated
-            keyDrafts = [:]
-            _ = await load(refresh: true)
-        }
-        applying = false
-    }
+
 }
 
 // MARK: - shared bits

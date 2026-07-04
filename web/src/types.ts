@@ -16,12 +16,17 @@ export type AntiphonMode = "demo" | "live";
 /** Procedural acoustic environments (impulse responses for the shared reverb). */
 export type EnvName = "dry" | "room" | "antiphon" | "hall";
 
-/** Static definition of an agent (identity, not runtime state). */
+/** Static definition of an agent (identity, not runtime state). The workspace
+ *  fields (repo/branch/cwd) are the demo's scripted identities; live mode
+ *  overwrites them with real bind metadata. */
 export interface AgentDef {
   id: string;
   name: string;
   color: string;
   task: string;
+  repo?: string; // "owner/name"
+  branch?: string;
+  cwd?: string; // absolute path
 }
 
 /** Live-bridge seat metadata (mirrors TalkbackSeatMeta in the native app). */
@@ -30,6 +35,9 @@ export interface SeatMeta {
   name: string;
   kind: string; // e.g. "claude-code"
   title: string;
+  repo: string; // "owner/name"
+  cwd: string; // absolute path (the row chip shows the last component)
+  branch: string;
   input: string;
 }
 
@@ -39,6 +47,9 @@ export interface AgentRow {
   name: string;
   kind: string;
   title: string;
+  repo: string;
+  cwd: string;
+  branch: string;
   color: string;
   status: string;
   lastLine: string;
@@ -95,10 +106,12 @@ export interface AgentNode {
   /** Wall time (ms) of the last sign of life (tool call or narration event) —
    *  gates the working drone so idle-but-connected sessions don't hum forever. */
   lastActivity: number;
-  // live-bridge seat metadata + the last narration line (for the agent list)
+  // live-bridge seat metadata + the last narration line (for the agent list
+  // and the radar's hover bubble, which also shows the line's age)
   meta: SeatMeta;
   lastLine: string;
   lastKind: string;
+  lastAt: number; // wall-clock ms (performance.now) the last line arrived; 0 = never
   // live mode: the agent's voice is a queue of real narration lines (no looping bed)
   narrQueue: AudioBuffer[]; // pending narration lines
   narrPlaying: boolean; // a narration line is currently sounding
