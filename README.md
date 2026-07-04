@@ -1,66 +1,80 @@
-# Antiphon — a custom binaural rendering engine
+<p align="center">
+  <img src="docs/img/readme-banner.png" alt="Antiphon — your agents, speaking. You, listening." width="100%">
+</p>
 
-Real-time, headphone binaural rendering of mono voices placed in 3D space, head-tracked,
-with room acoustics. **One Rust DSP core** compiles to **native macOS** (linked into a Swift
-app via a C ABI) and to **WebAssembly** (driven from an AudioWorklet) — verified
-byte-identical across the two (parity error **−157 dBFS**).
+<p align="center">
+  <a href="https://antiphon.dev">antiphon.dev</a> ·
+  <a href="https://antiphon.dev/demo.html">web demo</a> ·
+  <a href="https://antiphon.dev/docs/">docs</a> ·
+  <a href="https://antiphon.dev/docs/blog/about-antiphon/">why this exists</a>
+</p>
 
-Built on the conclusion that, for placing voices, the perceptual order is
-**room > head-tracking > HRTF personalization > near-field**. So the engine does dynamic
-per-source HRTF on the direct path, geometry-aware early reflections, and a parametric late
-reverb — and defers personalization (hooks left in place).
+---
 
-## What works today
-- **Direct path**: minimum-phase HRIR FIR (128 taps, **SIMD** via `wide` f32x8) + separate
-  fractional-delay ITD + distance/air-absorption, with per-block coefficient ramping
-  (click-free motion). 3-nearest inverse-angle interpolation over a spherical grid.
-- **6DoF**: full position + orientation pose; the engine recomputes per-source geometry from
-  head position and orientation (see the `09_walk_6dof` demo and the native app's webcam
-  position estimate).
-- **Early reflections**: shoebox image sources up to **order 2**, rendered through the same
-  HRTF kernel, capped by a **global energy-ranked budget** (48 voices) so CPU is bounded.
-- **Late reverb, two backends**: parametric **16-line FDN** (Hadamard mix, per-line damping,
-  anti-denormal) *and* **Tier-1 convolution** against a stereo BRIR (`fft-convolver`,
-  partitioned). Selectable per room preset; A/B them by ear (`hall` vs `hall_conv`).
-- **Self-contained HRTF**: an analytic *structural* model (head-shadow ILD, elevation pinna
-  notch, Woodworth ITD) baked offline → compact `.antiphon` blob, so there are **zero external
-  downloads** and the WASM runtime needs no SOFA/HDF5 parser. Swappable for measured SOFA
-  (see `docs/sofa.md`). BRIRs can be dropped in as `assets/brir/<room>.wav`.
-- **Both hosts**: native `AVAudioSourceNode → Rust`, web `AudioWorklet → wasm`. 60 KB wasm,
-  no imports, no SharedArrayBuffer.
-- **Performance**: ~6.5× realtime for 12 voices with order-2 reflections + reverb (release,
-  one core); `cargo run -p antiphon-render --release -- bench`.
+**Antiphon is a spatial-audio monitor for coding agents.** Every agent session gets a voice
+and a seat in a virtual room around you: real binaural rendering (measured HRTFs, room
+acoustics), head-tracked by your webcam, gentle by design. Tool calls tick each agent's
+chord. Long tasks settle into a low machine hum. When an agent finishes, it *tells you* —
+a spoken sentence or two, from exactly where its work is.
 
-## Layout
+And the part everything is built around: **close your eyes.** The camera notices, the desk
+falls away, and the room comes up. Turn toward a voice, linger, and it delivers its report.
+Open your eyes and a reply box is waiting.
+
+<p align="center">
+  <img src="docs/img/readme-radar.png" alt="The room, from above — an agent delivering its summary" width="85%">
+</p>
+
+## Install
+
+macOS 14+ on Apple Silicon:
+
+1. **[Download Antiphon](https://github.com/cfoust/antiphon/releases/latest/download/Antiphon-macOS.zip)**,
+   unzip, drag to `/Applications`.
+2. Clear quarantine (releases aren't notarized yet) and launch:
+   ```bash
+   xattr -d com.apple.quarantine /Applications/Antiphon.app
+   open /Applications/Antiphon.app
+   ```
+3. Connect your agent — e.g. for Claude Code:
+   ```bash
+   claude plugin marketplace add cfoust/antiphon
+   claude plugin install antiphon@antiphon
+   ```
+   [Codex, OpenCode, Pi, and Aider](https://antiphon.dev/docs/agents/) adapters live in
+   [`plugins/`](plugins/).
+
+Wear headphones. That's the whole trick.
+
+Voices default to the built-in macOS ones; add an ElevenLabs or OpenAI key in
+**Settings → Voices** for much better ones. Full instructions in the
+[docs](https://antiphon.dev/docs/install/).
+
+## Try it without installing
+
+The **[web demo](https://antiphon.dev/demo.html)** runs the identical engine compiled to
+WebAssembly — same HRTFs, same room, head tracking through your browser — with scripted
+agents instead of yours.
+
+## Under the hood
+
+One Rust DSP core (`crates/antiphon-dsp`), one C ABI, two hosts — the native app and the
+wasm demo are verified byte-identical (parity ≈ −155 dBFS, enforced in CI). Signal path:
+minimum-phase HRIR convolution + fractional-delay ITD → image-source early reflections →
+FDN or BRIR-convolution late reverb, all at 48 kHz in 128-frame blocks. A small Go daemon
+(`antiphond`, bundled in the app) registers agent sessions, assigns personas, and runs the
+TTS ladder. Details in [the engine docs](https://antiphon.dev/docs/engine/).
+
+```bash
+git clone https://github.com/cfoust/antiphon && cd antiphon
+just bake   # bake the HRTF + room asset
+just app    # build Antiphon.app (Rust staticlib + swiftc; no Xcode project)
+just serve  # or: run the site + web demo locally
 ```
-crates/
-  antiphon-assets   .antiphon format + zero-dependency reader (no_std)
-  antiphon-dsp      the real-time engine (no I/O, no threads, no hot-path alloc) — native + wasm
-  antiphon-ffi      C ABI (staticlib for Swift; wasm32 cdylib for the worklet)
-  antiphon-bake     offline: HRTF model + rooms -> .antiphon
-  antiphon-render   offline: scene -> stereo WAV (quality check + parity oracle)
-native/AntiphonApp  SwiftUI host (AVAudioSourceNode + Vision head tracking)
-web/               index.html + AudioWorklet driving the wasm
-tools/             build-web.sh, parity.mjs
-docs/              conventions.md (coordinate frame), build.md
-```
 
-## Quickstart
-```sh
-cargo run -p antiphon-bake   --release -- assets/baked/antiphon-default.antiphon
-cargo run -p antiphon-render --release            # listen to out/*.wav on headphones
-bash native/AntiphonApp/make.sh && open native/AntiphonApp/AntiphonApp.app
-bash tools/build-web.sh && python3 -m http.server -d web 8080
-```
-See `docs/build.md`. Coordinate/ITD conventions: `docs/conventions.md`.
+HRTF data: [MIT KEMAR](https://sound.media.mit.edu/resources/KEMAR.html) (Gardner &
+Martin, MIT Media Lab).
 
-## Roadmap (next)
-- ✅ **Measured SOFA importer** — `antiphon-bake --features sofa --sofa <file>` (pure-Rust
-  `sofar` reader, resamples to 48 k, min-phase + ITD extraction). See `docs/sofa.md`. The
-  measured set (e.g. MIT KEMAR) is a strict fidelity upgrade over the analytic placeholder.
-- Enumerate a dense SOFA's own measurements (vs sampling our grid) to keep full resolution;
-  diffuse-field EQ.
-- Measured-BRIR rooms (drop-in `assets/brir/*.wav` already works; add BRIR-SOFA + early/late
-  split for directional early reflections).
-- SIMD on the FDN inner loop + wasm `simd128` tuning; non-uniform partitioned convolution.
-- Near-field HRTF correction (<1 m); optional HRTF selection/personalization.
+## License
+
+[MIT](LICENSE) © 2026 Caleb Foust
