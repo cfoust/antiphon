@@ -211,21 +211,11 @@ export class Chamber {
     // the three descending tool-call notes (one-shots, triggered in bridgeTool)
     const toolNotes = toolNoteFreqs(pf).map((f) => makeToolNote(ctx, f));
 
-    // --- content: demo loads the canned (fake) voices; live stays empty until the
-    // bridge feeds it real narration + summary. ---
-    let src: AudioBufferSourceNode | null = null;
-    let summaryBuf: AudioBuffer | null = null;
-    if (this.mode === "demo") {
-      const [workBuf, doneBuf] = await Promise.all([
-        this.decode(`audio/${a.id}.mp3`),
-        this.decode(`audio/${a.id}_done.mp3`),
-      ]);
-      summaryBuf = doneBuf;
-      src = ctx.createBufferSource();
-      src.buffer = workBuf;
-      src.loop = true;
-      src.connect(gain); // the looping work-stream feeds the voice path
-    }
+    // Content: agents start empty in BOTH modes now. Demo is driven by the
+    // scripted scenario (src/demo/scenario.ts) which enqueues one-shot narration
+    // murmurs + rotating done summaries (audio/demo/*, live-narration style);
+    // live is fed real lines by the bridge. The old canned audio/{id}.mp3 loops
+    // remain on disk only as a fallback asset set.
 
     // world position: a persisted dragged spot wins; otherwise the arrangement arc
     const saved = loadSeatPos(idx);
@@ -239,13 +229,13 @@ export class Chamber {
       posZ,
       posSet: !!saved,
       sum,
-      src,
+      src: null,
       gain,
       hp,
       lp,
       pingBus,
       summaryGain,
-      summaryBuf,
+      summaryBuf: null,
       toolNotes,
       toolIdx: 0,
       toolBusy: false,
@@ -273,7 +263,6 @@ export class Chamber {
       narrPlaying: false,
     };
     this.placeAgent(a.id);
-    if (src) src.start(0, Math.random() * src.buffer!.duration);
     droneSrc.start();
     pulseSrc.start();
     bloomSrc.start();
@@ -332,6 +321,63 @@ export class Chamber {
     this.agentBus.gain.setTargetAtTime(1, this.ctx.currentTime, 0.4);
     this.autoFinish = true;
     this.nextAuto = performance.now() + 5000; // first finish a few seconds in
+  }
+
+  /** Begin the scripted demo experience: fade the agents in and leave all
+   *  completions to the scenario driver (src/demo/scenario.ts) — no random
+   *  auto-finishing. */
+  startScripted(): void {
+    this.agentBus.gain.setTargetAtTime(1, this.ctx.currentTime, 0.4);
+    this.autoFinish = false;
+  }
+
+  // ---- onboarding fit voice ------------------------------------------------
+  // The Fit step's guide voice loops from straight ahead THROUGH the binaural
+  // engine (the acoustics are the demo — mirrors engine.onboardPlay(bearing: 0)
+  // in the native app). It borrows the last agent's input slot (inactive during
+  // onboarding), repositions it dead ahead, and opens the (otherwise silent)
+  // agent bus for the duration.
+  private fitSrc: AudioBufferSourceNode | null = null;
+
+  startFitVoice(buf: AudioBuffer): void {
+    this.stopFitVoice();
+    const id = this.agents[this.agents.length - 1].id;
+    const N = this.nodes[id];
+    if (!N) return;
+    this.wasm?.setInputCfg(N.idx, {
+      pos: { x: 0, y: 0, z: -SOURCE_RADIUS }, // straight ahead IS the reference
+      gain: 1,
+      send: 0.05,
+    });
+    // pad with a breath of silence so the loop doesn't run on top of itself
+    const pad = this.ctx.createBuffer(
+      buf.numberOfChannels,
+      buf.length + Math.round(this.ctx.sampleRate * 1.1),
+      this.ctx.sampleRate,
+    );
+    for (let c = 0; c < buf.numberOfChannels; c++)
+      pad.copyToChannel(buf.getChannelData(c), c);
+    const s = this.ctx.createBufferSource();
+    s.buffer = pad;
+    s.loop = true;
+    s.connect(N.sum); // direct: bypasses the whisper mix (its gain is 0 here)
+    s.start();
+    this.fitSrc = s;
+    this.agentBus.gain.setTargetAtTime(1, this.ctx.currentTime, 0.1);
+  }
+
+  stopFitVoice(): void {
+    if (!this.fitSrc) return;
+    try {
+      this.fitSrc.stop();
+    } catch {
+      /* already stopped */
+    }
+    this.fitSrc = null;
+    // re-silence the bus (startScripted/startLive/startAuto ramp it back up)
+    // and put the borrowed slot back where its agent lives.
+    this.agentBus.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+    this.placeAgent(this.agents[this.agents.length - 1].id);
   }
 
   /** Decode a one-shot system clip (e.g. calibration prompts). */
@@ -542,7 +588,6 @@ export class Chamber {
       const N = this.nodes[a.id];
       if (!N) return;
       const busy =
-        this.mode === "live" &&
         N.present &&
         !N.snoozed &&
         N.state === "working" &&
