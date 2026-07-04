@@ -109,13 +109,8 @@ struct WelcomeView: View {
                             .font(.system(size: 12)).foregroundStyle(AN.muted)
                             .padding(.top, 12)
                     } else {
-                        // the camera step, unified into the welcome
-                        CameraPreview(session: tracker.session)
-                            .aspectRatio(tracker.imageAspect, contentMode: .fit)
-                            .frame(maxWidth: 264, maxHeight: 198)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(AN.ink.opacity(0.1)))
-                            .padding(.bottom, 10)
+                        // the camera step, unified into the welcome — no mirror:
+                        // nobody needs to see their own face, just pick + confirm
                         if tracker.devices.count > 1 {
                             Picker("", selection: Binding(
                                 get: { tracker.selectedID },
@@ -123,14 +118,18 @@ struct WelcomeView: View {
                                 ForEach(tracker.devices) { d in Text(d.name).tag(d.id) }
                             }
                             .labelsHidden().frame(maxWidth: 260)
-                            .padding(.bottom, 6)
+                            .padding(.bottom, 10)
                         }
-                        Text(tracker.faceFound
-                            ? (tracker.hasSavedCalibration ? L("Calibration restored") : L("Head tracking ready"))
-                            : L("Looking for your face…"))
-                            .font(.system(size: 12))
-                            .foregroundStyle(tracker.faceFound ? AN.cobalt : AN.muted)
-                            .padding(.bottom, 14)
+                        HStack(spacing: 7) {
+                            Image(systemName: tracker.faceFound ? "checkmark.circle.fill" : "circle.dashed")
+                                .font(.system(size: 13))
+                            Text(tracker.faceFound
+                                ? (tracker.hasSavedCalibration ? L("Calibration restored") : L("Head tracking ready"))
+                                : L("Looking for your face…"))
+                                .font(.system(size: 12.5))
+                        }
+                        .foregroundStyle(tracker.faceFound ? AN.cobalt : AN.muted)
+                        .padding(.bottom, 16)
                         if tracker.hasSavedCalibration {
                             Button(L("Start")) { onStart() }
                                 .buttonStyle(PillButtonStyle())
@@ -155,6 +154,9 @@ struct WelcomeView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
+            // the window runs dark; this screen is cream — restyle the native
+            // controls (picker!) for a light ground or they render white-on-cream
+            .environment(\.colorScheme, .light)
             // the eye watches the cursor (hero behavior: max ±22 pt, full
             // deflection beyond ~300 pt — measured from the eye's spot)
             .onContinuousHover { phase in

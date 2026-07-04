@@ -254,8 +254,14 @@ final class ChamberEngine: ObservableObject {
     // The audition source: a dedicated extra source slot (index agents.count)
     // for onboarding cues and the fit loop. While it speaks it takes the room
     // over — agents duck against gAud and the eye fade is held open.
+    // DOUBLE-BUFFERED: unlike every other one-shot, a new cue may interrupt a
+    // playing one, so `q` stages into audStaged and bumps audTrig; the RENDER
+    // thread adopts it at the trigger ack. Mutating audBuf from `q` mid-read
+    // was a bounds trap on the IO thread (cal_left → cal_right crash).
     private var audSlot = 0
-    private var audBuf: [Float] = []
+    private var audStaged: [Float] = []      // written on q, read by render at ack
+    private var audStagedLoop = false
+    private var audBuf: [Float] = []         // render-thread-owned after adoption
     private var audCur = -1
     private var audLoop = false
     private var audTrig = 0, audSeen = 0
@@ -488,7 +494,12 @@ final class ChamberEngine: ObservableObject {
 
         // the audition source (onboarding cues / fit loop)
         if started {
-            if audTrig != audSeen { audSeen = audTrig; audCur = 0 }
+            if audTrig != audSeen { // adopt the staged cue HERE — only render touches audBuf
+                audSeen = audTrig
+                audBuf = audStaged
+                audLoop = audStagedLoop
+                audCur = 0
+            }
             let abuf = inBufs[audSlot]
             let ga = gAud
             for k in 0..<n {
@@ -616,10 +627,10 @@ final class ChamberEngine: ObservableObject {
                 let b = rad(bearingDeg)
                 self.srcArr[self.audSlot].x = Float(sin(b)) * self.radius
                 self.srcArr[self.audSlot].z = Float(-cos(b)) * self.radius
-                self.audBuf = samples
-                self.audLoop = loop
+                self.audStaged = samples
+                self.audStagedLoop = loop
                 self.audTarget = 1
-                self.audTrig += 1
+                self.audTrig += 1 // render adopts the staged buffer at the ack
             }
         }
     }
