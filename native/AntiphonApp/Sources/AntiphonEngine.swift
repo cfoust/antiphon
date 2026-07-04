@@ -69,6 +69,7 @@ struct AgentVM: Identifiable {
     let pingAge: Double
     let title: String
     let lastLine: String // most recent narration — the radar's hover bubble
+    let lastAt: TimeInterval // when it was said (the bubble shows the age)
 }
 
 /// One row of the sidebar's agent list (built on `q`, published ~2 Hz).
@@ -1239,7 +1240,8 @@ final class AntiphonEngine: ObservableObject {
                     x: Double($0.posX), z: Double($0.posZ), state: $0.state,
                     pingAge: $0.lastPingWall > 0 ? t - $0.lastPingWall : 99,
                     title: seatMeta[$0.idx]?.title ?? "",
-                    lastLine: seatLines[$0.idx]?.last?.text ?? "")
+                    lastLine: seatLines[$0.idx]?.last?.text ?? "",
+                    lastAt: seatLines[$0.idx]?.last?.at ?? 0)
         }
         let o = orient, g = lookGate
         let hp = SIMD3(headX, headY, headZ)

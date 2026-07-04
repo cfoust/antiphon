@@ -21,10 +21,24 @@ struct RadarView: View {
     @State private var dragging = -1
     @State private var dragMissed = false
     @State private var hoverHit = -1 // dot under the cursor (drives the grab cursor)
+    @State private var bubbleSize: CGSize = .zero // measured, so clamping is exact
     @AppStorage("sidebar.width") private var sidebarWidth = 300.0
 
     /// Keep draggable dots clear of the right rail (live width + its 16 pt
     /// padding) and the window edges — a dot must never be *lost* under UI.
+    /// The bubble prefers floating above its dot; near the top it flips below,
+    /// and it never crosses the window edges or slides under the rail.
+    private func bubblePosition(anchor: CGPoint, in size: CGSize) -> CGPoint {
+        let m: CGFloat = 10, clearance: CGFloat = 22
+        let halfW = bubbleSize.width / 2, halfH = bubbleSize.height / 2
+        let rightBound = size.width - CGFloat(sidebarWidth) - 16 - 12 - halfW
+        let x = min(max(anchor.x, m + halfW), max(m + halfW, rightBound))
+        var y = anchor.y - clearance - halfH
+        if y - halfH < m { y = anchor.y + clearance + halfH } // flip below the dot
+        y = min(max(y, m + halfH), size.height - m - halfH)
+        return CGPoint(x: x, y: y)
+    }
+
     private func clampToVisible(_ p: CGPoint, _ size: CGSize) -> CGPoint {
         let sidebar: CGFloat = CGFloat(sidebarWidth) + 16 + 14
         let m: CGFloat = 14
@@ -198,12 +212,17 @@ struct RadarView: View {
                    let vm = engine.snapshot.first(where: { $0.id == engine.hoveredSeat }) {
                     let text = vm.lastLine.isEmpty ? vm.title : vm.lastLine
                     if !text.isEmpty {
-                        let p = toScreen(vm.x, vm.z, size)
-                        HoverBubble(text: text, hex: vm.hex)
-                            .frame(maxWidth: 250)
-                            .fixedSize()
-                            .modifier(BubbleAt(anchor: p, size: size))
+                        HoverBubble(text: text,
+                                    age: vm.lastLine.isEmpty ? "" : LAge(vm.lastAt),
+                                    hex: vm.hex)
+                            .background(GeometryReader { g in
+                                Color.clear.preference(key: BubbleSizeKey.self, value: g.size)
+                            })
+                            .onPreferenceChange(BubbleSizeKey.self) { bubbleSize = $0 }
+                            .position(bubblePosition(anchor: toScreen(vm.x, vm.z, size), in: size))
                             .allowsHitTesting(false)
+                            // measured size arrives a frame late — don't flash at the wrong spot
+                            .opacity(bubbleSize == .zero ? 0 : 1)
                             .transition(.opacity)
                     }
                 }
@@ -213,18 +232,25 @@ struct RadarView: View {
     }
 }
 
-/// The radar's speech bubble: the agent's latest words, floated above its dot.
+/// The radar's speech bubble: the agent's latest words (+ how long ago),
+/// floated above its dot.
 private struct HoverBubble: View {
     let text: String
+    let age: String
     let hex: String
 
     var body: some View {
-        Text(text)
+        (Text(text)
+            + Text(age.isEmpty ? "" : "  \(age)")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.45)))
             .font(.system(size: 11.5))
             .fontDesign(.rounded)
             .foregroundStyle(.white.opacity(0.92))
             .lineLimit(3)
             .multilineTextAlignment(.leading)
+            .frame(maxWidth: 250, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 10).padding(.vertical, 7)
             .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: hex).opacity(0.35)))
@@ -232,21 +258,7 @@ private struct HoverBubble: View {
     }
 }
 
-/// Positions the bubble above its dot, nudged back inside the window when the
-/// dot sits near an edge.
-private struct BubbleAt: ViewModifier {
-    let anchor: CGPoint
-    let size: CGSize
-
-    func body(content: Content) -> some View {
-        content.position(clamped())
-    }
-
-    private func clamped() -> CGPoint {
-        // estimated bubble half-extent; exact size matters little at margins
-        let halfW: CGFloat = 125, h: CGFloat = 44
-        let x = min(max(anchor.x, halfW + 10), size.width - halfW - 10)
-        let y = max(anchor.y - 30 - h / 2, h / 2 + 8)
-        return CGPoint(x: x, y: y)
-    }
+private struct BubbleSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
 }
