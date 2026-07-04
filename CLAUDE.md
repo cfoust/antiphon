@@ -24,6 +24,8 @@ crates/
   antiphon-dsp      the engine. NO I/O, NO threads, NO hot-path allocation. Owns the one
                    canonical coordinate frame. Modules: hrtf, reverb, voice, math.
   antiphon-ffi      the SINGLE C-ABI surface for BOTH hosts (staticlib + wasm32 cdylib).
+  antiphon-pose     zero-dep 6DoF head-pose solver (PnP from 2D landmarks); native-only,
+                   reached from Swift via antiphon-ffi (web uses MediaPipe instead).
   antiphon-bake     offline: analytic/SOFA HRTF model + room presets -> .antiphon blob.
   antiphon-render   offline: scene -> stereo WAV. Quality check AND the parity oracle.
 native/AntiphonApp  SwiftUI host. Vision-framework webcam head tracking -> head pose.
@@ -105,6 +107,7 @@ node tools/parity.mjs                                        # asserts native �
 - `docs/web.md` — web app structure (worklet, `src/audio/`, bridge live mode).
 - `docs/sofa.md` — measured SOFA importer (strict fidelity upgrade over the analytic placeholder).
 - `web/justfile` — web recipes (dev/sandbox/wasm; live mode connects to antiphond).
-- The `scratch/` dir holds an earlier native spike; the live app is `native/AntiphonApp`.
-- `tools/shootout/SUPERVISOR.md` — (on the `research/shootout` branch) cold-start guide for the
-  blind-ELO renderer-fidelity experiment: spawn candidate agents, loudness-match, A/B by ear.
+- The `scratch/` dir (gitignored) holds an earlier native spike + experiment notes; the live
+  app is `native/AntiphonApp`.
+- `tools/shootout/SUPERVISOR.md` — cold-start guide for the blind-ELO renderer-fidelity
+  experiment: spawn candidate agents, loudness-match, A/B by ear.

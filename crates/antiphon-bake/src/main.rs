@@ -520,7 +520,3 @@ fn ear_magnitude(f: f32, cos_incidence: f32, el: f32) -> f32 {
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
-
-// silence unused import warning when PI not referenced after edits
-#[allow(dead_code)]
-const _PI: f32 = PI;
