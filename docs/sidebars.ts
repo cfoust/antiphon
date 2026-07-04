@@ -15,6 +15,7 @@ const sidebars: SidebarsConfig = {
     "web-demo",
     "engine",
     "development",
+    "privacy",
   ],
 };
 

@@ -57,3 +57,23 @@ open native/AntiphonApp/Antiphon.app
 
 Требования: Rust (stable), Go 1.21+ и Xcode Command Line Tools (`swiftc`) — без Xcode и
 без SwiftPM. Подробности — в разделе [Разработка](./development.md).
+
+## Удаление
+
+Antiphon хранит всё в двух местах. Закройте приложение, затем:
+
+```bash
+rm -rf /Applications/Antiphon.app
+rm -rf ~/.antiphon   # настройки с API-ключами, реестр агентов, кэш TTS, логи
+```
+
+Если ставили адаптеры агентов — удалите те, что добавляли:
+
+```bash
+claude plugin uninstall antiphon@antiphon        # Claude Code
+rm ~/.config/opencode/plugins/antiphon.ts         # OpenCode
+rm ~/.pi/agent/extensions/antiphon.ts             # Pi
+rm -rf ~/.codex/antiphon                          # Codex (плюс записи antiphon в
+                                                  # ~/.codex/hooks.json и блок
+                                                  # в config.toml)
+```

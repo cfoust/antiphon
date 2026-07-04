@@ -49,6 +49,7 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KEYCHAIN"
           IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F'"' 'NR==1{print $2}')
           codesign --force --deep --options runtime --timestamp \
+            --entitlements native/AntiphonApp/Antiphon.entitlements \
             --sign "$IDENTITY" native/AntiphonApp/Antiphon.app
           ditto -c -k --keepParent native/AntiphonApp/Antiphon.app notarize.zip
           xcrun notarytool submit notarize.zip --wait \

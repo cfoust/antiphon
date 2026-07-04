@@ -82,7 +82,7 @@ export interface SiteStrings {
   };
   eng: { eyebrow: string; h2: string; cards: EngCard[] };
   get: { h2: string; sub: string; download: string; demo: string; fineprint: string };
-  footer: { greek: string; docs: string };
+  footer: { greek: string; docs: string; privacy: string };
   hx: HeroStrings;
 }
 
@@ -181,6 +181,7 @@ export const SITE: Record<Lang, SiteStrings> = {
     footer: {
       greek: "ἀντίφωνον — voices, answering across a space",
       docs: "Docs",
+      privacy: "Privacy",
     },
     hx: {
       watching: "watching",
@@ -291,6 +292,7 @@ export const SITE: Record<Lang, SiteStrings> = {
     footer: {
       greek: "ἀντίφωνον — голоса, отвечающие друг другу через пространство",
       docs: "Документация",
+      privacy: "Конфиденциальность",
     },
     hx: {
       watching: "слежу",
@@ -400,6 +402,7 @@ export const SITE: Record<Lang, SiteStrings> = {
     footer: {
       greek: "ἀντίφωνον——隔着空间彼此应答的声音",
       docs: "文档",
+      privacy: "隐私",
     },
     hx: {
       watching: "注视中",
@@ -509,6 +512,7 @@ export const SITE: Record<Lang, SiteStrings> = {
     footer: {
       greek: "ἀντίφωνον——隔著空間彼此應答的聲音",
       docs: "文件",
+      privacy: "隱私",
     },
     hx: {
       watching: "注視中",

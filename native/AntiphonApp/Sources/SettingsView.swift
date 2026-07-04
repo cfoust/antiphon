@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 // Settings (gear, top-right) — an overlay INSIDE the antiphon window, dark to
@@ -162,6 +163,11 @@ struct SettingsView: View {
 private struct GeneralPane: View {
     @ObservedObject var engine: AntiphonEngine
     @ObservedObject private var i18n = I18n.shared
+    @State private var loginItem = SMAppService.mainApp.status == .enabled
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
 
     var body: some View {
         Text(L("General")).font(.title2.weight(.semibold)).foregroundStyle(SD.ink)
@@ -198,12 +204,46 @@ private struct GeneralPane: View {
             }
         }
 
+        card(L("Startup")) {
+            labeledRow(L("Start at login"), L("Antiphon opens quietly when you log in")) {
+                Toggle("", isOn: Binding(
+                    get: { loginItem },
+                    set: { on in
+                        // register/unregister can throw (e.g. running from a DMG);
+                        // re-read the real status either way so the UI never lies
+                        try? on ? SMAppService.mainApp.register()
+                                : SMAppService.mainApp.unregister()
+                        loginItem = SMAppService.mainApp.status == .enabled
+                    }))
+                    .labelsHidden().toggleStyle(.switch)
+            }
+        }
+
         card(L("Language")) {
             labeledRow(L("Language"), L("For spot-checking the translations")) {
                 Picker("", selection: Binding(get: { i18n.lang }, set: { i18n.lang = $0 })) {
                     ForEach(AppLang.allCases) { l in Text(l.label).tag(l) }
                 }
                 .labelsHidden().frame(width: 150)
+            }
+        }
+
+        card(L("About")) {
+            labeledRow(L("Version"), "Antiphon") {
+                Text(appVersion).font(.callout.monospacedDigit()).foregroundStyle(SD.sub)
+            }
+            divider()
+            labeledRow(L("Support"), L("Guides, the protocol, and a place to report problems")) {
+                HStack(spacing: 10) {
+                    Button(L("Documentation")) {
+                        if let u = URL(string: "https://antiphon.dev/docs/") { NSWorkspace.shared.open(u) }
+                    }
+                    Button(L("Report an issue")) {
+                        if let u = URL(string: "https://github.com/cfoust/antiphon/issues") {
+                            NSWorkspace.shared.open(u)
+                        }
+                    }
+                }
             }
         }
     }

@@ -152,6 +152,32 @@ private let TBL: [String: (String, String, String)] = [
     "Wake": ("Разбудить", "唤醒", "喚醒"),
     "Settings": ("Настройки", "设置", "設定"),
 
+    // ---- camera-denied recovery (welcome) ----
+    "Camera access is off for Antiphon.":
+        ("Доступ к камере для Antiphon выключен.",
+         "Antiphon 的摄像头访问权限已关闭。",
+         "Antiphon 的攝影機存取權限已關閉。"),
+    "Open System Settings": ("Открыть Системные настройки", "打开系统设置", "打開系統設定"),
+    "Try again": ("Попробовать снова", "重试", "重試"),
+
+    // ---- settings: startup + about ----
+    "Startup": ("Автозапуск", "启动", "啟動"),
+    "Start at login": ("Запускать при входе", "登录时启动", "登入時啟動"),
+    "Antiphon opens quietly when you log in":
+        ("Antiphon будет тихо открываться при входе в систему",
+         "登录后 Antiphon 会安静地自动打开",
+         "登入後 Antiphon 會安靜地自動打開"),
+    "About": ("О приложении", "关于", "關於"),
+    "Version": ("Версия", "版本", "版本"),
+    "Support": ("Поддержка", "支持", "支援"),
+    "Guides, the protocol, and a place to report problems":
+        ("Руководства, протокол и место, где можно сообщить о проблеме",
+         "指南、协议，以及报告问题的地方",
+         "指南、協定，以及回報問題的地方"),
+    "Documentation": ("Документация", "文档", "文件"),
+    "Report an issue": ("Сообщить о проблеме", "报告问题", "回報問題"),
+    "Antiphon Documentation": ("Документация Antiphon", "Antiphon 文档", "Antiphon 文件"),
+
     // ---- menu bar ----
     "Antiphon is watching — click to close its eyes (camera off, silent)":
         ("Antiphon наблюдает — нажмите, чтобы закрыть ему глаза (камера выключится, звук пропадёт)",

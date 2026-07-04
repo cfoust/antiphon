@@ -42,6 +42,12 @@ if [ -d "$VOICES" ]; then
 else
   echo "  WARNING: voices not found at $VOICES — the app will run silent"
 fi
+# localized Info.plist strings (the camera-permission prompt follows the SYSTEM
+# language, unlike the in-app runtime picker)
+for lp in native/AntiphonApp/Resources/*.lproj; do
+  cp -R "$lp" "$APP/Contents/Resources/"
+done
+
 # onboarding voice cues (calibration + fit), all UI languages — committed to the
 # repo; regenerate with tools/gen-onboarding-voices.py
 if [ -d native/AntiphonApp/Resources/onboarding ]; then
@@ -69,7 +75,9 @@ swiftc -O -target "$TARGET" -parse-as-library \
   -o "$APP/Contents/MacOS/Antiphon"
 
 echo "[5/5] ad-hoc codesign"
-codesign --force --deep --sign - "$APP"
+# same entitlements as release builds so dev and shipped behavior match
+codesign --force --deep --sign - \
+  --entitlements native/AntiphonApp/Antiphon.entitlements "$APP"
 
 echo "built $APP  ($HRTF)"
 echo "run:  open $APP   (grant camera access; wear headphones)"

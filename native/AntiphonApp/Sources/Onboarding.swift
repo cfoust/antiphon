@@ -112,6 +112,24 @@ struct WelcomeView: View {
                         Text(L("Turn your head to face agents. Video never leaves your device."))
                             .font(.system(size: 12)).foregroundStyle(AN.creamText.opacity(0.4))
                             .padding(.top, 12)
+                    } else if tracker.cameraDenied {
+                        // TCC said no. Don't look broken — hand them the switch.
+                        Text(L("Camera access is off for Antiphon."))
+                            .font(.system(size: 13))
+                            .foregroundStyle(AN.creamText.opacity(0.7))
+                            .padding(.bottom, 12)
+                        Button(L("Open System Settings")) {
+                            if let url = URL(string:
+                                "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(PillButtonStyle())
+                        Button(L("Try again")) { tracker.start() }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(AN.periwinkle)
+                            .padding(.top, 10)
                     } else {
                         // the camera step, unified into the welcome — no mirror:
                         // nobody needs to see their own face, just pick + confirm

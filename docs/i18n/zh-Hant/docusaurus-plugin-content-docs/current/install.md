@@ -42,3 +42,23 @@ open native/AntiphonApp/Antiphon.app
 ```
 
 需求：Rust（stable）、Go 1.21+，以及 Xcode Command Line Tools（`swiftc`）——不需要 Xcode，也不需要 SwiftPM。詳見[開發](./development.md)。
+
+## 解除安裝
+
+Antiphon 的一切都在兩個位置。結束應用程式後：
+
+```bash
+rm -rf /Applications/Antiphon.app
+rm -rf ~/.antiphon   # 設定（含 API 金鑰）、代理註冊表、TTS 快取、紀錄
+```
+
+如果安裝過代理轉接器，刪除你加入過的那些：
+
+```bash
+claude plugin uninstall antiphon@antiphon        # Claude Code
+rm ~/.config/opencode/plugins/antiphon.ts         # OpenCode
+rm ~/.pi/agent/extensions/antiphon.ts             # Pi
+rm -rf ~/.codex/antiphon                          # Codex（另需刪除 ~/.codex/hooks.json
+                                                  # 裡的 antiphon 項目和 config.toml
+                                                  # 裡的相應設定區塊）
+```

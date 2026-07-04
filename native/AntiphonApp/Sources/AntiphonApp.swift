@@ -1,7 +1,20 @@
 import SwiftUI
 
+/// Captures HOW we were launched, before any view exists. Login items must not
+/// seize the room, so a login launch starts asleep (eye closed, camera off, silent).
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    static var launchedAtLogin = false
+    func applicationDidFinishLaunching(_ note: Notification) {
+        let ev = NSAppleEventManager.shared().currentAppleEvent
+        AppDelegate.launchedAtLogin =
+            ev?.eventID == kAEOpenApplication &&
+            ev?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+    }
+}
+
 @main
 struct AntiphonAppMain: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var tracker = FaceTracker()
     @StateObject private var engine = AntiphonEngine()
 
@@ -10,6 +23,18 @@ struct AntiphonAppMain: App {
         WindowGroup("Antiphon") { ContentView(tracker: tracker, engine: engine) }
             .defaultSize(width: 1080, height: 780)
             .windowStyle(.hiddenTitleBar)
+            .commands {
+                CommandGroup(replacing: .help) {
+                    Button(L("Antiphon Documentation")) {
+                        if let u = URL(string: "https://antiphon.dev/docs/") { NSWorkspace.shared.open(u) }
+                    }
+                    Button(L("Report an issue")) {
+                        if let u = URL(string: "https://github.com/cfoust/antiphon/issues") {
+                            NSWorkspace.shared.open(u)
+                        }
+                    }
+                }
+            }
     }
 }
 
@@ -150,6 +175,9 @@ struct ContentView: View {
             menuBar.install()
             // menu-bar eye mirrors the in-window one; both flip watching
             menuBar.onToggle = { setWatching(!engine.watching) }
+            // launched as a login item → start asleep; waking is one click,
+            // being ambushed by a listening room at boot is not
+            if AppDelegate.launchedAtLogin { setWatching(false) }
             // dev harness: ANTIPHON_DEV=talkback locks onto a fake agent at launch so
             // the panel's focus-steal mechanics are testable with no daemon or camera
             if ProcessInfo.processInfo.environment["ANTIPHON_DEV"]?.hasPrefix("talkback") == true {

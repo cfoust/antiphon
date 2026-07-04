@@ -52,6 +52,7 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     @Published var hz = 0.0
     @Published var configuredFPS = 0.0
     @Published var status = "idle"
+    @Published var cameraDenied = false // TCC said no — onboarding offers the System Settings deep link
     @Published var devices: [CameraDevice] = []
     @Published var selectedID = ""
 
@@ -172,11 +173,14 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     }
 
     func start() {
-        DispatchQueue.main.async { self.status = "requesting camera…" }
+        DispatchQueue.main.async { self.status = "requesting camera…"; self.cameraDenied = false }
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             guard let self else { return }
             guard granted else {
-                DispatchQueue.main.async { self.status = "camera denied — System Settings ▸ Privacy" }
+                DispatchQueue.main.async {
+                    self.status = "camera denied — System Settings ▸ Privacy"
+                    self.cameraDenied = true
+                }
                 return
             }
             self.queue.async {

@@ -214,6 +214,7 @@ function page(lang: Lang): string {
     <div class="anph-footer-links">
       <a href="${GITHUB_URL}">GitHub</a>
       <a href="/docs/${lang === "en" ? "" : lang + "/"}">${S.footer.docs}</a>
+      <a href="/docs/${lang === "en" ? "" : lang + "/"}privacy/">${S.footer.privacy}</a>
       <span class="anph-footer-version">${VERSION === "0.0.0-dev" ? "" : `v${VERSION}`}</span>
     </div>
   </div>
