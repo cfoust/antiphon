@@ -89,6 +89,7 @@ struct AgentSidebar: View {
 
     private func row(_ vm: AgentListVM) -> some View {
         AgentRowView(vm: vm,
+                     spotlit: engine.hoveredSeat == vm.id && !vm.snoozed,
                      onHover: { over in engine.setHovered(over ? vm.id : -1) },
                      onSnooze: { engine.setSnoozed(vm.id, !vm.snoozed) })
             // section membership is part of the view's identity — moving between
@@ -99,6 +100,7 @@ struct AgentSidebar: View {
 
 private struct AgentRowView: View {
     let vm: AgentListVM
+    let spotlit: Bool // the radar's hover, mirrored back into the list
     let onHover: (Bool) -> Void
     let onSnooze: () -> Void
     @State private var hovering = false
@@ -165,7 +167,7 @@ private struct AgentRowView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 7)
-        .background(hovering ? Color.white.opacity(0.06) : .clear,
+        .background(hovering || spotlit ? Color.white.opacity(0.06) : .clear,
                     in: RoundedRectangle(cornerRadius: 10))
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .help(fullContext) // the whole story on hover: kind · repo ⎇ branch · full path

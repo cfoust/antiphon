@@ -173,20 +173,80 @@ struct RadarView: View {
                         (hoverHit >= 0 ? NSCursor.openHand : NSCursor.arrow).set()
                     }
             )
-            // the grab affordance: an open hand over a dot, closed while carrying
+            // the grab affordance: an open hand over a dot, closed while carrying —
+            // and hovering a dot spotlights its row in the sidebar (the mirror of
+            // the sidebar hover lighting the dot up out here)
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let pt):
                     let hit = hitTest(pt, size) ?? -1
                     if hit != hoverHit {
                         hoverHit = hit
+                        engine.setHovered(hit)
                         if dragging < 0 { (hit >= 0 ? NSCursor.openHand : NSCursor.arrow).set() }
                     }
                 case .ended:
+                    if hoverHit >= 0 { engine.setHovered(-1) }
                     hoverHit = -1
                     if dragging < 0 { NSCursor.arrow.set() }
                 }
             }
+            // the hover bubble: whichever agent is spotlit (from either side)
+            // speaks its latest line in place, over its dot
+            .overlay {
+                if dragging < 0, engine.hoveredSeat >= 0,
+                   let vm = engine.snapshot.first(where: { $0.id == engine.hoveredSeat }) {
+                    let text = vm.lastLine.isEmpty ? vm.title : vm.lastLine
+                    if !text.isEmpty {
+                        let p = toScreen(vm.x, vm.z, size)
+                        HoverBubble(text: text, hex: vm.hex)
+                            .frame(maxWidth: 250)
+                            .fixedSize()
+                            .modifier(BubbleAt(anchor: p, size: size))
+                            .allowsHitTesting(false)
+                            .transition(.opacity)
+                    }
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: engine.hoveredSeat)
         }
+    }
+}
+
+/// The radar's speech bubble: the agent's latest words, floated above its dot.
+private struct HoverBubble: View {
+    let text: String
+    let hex: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11.5))
+            .fontDesign(.rounded)
+            .foregroundStyle(.white.opacity(0.92))
+            .lineLimit(3)
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: hex).opacity(0.35)))
+            .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
+    }
+}
+
+/// Positions the bubble above its dot, nudged back inside the window when the
+/// dot sits near an edge.
+private struct BubbleAt: ViewModifier {
+    let anchor: CGPoint
+    let size: CGSize
+
+    func body(content: Content) -> some View {
+        content.position(clamped())
+    }
+
+    private func clamped() -> CGPoint {
+        // estimated bubble half-extent; exact size matters little at margins
+        let halfW: CGFloat = 125, h: CGFloat = 44
+        let x = min(max(anchor.x, halfW + 10), size.width - halfW - 10)
+        let y = max(anchor.y - 30 - h / 2, h / 2 + 8)
+        return CGPoint(x: x, y: y)
     }
 }

@@ -67,6 +67,8 @@ struct AgentVM: Identifiable {
     let z: Double
     let state: AgentState
     let pingAge: Double
+    let title: String
+    let lastLine: String // most recent narration — the radar's hover bubble
 }
 
 /// One row of the sidebar's agent list (built on `q`, published ~2 Hz).
@@ -1235,7 +1237,9 @@ final class AntiphonEngine: ObservableObject {
         let vms = agents.filter { $0.present && !$0.snoozed }.map {
             AgentVM(id: $0.idx, hex: $0.def.hex, bearing: $0.bearing,
                     x: Double($0.posX), z: Double($0.posZ), state: $0.state,
-                    pingAge: $0.lastPingWall > 0 ? t - $0.lastPingWall : 99)
+                    pingAge: $0.lastPingWall > 0 ? t - $0.lastPingWall : 99,
+                    title: seatMeta[$0.idx]?.title ?? "",
+                    lastLine: seatLines[$0.idx]?.last?.text ?? "")
         }
         let o = orient, g = lookGate
         let hp = SIMD3(headX, headY, headZ)
@@ -1250,6 +1254,7 @@ final class AntiphonEngine: ObservableObject {
             let vmsChanged = vms.count != self.snapshot.count
                 || zip(vms, self.snapshot).contains { a, b in
                     a.id != b.id || a.state != b.state
+                        || a.lastLine != b.lastLine || a.title != b.title
                         || abs(a.x - b.x) > 0.0005 || abs(a.z - b.z) > 0.0005
                         || (a.pingAge < 1.2 || b.pingAge < 1.2) && a.pingAge != b.pingAge
                 }

@@ -197,6 +197,12 @@ struct ContentView: View {
             let dev = ProcessInfo.processInfo.environment["ANTIPHON_DEV"] ?? ""
             // dev: straight into the room, no camera/onboarding (muted — enable() never runs)
             if dev.contains("live") { live = true }
+            // dev: spotlight the first agent (exercises the radar hover bubble)
+            if dev.contains("hover") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
+                    if let first = engine.snapshot.first?.id { engine.setHovered(first) }
+                }
+            }
             // dev: dump what the main window actually renders (no screen-recording
             // permission needed — sibling of the talk-back panel's dump)
             if dev.contains("dump") {
