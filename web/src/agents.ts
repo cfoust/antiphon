@@ -36,6 +36,8 @@ export const AUTO_FINISH_MAX_MS = 66000;
 export const DRONE_HOLD_MS = 45000;
 // eyes-closed gaze dwell before the hum crests (mirrors ChamberEngine.swift dwellSecs)
 export const DWELL_MS = 900;
+// a given agent's dwell hum sounds at most this often (presence reminder)
+export const BLOOM_COOLDOWN_MS = 30000;
 
 /** Draggable-agent distance clamp: too close is deafening, too far is inaudible.
  *  // mirrors ChamberEngine.swift place(seat:) */

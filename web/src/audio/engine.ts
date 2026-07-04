@@ -4,6 +4,7 @@ import {
   AUTO_FINISH_MIN_MS,
   DRAG_MAX_M,
   DRAG_MIN_M,
+  BLOOM_COOLDOWN_MS,
   DRONE_HOLD_MS,
   DWELL_MS,
   LINGER_MS,
@@ -255,6 +256,8 @@ export class Chamber {
       bloomGain,
       gBloom: 0,
       crestAt: 0,
+      lastBloomAt: 0,
+      bloomLive: false,
       state: "working",
       nextPing: 0,
       lastPingMs: 0,
@@ -563,11 +566,18 @@ export class Chamber {
         if (this.dwellSeat !== fi) {
           this.dwellSeat = fi;
           this.dwellStart = now;
+          const N = this.nodes[this.agents[fi].id];
+          if (N) {
+            // presence reminder, at most once per cooldown per agent —
+            // dwell/lock keep working silently in between
+            N.bloomLive = now - N.lastBloomAt >= BLOOM_COOLDOWN_MS;
+            if (N.bloomLive) N.lastBloomAt = now;
+          }
         } else if (now - this.dwellStart >= DWELL_MS) {
           this.dwellSeat = -1;
           this.cooldownSeat = fi;
           const N = this.nodes[this.agents[fi].id];
-          if (N) N.crestAt = now;
+          if (N && N.bloomLive) N.crestAt = now; // the crest belongs to an audible dwell
         }
       } else {
         this.dwellSeat = -1;
@@ -579,7 +589,7 @@ export class Chamber {
     this.agents.forEach((a, i) => {
       const N = this.nodes[a.id];
       if (!N) return;
-      let target = i === this.dwellSeat ? 0.7 : 0;
+      let target = i === this.dwellSeat && N.bloomLive ? 0.7 : 0;
       if (now - N.crestAt < 450) target = 1.0; // the crest: same hum, leaning in
       const rate = target > N.gBloom ? 0.05 : 0.03; // slow build, slower release
       N.gBloom += (target - N.gBloom) * rate;

@@ -133,6 +133,11 @@ final class AgentRuntime {
     var gBloom: Float = 0
     /// Wall time of the lock — the hum leans up for a moment after this.
     var crestAt = 0.0
+    /// The hum is a presence reminder — lovely once per sweep, cloying on
+    /// repeat. Per-agent: it sounds at most once per cooldown; the dwell/lock
+    /// mechanics keep working silently in between.
+    var lastBloomAt = 0.0
+    var bloomLive = false // this dwell's hum is sounding (not cooled down)
 
     // chord identity: each tool call plays the next of three descending notes
     // (one-shot, swapped only while idle so bursts collapse instead of
@@ -295,6 +300,8 @@ final class ChamberEngine: ObservableObject {
     /// gaze leaves it or the eyes reopen (otherwise send-with-eyes-closed re-locks).
     private var cooldownSeat = -1
     private let dwellSecs = 0.9
+    /// A given agent's dwell hum sounds at most this often.
+    private let bloomCooldownSecs = 30.0
 
     // preallocated FFI scratch (no allocation in the render callback)
     private var inBufs: [UnsafeMutablePointer<Float>] = []
@@ -960,6 +967,9 @@ final class ChamberEngine: ObservableObject {
                 if dwellSeat != fi {
                     dwellSeat = fi
                     dwellStart = t
+                    let a = agents[fi]
+                    a.bloomLive = t - a.lastBloomAt >= bloomCooldownSecs
+                    if a.bloomLive { a.lastBloomAt = t }
                 } else if t - dwellStart >= dwellSecs {
                     dwellSeat = -1
                     lock(seat: fi)
@@ -973,8 +983,9 @@ final class ChamberEngine: ObservableObject {
         }
         // One continuous hum per agent: builds in while dwelt on, leans up for
         // a beat at the lock, releases gently — the shape is all in this gain.
+        // Cooled-down agents dwell/lock silently (bloomLive gates the sound).
         for (i, a) in agents.enumerated() {
-            var target: Float = i == dwellSeat ? 0.7 : 0
+            var target: Float = (i == dwellSeat && a.bloomLive) ? 0.7 : 0
             if t - a.crestAt < 0.45 { target = 1.0 } // the crest: same hum, leaning in
             let rate: Float = target > a.gBloom ? 0.05 : 0.03 // slow build, slower release
             a.gBloom += (target - a.gBloom) * rate
@@ -983,7 +994,9 @@ final class ChamberEngine: ObservableObject {
 
     private func lock(seat: Int) {
         lockedSeat = seat
-        if agents.indices.contains(seat) { agents[seat].crestAt = now() }
+        if agents.indices.contains(seat), agents[seat].bloomLive {
+            agents[seat].crestAt = now() // the crest belongs to an audible dwell
+        }
         NSLog("[talkback] locked seat=%d", seat)
         pushTalkback(present: true)
     }

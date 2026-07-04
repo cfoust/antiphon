@@ -79,6 +79,8 @@ export interface AgentNode {
   bloomGain: GainNode; // the dwell/lock hum loop (chord root) rides this
   gBloom: number; // shadow value for the per-tick lerp (mirrors gBloom)
   crestAt: number; // wall-clock ms of the last lock — the hum leans up briefly
+  lastBloomAt: number; // per-agent hum cooldown (presence reminder, not a metronome)
+  bloomLive: boolean; // this dwell's hum is sounding (not cooled down)
   // runtime state
   state: AgentState;
   nextPing: number; // audio-clock time of next ping
