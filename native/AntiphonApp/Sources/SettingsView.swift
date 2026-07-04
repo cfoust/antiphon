@@ -174,6 +174,7 @@ private struct GeneralPane: View {
     @State private var loginItem = SMAppService.mainApp.status == .enabled
     @State private var fit = 2.0
     @State private var fadeDelay = 0.6
+    @State private var waitingCue = true
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -181,7 +182,11 @@ private struct GeneralPane: View {
 
     var body: some View {
         Text(L("General")).font(.title2.weight(.semibold)).foregroundStyle(SD.ink)
-            .onAppear { fit = engine.freqScale; fadeDelay = engine.fadeDelay }
+            .onAppear {
+                fit = engine.freqScale
+                fadeDelay = engine.fadeDelay
+                waitingCue = engine.attentionCue
+            }
 
         card(L("Sound")) {
             // hovering the row takes over the room: the guide voice loops from
@@ -202,6 +207,13 @@ private struct GeneralPane: View {
         }
 
         card(L("Immersion")) {
+            labeledRow(L("Waiting cue"),
+                       L("With your eyes open, agents that finished build a quiet chord over minutes")) {
+                Toggle("", isOn: Binding(get: { waitingCue },
+                                         set: { waitingCue = $0; engine.setAttentionCue($0) }))
+                    .labelsHidden().toggleStyle(.switch)
+            }
+            divider()
             labeledRow(L("Fade-in delay"),
                        L("How long your eyes stay closed before the room fades in — raise it if blinks trigger it")) {
                 HStack(spacing: 8) {

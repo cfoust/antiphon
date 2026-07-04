@@ -233,6 +233,11 @@ final class AntiphonEngine: ObservableObject {
     // gates it to the live experience; before the user starts, the target holds at full so intro/
     // calibration audio is audible. `immersionInvert` swaps the eyes→fade mapping for debug testing.
     private var roomIndexQ = 5 // q-side copy of the active room (bounds for drag)
+    // The eyes-open "agents are waiting" chord. Off = the room stays silent
+    // until you choose to close your eyes; the sidebar's gold dots remain.
+    private var attentionEnabled = UserDefaults.standard.object(forKey: "attention.enabled") as? Bool ?? true
+    /// Main-thread mirror for the Settings toggle.
+    private(set) var attentionCue: Bool = UserDefaults.standard.object(forKey: "attention.enabled") as? Bool ?? true
     private var immersionTarget: Float = 1
     private var immersionArmed = false
     private var immersionInvert = false        // DEBUG: swap the eyes→fade mapping (test with audio)
@@ -556,7 +561,7 @@ final class AntiphonEngine: ObservableObject {
         renderer.setImmersion((immersionHold || audTarget > 0) ? 1 : immersionTarget)
         var waiting = 0
         for a in agents where a.state == .done && !a.snoozed { waiting += 1 } // agents wanting to summarize
-        renderer.setAttentionAgents(waiting)
+        renderer.setAttentionAgents(attentionEnabled ? waiting : 0)
 
         let h = 0.5 * orient
         // 6DoF is always on: feed the (filtered, neutral-relative, ±1 m-clamped) head position so
@@ -646,6 +651,13 @@ final class AntiphonEngine: ObservableObject {
         q.async { self.renderer?.setReverbBlend(Float(b)) }
         DispatchQueue.main.async { self.reverbBlend = b }
     }
+    /// The waiting cue (eyes-open bloom): on/off.
+    func setAttentionCue(_ on: Bool) {
+        attentionCue = on
+        UserDefaults.standard.set(on, forKey: "attention.enabled")
+        q.async { self.attentionEnabled = on }
+    }
+
     /// Blink filter: seconds of closed eyes before the room fades in.
     func setFadeDelay(_ secs: Double) {
         let v = max(0, min(3, secs))
