@@ -34,6 +34,8 @@ export const AUTO_FINISH_MAX_MS = 66000;
 /** How long after the last sign of life (tool call / narration) "working" keeps
  *  humming its drone before reading as idle. // mirrors ChamberEngine.swift droneHoldSecs */
 export const DRONE_HOLD_MS = 45000;
+// eyes-closed gaze dwell before the hum crests (mirrors ChamberEngine.swift dwellSecs)
+export const DWELL_MS = 900;
 
 /** Draggable-agent distance clamp: too close is deafening, too far is inaudible.
  *  // mirrors ChamberEngine.swift place(seat:) */

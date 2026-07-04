@@ -5,6 +5,7 @@ import {
   DRAG_MAX_M,
   DRAG_MIN_M,
   DRONE_HOLD_MS,
+  DWELL_MS,
   LINGER_MS,
   PING_FREQS,
   PING_INTERVAL,
@@ -20,7 +21,7 @@ import type {
   EnvName,
   SeatMeta,
 } from "../types";
-import { makeDrone, makePulse, makeToolNote, toolNoteFreqs } from "./earcons";
+import { makeBloom, makeDrone, makePulse, makeToolNote, toolNoteFreqs } from "./earcons";
 import { WasmEngine, ENGINE_URLS } from "./wasmEngine";
 
 /** Map the prototype's env names to wasm room-preset indices. `room`/`hall` use the
@@ -86,6 +87,11 @@ export class Chamber {
   hoveredSeat = -1; // seat hovered/tapped in the agent list; -1 = none
   private immersionHold = false; // a drag audition holds the scene fully in
   private immersionEye = 1; // last eye-driven immersion target (0..1)
+  private eyesClosed = false; // detector state (false when no tracker runs)
+  // eyes-closed gaze dwell → the hum crests (mirrors ChamberEngine.swift updateTalkback)
+  private dwellSeat = -1;
+  private dwellStart = 0;
+  private cooldownSeat = -1;
 
   // events for the UI layer
   onAgents: () => void = () => {};
@@ -193,6 +199,14 @@ export class Chamber {
     pulseSrc.buffer = makePulse(ctx, pf);
     pulseSrc.loop = true;
     pulseSrc.connect(pulseGain);
+    // the dwell/lock hum: one continuous loop shaped entirely by gBloom
+    const bloomGain = ctx.createGain();
+    bloomGain.gain.value = 0;
+    bloomGain.connect(sum);
+    const bloomSrc = ctx.createBufferSource();
+    bloomSrc.buffer = makeBloom(ctx, pf);
+    bloomSrc.loop = true;
+    bloomSrc.connect(bloomGain);
     // the three descending tool-call notes (one-shots, triggered in bridgeTool)
     const toolNotes = toolNoteFreqs(pf).map((f) => makeToolNote(ctx, f));
 
@@ -238,6 +252,9 @@ export class Chamber {
       gDrone: 0,
       pulseGain,
       gPulse: 0,
+      bloomGain,
+      gBloom: 0,
+      crestAt: 0,
       state: "working",
       nextPing: 0,
       lastPingMs: 0,
@@ -256,6 +273,7 @@ export class Chamber {
     if (src) src.start(0, Math.random() * src.buffer!.duration);
     droneSrc.start();
     pulseSrc.start();
+    bloomSrc.start();
   }
 
   /** Build the graph and load voices. The context starts suspended (silent) so nothing
@@ -533,6 +551,41 @@ export class Chamber {
       N.pulseGain.gain.value = N.gPulse;
     });
 
+    // dwell/lock hum — mirrors ChamberEngine.swift updateTalkback(): rest an
+    // eyes-closed gaze on an agent and its chord-root hum builds in; holding
+    // ~0.9 s "locks" (the hum leans up for a beat, then releases). There is no
+    // talk-back panel on the web, so the lock is purely the acoustic moment;
+    // the cooldown keeps a held gaze from cresting over and over.
+    if (this.eyesClosed) {
+      const fi = this.facedIndex();
+      if (fi !== this.cooldownSeat) this.cooldownSeat = -1;
+      if (fi >= 0 && fi !== this.cooldownSeat) {
+        if (this.dwellSeat !== fi) {
+          this.dwellSeat = fi;
+          this.dwellStart = now;
+        } else if (now - this.dwellStart >= DWELL_MS) {
+          this.dwellSeat = -1;
+          this.cooldownSeat = fi;
+          const N = this.nodes[this.agents[fi].id];
+          if (N) N.crestAt = now;
+        }
+      } else {
+        this.dwellSeat = -1;
+      }
+    } else {
+      this.dwellSeat = -1;
+      this.cooldownSeat = -1;
+    }
+    this.agents.forEach((a, i) => {
+      const N = this.nodes[a.id];
+      if (!N) return;
+      let target = i === this.dwellSeat ? 0.7 : 0;
+      if (now - N.crestAt < 450) target = 1.0; // the crest: same hum, leaning in
+      const rate = target > N.gBloom ? 0.05 : 0.03; // slow build, slower release
+      N.gBloom += (target - N.gBloom) * rate;
+      N.bloomGain.gain.value = N.gBloom;
+    });
+
     // pings for done agents + recycle heard agents back to working; also count agents WAITING (done)
     let waiting = 0;
     for (let i = 0; i < this.agents.length; i++) {
@@ -707,6 +760,7 @@ export class Chamber {
   /** Convenience over setImmersion for the boolean eyes-closed detector: closed → full,
    *  open → silent (full-silence floor; change the 0 below if a small floor reads better). */
   setEyesClosed(closed: boolean): void {
+    this.eyesClosed = closed;
     this.setImmersion(closed ? 1 : 0);
   }
 

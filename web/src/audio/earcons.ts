@@ -57,6 +57,20 @@ export function makeDrone(ctx: BaseAudioContext, ping: number): AudioBuffer {
   });
 }
 
+/** Dwell/lock hum: a barely-there seamless loop on the agent's chord root (the
+ *  drone's register, an octave below the ping). ONE continuous sound whose whole
+ *  shape lives in the engine's gain: builds while the eyes-closed gaze dwells,
+ *  leans up a touch at the lock, releases. Mirrors AudioGen.swift makeBloom. */
+export function makeBloom(ctx: BaseAudioContext, ping: number): AudioBuffer {
+  const dur = 2.0;
+  const f = Math.round((ping / 2) * dur) / dur; // chord root, loop-quantized
+  const f2 = f + 1.0 / dur; // one extra cycle → a slow 0.5 Hz warmth
+  return bake(ctx, dur, (t) => {
+    const s = Math.sin(TAU * f * t) * 0.62 + Math.sin(TAU * f2 * t) * 0.38;
+    return s * 0.05;
+  });
+}
+
 /** Drag audition pulse: a sonar-ish blip once per 1.4 s loop, meant to be played
  *  with a hot reverb send so the room answers from the agent's spot. */
 export function makePulse(ctx: BaseAudioContext, ping: number): AudioBuffer {

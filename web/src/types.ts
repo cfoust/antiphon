@@ -76,6 +76,9 @@ export interface AgentNode {
   // drag audition: a pulsing blip with a hot reverb send while being moved
   pulseGain: GainNode;
   gPulse: number;
+  bloomGain: GainNode; // the dwell/lock hum loop (chord root) rides this
+  gBloom: number; // shadow value for the per-tick lerp (mirrors gBloom)
+  crestAt: number; // wall-clock ms of the last lock — the hum leans up briefly
   // runtime state
   state: AgentState;
   nextPing: number; // audio-clock time of next ping
