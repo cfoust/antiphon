@@ -7,8 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "deploy": "vite build && wrangler pages deploy dist --project-name agent-antiphon --branch main --commit-dirty=true"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@fontsource/cormorant-garamond": "^5.2.11",

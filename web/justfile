@@ -35,9 +35,7 @@ build: wasm
 preview:
     bun run preview
 
-# Build and deploy to Cloudflare Pages (https://agent-antiphon.pages.dev)
-deploy:
-    bun run deploy
+# Deploys ship via GitHub Pages (.github/workflows/site.yml) on push to main.
 
 # --- live mode: monitor a real local Claude Code session by ear ----------------
 # antiphond (the Go daemon) is the hub now — the app or `antiphond serve` runs it.
