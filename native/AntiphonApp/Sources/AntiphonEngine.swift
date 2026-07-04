@@ -1144,10 +1144,13 @@ final class AntiphonEngine: ObservableObject {
             let now = Date().timeIntervalSince1970
             self.seatMeta[2] = TalkbackSeatMeta(
                 name: "wren", kind: "claude-code",
-                title: "antiphon — talk-back panel", input: "tmux")
+                title: "wiring the reconnect path in BridgeClient",
+                repo: "cfoust/antiphon", cwd: NSHomeDirectory() + "/Developer/cfoust/chamber",
+                branch: "fix/room-polish", input: "tmux")
             self.seatLines[2] = [
                 TalkbackLine(kind: "task", text: "Wiring the reconnect path in BridgeClient", at: now - 240),
-                TalkbackLine(kind: "progress", text: "Backoff works; adding the respawn guard", at: now - 70),
+                TalkbackLine(kind: "progress", text: "Backoff works; adding the respawn guard so a dead daemon comes back without dropping any narration frames on the floor", at: now - 70),
+                TalkbackLine(kind: "you", text: "Keep the backoff under a second — the room going quiet is worse than a little churn.", at: now - 40),
                 TalkbackLine(kind: "blocked", text: "Should the daemon keep port 8787 when the discovery file is stale?", at: now - 12),
             ]
             self.lock(seat: 2)

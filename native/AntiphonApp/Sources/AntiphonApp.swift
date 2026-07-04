@@ -194,6 +194,25 @@ struct ContentView: View {
             // launched as a login item → start asleep; waking is one click,
             // being ambushed by a listening room at boot is not
             if AppDelegate.launchedAtLogin { setWatching(false) }
+            let dev = ProcessInfo.processInfo.environment["ANTIPHON_DEV"] ?? ""
+            // dev: straight into the room, no camera/onboarding (muted — enable() never runs)
+            if dev.contains("live") { live = true }
+            // dev: dump what the main window actually renders (no screen-recording
+            // permission needed — sibling of the talk-back panel's dump)
+            if dev.contains("dump") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+                    guard let win = NSApp.windows.first(where: { $0.frame.width > 500 }),
+                          let v = win.contentView,
+                          let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return }
+                    v.cacheDisplay(in: v.bounds, to: rep)
+                    if let data = rep.representation(using: .png, properties: [:]) {
+                        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+                            .appendingPathComponent("window-dump.png")
+                        try? data.write(to: url)
+                        NSLog("[dev] window dump: %@", url.path)
+                    }
+                }
+            }
             updates.checkIfDue()
             // dev harness: ANTIPHON_DEV=talkback locks onto a fake agent at launch so
             // the panel's focus-steal mechanics are testable with no daemon or camera
