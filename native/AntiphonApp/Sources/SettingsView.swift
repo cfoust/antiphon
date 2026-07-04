@@ -84,7 +84,7 @@ enum SettingsClient {
 // MARK: - the window
 
 struct SettingsView: View {
-    @ObservedObject var engine: AntiphonEngine
+    let engine: AntiphonEngine // deliberately NOT observed — see GeneralPane
     @ObservedObject var updates: UpdateChecker
     var onClose: () -> Void = {}
     @ObservedObject private var i18n = I18n.shared
@@ -165,10 +165,15 @@ struct SettingsView: View {
 // MARK: - General
 
 private struct GeneralPane: View {
-    @ObservedObject var engine: AntiphonEngine
+    // NOT @ObservedObject: the engine publishes pose/immersion at 30-60 Hz and
+    // observing it re-rendered this whole pane on every tick (janky scrolling).
+    // The pane reads once and mirrors what it edits in local state.
+    let engine: AntiphonEngine
     @ObservedObject var updates: UpdateChecker
     @ObservedObject private var i18n = I18n.shared
     @State private var loginItem = SMAppService.mainApp.status == .enabled
+    @State private var fit = 2.0
+    @State private var fadeDelay = 0.6
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -176,22 +181,36 @@ private struct GeneralPane: View {
 
     var body: some View {
         Text(L("General")).font(.title2.weight(.semibold)).foregroundStyle(SD.ink)
+            .onAppear { fit = engine.freqScale; fadeDelay = engine.fadeDelay }
 
         card(L("Sound")) {
             // hovering the row takes over the room: the guide voice loops from
             // straight ahead until it sits truly out in front of you
             labeledRow(L("Fit"), L("Adjust until my voice sits straight ahead of you")) {
                 HStack(spacing: 8) {
-                    Slider(value: Binding(get: { engine.freqScale },
-                                          set: { engine.setFreqScale($0) }), in: 0.7...2.2)
+                    Slider(value: Binding(get: { fit },
+                                          set: { fit = $0; engine.setFreqScale($0) }), in: 0.7...2.2)
                         .frame(width: 170)
-                    Text(String(format: "%.2f", engine.freqScale))
+                    Text(String(format: "%.2f", fit))
                         .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
                 }
             }
             .onHover { over in
                 if over { engine.onboardPlay("fit", loop: true, bearingDeg: 0) }
                 else { engine.onboardStop() }
+            }
+        }
+
+        card(L("Immersion")) {
+            labeledRow(L("Fade-in delay"),
+                       L("How long your eyes stay closed before the room fades in — raise it if blinks trigger it")) {
+                HStack(spacing: 8) {
+                    Slider(value: Binding(get: { fadeDelay },
+                                          set: { fadeDelay = $0; engine.setFadeDelay($0) }), in: 0...3)
+                        .frame(width: 170)
+                    Text(String(format: "%.1f s", fadeDelay))
+                        .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
+                }
             }
         }
 
@@ -225,7 +244,7 @@ private struct GeneralPane: View {
         }
 
         card(L("Language")) {
-            labeledRow(L("Language"), L("For spot-checking the translations")) {
+            labeledRow(L("Language"), L("Menus, statuses, and the spoken cues")) {
                 Picker("", selection: Binding(get: { i18n.lang }, set: { i18n.lang = $0 })) {
                     ForEach(AppLang.allCases) { l in Text(l.label).tag(l) }
                 }

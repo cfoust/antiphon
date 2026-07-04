@@ -121,6 +121,7 @@ type agentHello struct {
 	Kind    string      `json:"kind"`
 	Repo    string      `json:"repo"`
 	Cwd     string      `json:"cwd"`
+	Branch  string      `json:"branch"`
 	Title   string      `json:"title"`
 	Input   *input.Info `json:"input"` // talk-back target (tmux pane etc.)
 }
@@ -156,7 +157,7 @@ func (h *Hub) handleAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rec := h.reg.Upsert(hello.Session, hello.Kind, hello.Repo, hello.Title)
+	rec := h.reg.Upsert(hello.Session, hello.Kind, hello.Repo, hello.Title, hello.Cwd, hello.Branch)
 	if hello.Input != nil {
 		h.reg.SetInput(rec.ID, hello.Input.Kind, hello.Input.Target, hello.Input.Socket)
 	}
@@ -187,6 +188,7 @@ func (h *Hub) handleAgent(w http.ResponseWriter, r *http.Request) {
 		"type": "bind", "seat": seat, "color": persona.Color,
 		"agent": rec.ID, "name": persona.Name, "input": h.inputKind(rec.ID),
 		"kind": rec.Kind, "title": rec.Title,
+		"repo": rec.Repo, "cwd": rec.Cwd, "branch": rec.Branch,
 	})
 	log.Printf("agent %s (%s, %s) bound to seat %d as %s (input: %s)",
 		rec.ID, hello.Kind, hello.Repo, seat, persona.Name, orNone(h.inputKind(rec.ID)))
@@ -414,6 +416,7 @@ func (h *Hub) handleStream(w http.ResponseWriter, r *http.Request) {
 		}
 		if rec, ok := h.reg.Get(id); ok {
 			frame["kind"], frame["title"] = rec.Kind, rec.Title
+			frame["repo"], frame["cwd"], frame["branch"] = rec.Repo, rec.Cwd, rec.Branch
 		}
 		c.send(frame)
 	}
@@ -530,7 +533,7 @@ func (h *Hub) handleEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad event", http.StatusBadRequest)
 		return
 	}
-	rec := h.reg.Upsert(ev.Session, ev.Kind, ev.Repo, ev.Title)
+	rec := h.reg.Upsert(ev.Session, ev.Kind, ev.Repo, ev.Title, ev.Cwd, ev.Branch)
 	if ev.Input != nil {
 		h.reg.SetInput(rec.ID, ev.Input.Kind, ev.Input.Target, ev.Input.Socket)
 	}
@@ -648,7 +651,7 @@ func (h *Hub) handleDebugEmit(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad type", http.StatusBadRequest)
 			return
 		}
-		rec := h.reg.Upsert("debug-seat-"+fmt.Sprint(msg.Seat), "debug", "", "")
+		rec := h.reg.Upsert("debug-seat-"+fmt.Sprint(msg.Seat), "debug", "", "", "", "")
 		h.reg.BindVoice(rec.ID, persona.Name)
 		h.emit(rec.ID, msg.Seat, persona, msg.Type, msg.Text)
 	}

@@ -183,6 +183,16 @@ private let TBL: [String: (String, String, String)] = [
     "New version: %@": ("Новая версия: %@", "新版本：%@", "新版本：%@"),
     "Download": ("Скачать", "下载", "下載"),
     "Check now": ("Проверить сейчас", "立即检查", "立即檢查"),
+
+    // ---- settings: immersion + language ----
+    "Immersion": ("Погружение", "沉浸", "沉浸"),
+    "Fade-in delay": ("Задержка появления", "淡入延迟", "淡入延遲"),
+    "How long your eyes stay closed before the room fades in — raise it if blinks trigger it":
+        ("Сколько глаза должны быть закрыты, прежде чем комната проявится — увеличьте, если срабатывает от морганий",
+         "闭眼多久后房间才淡入——如果眨眼就会误触发，请调大",
+         "閉眼多久後房間才淡入——如果眨眼就會誤觸發，請調大"),
+    "Menus, statuses, and the spoken cues":
+        ("Меню, статусы и голосовые подсказки", "菜单、状态与语音提示", "選單、狀態與語音提示"),
     "Check automatically": ("Проверять автоматически", "自动检查", "自動檢查"),
     "Once a day, from GitHub — nothing is sent":
         ("Раз в день, через GitHub — ничего не отправляется",

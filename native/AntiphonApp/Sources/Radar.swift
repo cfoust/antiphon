@@ -20,6 +20,16 @@ struct RadarView: View {
     @ObservedObject var engine: AntiphonEngine
     @State private var dragging = -1
     @State private var dragMissed = false
+    @State private var hoverHit = -1 // dot under the cursor (drives the grab cursor)
+
+    /// Keep draggable dots clear of the right rail (sidebar 272 + its 16 pt
+    /// padding) and the window edges — a dot must never be *lost* under UI.
+    private func clampToVisible(_ p: CGPoint, _ size: CGSize) -> CGPoint {
+        let sidebar: CGFloat = 272 + 16 + 14
+        let m: CGFloat = 14
+        return CGPoint(x: min(max(p.x, m), max(m, size.width - sidebar)),
+                       y: min(max(p.y, m), size.height - m))
+    }
 
     /// px-per-metre chosen so the default 1.3 m arc sits well inside the window.
     private func scale(_ size: CGSize) -> CGFloat {
@@ -151,15 +161,31 @@ struct RadarView: View {
                             }
                         }
                         guard dragging >= 0 else { return }
-                        let w = toWorld(v.location, size)
+                        NSCursor.closedHand.set()
+                        let w = toWorld(clampToVisible(v.location, size), size)
                         engine.dragMoved(dragging, x: w.x, z: w.z)
                     }
                     .onEnded { _ in
                         if dragging >= 0 { engine.dragEnded() }
                         dragging = -1
                         dragMissed = false
+                        (hoverHit >= 0 ? NSCursor.openHand : NSCursor.arrow).set()
                     }
             )
+            // the grab affordance: an open hand over a dot, closed while carrying
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let pt):
+                    let hit = hitTest(pt, size) ?? -1
+                    if hit != hoverHit {
+                        hoverHit = hit
+                        if dragging < 0 { (hit >= 0 ? NSCursor.openHand : NSCursor.arrow).set() }
+                    }
+                case .ended:
+                    hoverHit = -1
+                    if dragging < 0 { NSCursor.arrow.set() }
+                }
+            }
         }
     }
 }

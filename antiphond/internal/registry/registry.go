@@ -23,7 +23,9 @@ type Record struct {
 	ID      string `json:"id"`      // short stable id derived from the session key
 	Session string `json:"session"` // caller-provided session key (uuid, socket path, …)
 	Kind    string `json:"kind"`    // "claude-code", "opencode", "debug", …
-	Repo    string `json:"repo"`
+	Repo    string `json:"repo"`   // slug when derivable (owner/name), else dir basename
+	Cwd     string `json:"cwd,omitempty"`
+	Branch  string `json:"branch,omitempty"`
 	Title   string `json:"title"`
 	Voice   string `json:"voice"` // persona name; sticky for the record's lifetime
 
@@ -83,7 +85,7 @@ func idFor(session string) string {
 // Upsert registers (or reclaims, keyed by session) an agent record. A reclaim
 // keeps the record's id, voice binding and created_at — that IS the voice-
 // consistency guarantee across reconnects and daemon restarts.
-func (r *Registry) Upsert(session, kind, repo, title string) *Record {
+func (r *Registry) Upsert(session, kind, repo, title, cwd, branch string) *Record {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	id := idFor(session)
@@ -99,6 +101,12 @@ func (r *Registry) Upsert(session, kind, repo, title string) *Record {
 	}
 	if title != "" {
 		rec.Title = title
+	}
+	if cwd != "" {
+		rec.Cwd = cwd
+	}
+	if branch != "" {
+		rec.Branch = branch
 	}
 	rec.LastSeenAt = now
 	r.save()

@@ -92,15 +92,20 @@ private struct AgentRowView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(vm.name.isEmpty ? "—" : vm.name)
+                    // the session's title leads; the persona name is only a
+                    // fallback for sessions that haven't said what they're doing
+                    Text(vm.title.isEmpty ? (vm.name.isEmpty ? "—" : vm.name) : vm.title)
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(.white.opacity(vm.snoozed ? 0.45 : 0.92))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     if !vm.kind.isEmpty {
                         Text(prettyAgentKind(vm.kind))
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.white.opacity(0.45))
                             .padding(.horizontal, 5).padding(.vertical, 1.5)
                             .background(.white.opacity(0.08), in: Capsule())
+                            .layoutPriority(1)
                     }
                     Spacer(minLength: 0)
                     if vm.waiting {
@@ -109,11 +114,13 @@ private struct AgentRowView: View {
                             .shadow(color: Color(hex: "#ffce6b").opacity(0.8), radius: 3)
                     }
                 }
-                if !vm.title.isEmpty {
-                    Text(vm.title)
+                if !contextLine.isEmpty {
+                    // where the work lives: repo ⎇ branch · ~/dir
+                    Text(contextLine)
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.5))
                         .lineLimit(1)
+                        .truncationMode(.middle)
                 }
                 HStack(spacing: 5) {
                     Text(LStatus(vm.status))
@@ -154,6 +161,14 @@ private struct AgentRowView: View {
             if !vm.snoozed { onHover(over) } // snoozed agents aren't in the world
         }
         .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+
+    private var contextLine: String {
+        var parts: [String] = []
+        if !vm.repo.isEmpty { parts.append(vm.branch.isEmpty ? vm.repo : "\(vm.repo) ⎇ \(vm.branch)") }
+        else if !vm.branch.isEmpty { parts.append("⎇ \(vm.branch)") }
+        if !vm.cwd.isEmpty { parts.append(tildePath(vm.cwd)) }
+        return parts.joined(separator: " · ")
     }
 
     private var statusColor: Color {

@@ -31,16 +31,40 @@ struct TalkbackSeatMeta {
     var name = ""
     var kind = ""
     var title = ""
+    var repo = ""   // forge slug (owner/name) when derivable
+    var cwd = ""
+    var branch = ""
     var input = "" // reachability: "tmux"/"cy"/"http"/"channel"/"demo", "" = can't hear you
 }
 
 /// Everything the panel shows for the locked agent (a value snapshot from the engine).
+/// "$HOME/…" → "~/…" for display.
+func tildePath(_ p: String) -> String {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    return p.hasPrefix(home) ? "~" + p.dropFirst(home.count) : p
+}
+
 struct TalkbackAgentInfo {
     let seat: Int
     let name: String
     let colorHex: String
     let kind: String
     let title: String
+    let repo: String
+    let cwd: String
+    let branch: String
+
+    /// The list and panel lead with the session's title; the persona name is
+    /// only a fallback for sessions that never said what they're doing.
+    var displayName: String { title.isEmpty ? (name.isEmpty ? "—" : name) : title }
+    /// "repo ⎇ branch · ~/dir", parts included as known.
+    var contextLine: String {
+        var parts: [String] = []
+        if !repo.isEmpty { parts.append(branch.isEmpty ? repo : "\(repo) ⎇ \(branch)") }
+        else if !branch.isEmpty { parts.append("⎇ \(branch)") }
+        if !cwd.isEmpty { parts.append(tildePath(cwd)) }
+        return parts.joined(separator: " · ")
+    }
     let input: String
     let lines: [TalkbackLine]
     var reachable: Bool { !input.isEmpty }
@@ -379,8 +403,8 @@ private struct InputRow: View {
             PanelField(
                 text: $model.draft,
                 placeholder: info.reachable
-                    ? Lf("tell %@…", info.name)
-                    : Lf("%@ has no input path — it isn’t in a pane Antiphon can type into", info.name),
+                    ? Lf("tell %@…", info.displayName)
+                    : Lf("%@ has no input path — it isn’t in a pane Antiphon can type into", info.displayName),
                 enabled: info.reachable,
                 onSubmit: { controller.submit() },
                 onCancel: { controller.cancel() })
@@ -414,29 +438,33 @@ private struct LetterView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 11) {
-            Circle().fill(Color(hexString: info.colorHex))
-                .frame(width: 13, height: 13)
-                .shadow(color: Color(hexString: info.colorHex).opacity(0.7), radius: 5)
-            Text(info.name)
-                .font(.system(size: 16.5, weight: .bold, design: .rounded))
-                .foregroundColor(TB.ink)
-            if !info.kind.isEmpty {
-                Text(prettyKind(info.kind))
-                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                    .foregroundColor(TB.sub)
-                    .padding(.horizontal, 10).padding(.vertical, 3)
-                    .background(Capsule().fill(TB.ink.opacity(0.07)))
-            }
-            Spacer(minLength: 8)
-            if !info.title.isEmpty {
-                Text(info.title)
-                    .font(.system(size: 12.5, design: .rounded))
-                    .foregroundColor(TB.sub)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 11) {
+                Circle().fill(Color(hexString: info.colorHex))
+                    .frame(width: 13, height: 13)
+                    .shadow(color: Color(hexString: info.colorHex).opacity(0.7), radius: 5)
+                // the session's own words, not an invented persona name
+                Text(info.displayName)
+                    .font(.system(size: 16.5, weight: .bold, design: .rounded))
+                    .foregroundColor(TB.ink)
                     .lineLimit(1).truncationMode(.tail)
-                    .frame(maxWidth: 240, alignment: .trailing)
+                if !info.kind.isEmpty {
+                    Text(prettyKind(info.kind))
+                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                        .foregroundColor(TB.sub)
+                        .padding(.horizontal, 10).padding(.vertical, 3)
+                        .background(Capsule().fill(TB.ink.opacity(0.07)))
+                }
+                Spacer(minLength: 8)
+                reachBadge
             }
-            reachBadge
+            if !info.contextLine.isEmpty {
+                Text(info.contextLine)
+                    .font(.system(size: 11.5, design: .rounded))
+                    .foregroundColor(TB.sub)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.leading, 24)
+            }
         }
         .padding(.horizontal, 18).padding(.top, 15).padding(.bottom, 13)
     }
@@ -485,7 +513,7 @@ private struct LetterView: View {
     private var footer: some View {
         HStack(spacing: 16) {
             if info.reachable {
-                HStack(spacing: 6) { KeyCap(label: "↩"); Text(Lf("send to %@", info.name)) }
+                HStack(spacing: 6) { KeyCap(label: "↩"); Text(Lf("send to %@", info.displayName)) }
             } else {
                 Text(L("listening only")).foregroundColor(TB.clay)
             }
