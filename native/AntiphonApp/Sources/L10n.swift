@@ -252,10 +252,10 @@ private let TBL: [String: (String, String, String)] = [
         ("Каждый агент при первом подключении получает случайный голос из пула ниже и сохраняет его до конца сессии.",
          "每个智能体首次加入时会从下方的声音池中随机抽取一个声音，并在整个会话期间保持不变。",
          "每個智能體首次加入時會從下方的聲音池中隨機抽取一個聲音，並在整個工作階段期間保持不變。"),
-    "antiphond isn't running — start the app's live mode and come back.":
-        ("antiphond не запущен — запустите живой режим приложения и вернитесь.",
-         "antiphond 未运行——请先启动应用的实时模式再回来。",
-         "antiphond 未執行——請先啟動應用的即時模式再回來。"),
+    "The audio daemon couldn't be started — see ~/.antiphon/antiphond.log.":
+        ("Не удалось запустить звуковой демон — см. ~/.antiphon/antiphond.log.",
+         "无法启动音频守护进程——请查看 ~/.antiphon/antiphond.log。",
+         "無法啟動音訊常駐程式——請查看 ~/.antiphon/antiphond.log。"),
     "Refresh": ("Обновить", "刷新", "重新整理"),
     "ElevenLabs": ("ElevenLabs", "ElevenLabs", "ElevenLabs"),
     "OpenAI": ("OpenAI", "OpenAI", "OpenAI"),

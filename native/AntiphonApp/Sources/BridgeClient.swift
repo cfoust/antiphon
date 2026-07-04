@@ -54,6 +54,27 @@ enum AntiphonDaemon {
         return port
     }
 
+    /// Fire-and-forget daemon start (Settings uses this): no supervision handle —
+    /// the daemon writes its discovery file and the bridge adopts it later. If a
+    /// daemon already holds the port, the new instance exits on bind: harmless.
+    @discardableResult
+    static func spawnDetached() -> Bool {
+        guard let bin = findBinary() else { return false }
+        let proc = Process()
+        proc.executableURL = bin
+        proc.arguments = ["serve"]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            NSLog("[bridge] settings spawned antiphond (%@)", bin.path)
+            return true
+        } catch {
+            NSLog("[bridge] settings spawn failed: %@", "\(error)")
+            return false
+        }
+    }
+
     /// Locate the antiphond binary: env override, next to the app executable
     /// (bundled by make.sh), the repo dev build, PATH-ish fallbacks.
     static func findBinary() -> URL? {

@@ -40,7 +40,10 @@ struct VoicePoolEntry: Decodable, Identifiable, Equatable {
 
 enum SettingsClient {
     private static func base() -> URL? {
-        guard let port = AntiphonDaemon.discover() else { return nil }
+        // The discovery file is a hint, not a gate: it goes stale on unclean
+        // shutdowns while a daemon may well be serving the default port. The
+        // request that follows is the real liveness probe.
+        let port = AntiphonDaemon.discover() ?? 8787
         return URL(string: "http://127.0.0.1:\(port)")
     }
 
@@ -298,7 +301,7 @@ private struct VoicesPane: View {
 
         if !daemonUp {
             card("") {
-                Text(L("antiphond isn't running — start the app's live mode and come back."))
+                Text(L("The audio daemon couldn't be started — see ~/.antiphon/antiphond.log."))
                     .font(.callout).foregroundStyle(SD.clay)
             }
         } else if loading {
@@ -417,7 +420,18 @@ private struct VoicesPane: View {
 
     private func load(refresh: Bool) async {
         loading = voices.isEmpty
-        guard let cfg = await SettingsClient.getConfig() else {
+        var maybeCfg = await SettingsClient.getConfig()
+        if maybeCfg == nil {
+            // The app bundles the daemon — start it rather than sending the
+            // user off to do it. A second instance self-limits (port bind).
+            if AntiphonDaemon.spawnDetached() {
+                for _ in 0..<6 where maybeCfg == nil {
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    maybeCfg = await SettingsClient.getConfig()
+                }
+            }
+        }
+        guard let cfg = maybeCfg else {
             daemonUp = false; loading = false; return
         }
         daemonUp = true
