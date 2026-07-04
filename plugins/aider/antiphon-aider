@@ -1,0 +1,52 @@
+#!/bin/sh
+# antiphon-aider — run aider with Antiphon presence. Aider's only event surface
+# is --notifications-command (fires, with NO payload, when the LLM finishes and
+# waits for input — done and blocked are indistinguishable), so this wrapper is
+# honest low fidelity: a bind at launch, a "waiting for you" blocked ping per
+# turn, a done when the session ends. No narration, no tool ticks.
+#
+# Fail-open: no antiphond binary or no running daemon → this is exactly
+# `aider "$@"`. Never blocks, never changes aider's exit code.
+
+STATE="${ANTIPHON_STATE:-$HOME/.antiphon}"
+
+# Binary ladder (same as the other adapters): $ANTIPHOND → discovery-file exe
+# → PATH → Antiphon.app bundles → ~/go/bin.
+BIN="${ANTIPHOND:-}"
+if [ -z "$BIN" ] && [ -f "$STATE/antiphond.json" ]; then
+  EXE=$(sed -n 's/.*"exe":"\([^"]*\)".*/\1/p' "$STATE/antiphond.json" 2>/dev/null)
+  [ -n "$EXE" ] && [ -x "$EXE" ] && BIN="$EXE"
+fi
+[ -z "$BIN" ] && BIN="$(command -v antiphond 2>/dev/null)"
+for CAND in \
+  "/Applications/Antiphon.app/Contents/MacOS/antiphond" \
+  "$HOME/Applications/Antiphon.app/Contents/MacOS/antiphond" \
+  "$HOME/go/bin/antiphond"; do
+  [ -z "$BIN" ] && [ -x "$CAND" ] && BIN="$CAND"
+done
+
+if [ -z "$BIN" ]; then
+  exec aider "$@"
+fi
+
+SESSION="${ANTIPHON_SESSION:-aider-$$}"
+REPO=$(git rev-parse --show-toplevel 2>/dev/null || true)
+[ -n "$REPO" ] && REPO=$(basename "$REPO") || REPO=$(basename "$PWD")
+
+# emit is already fail-open (500 ms cap, always exit 0, silent without daemon).
+emit() {
+  "$BIN" emit ${ANTIPHON_STATE:+-state "$ANTIPHON_STATE"} \
+    -session "$SESSION" -kind aider "$@" >/dev/null 2>&1
+}
+
+# Bind: a task event both seats the agent and titles it.
+emit -type task -text "aider session in $REPO"
+
+# Aider runs the notification command through a shell — quote for spaces.
+NOTIFY="\"$BIN\" emit${ANTIPHON_STATE:+ -state \"$ANTIPHON_STATE\"} -session \"$SESSION\" -kind aider -type blocked -text 'aider is waiting for you'"
+
+aider --notifications --notifications-command "$NOTIFY" "$@"
+CODE=$?
+
+emit -type done -text "The aider session in $REPO ended."
+exit $CODE

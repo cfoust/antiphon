@@ -1,0 +1,54 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$HOME/.antiphon/antiphond.json\" ] && cat \"$HOME/.codex/antiphon/narration.md\" 2>/dev/null; exit 0"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$HOME/.antiphon/antiphond.json\" ] && echo 'Antiphon: narrate this turn as you work — antiphon_task at the start, a short antiphon_progress line before each step, antiphon_done (two sentences) when the task is complete.'; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$HOME/.codex/antiphon/antiphon-tool.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$HOME/.codex/antiphon/antiphon-stop.sh\""
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$HOME/.codex/antiphon/antiphon-blocked.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

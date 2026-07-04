@@ -165,7 +165,23 @@ const choir = `
     <div class="anph-agent-list">
       <div class="anph-agent-row">
         <span class="anph-agent-name">Claude Code</span>
-        <span class="anph-badge">Supported today</span>
+        <span class="anph-badge">Full fidelity</span>
+      </div>
+      <div class="anph-agent-row">
+        <span class="anph-agent-name">Codex CLI</span>
+        <span class="anph-badge">Full fidelity</span>
+      </div>
+      <div class="anph-agent-row">
+        <span class="anph-agent-name">OpenCode</span>
+        <span class="anph-badge">Full fidelity</span>
+      </div>
+      <div class="anph-agent-row">
+        <span class="anph-agent-name">Pi</span>
+        <span class="anph-badge">Full fidelity + talk-back</span>
+      </div>
+      <div class="anph-agent-row">
+        <span class="anph-agent-name">Aider</span>
+        <span class="anph-badge">Presence + nudges</span>
       </div>
       <div class="anph-agent-row">
         <span class="anph-agent-name anph-agent-name--muted">Your agent here</span>

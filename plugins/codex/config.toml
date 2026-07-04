@@ -1,0 +1,7 @@
+# Antiphon — appended to ~/.codex/config.toml by plugins/codex/install.sh.
+# Registers `antiphond channel` as an MCP server exposing the narration tools
+# (antiphon_task / antiphon_progress / antiphon_done / antiphon_blocked).
+# Safe to delete; Codex works without it.
+[mcp_servers.antiphon]
+command = "sh"
+args = ["-c", "exec \"$HOME/.codex/antiphon/antiphon-channel.sh\""]

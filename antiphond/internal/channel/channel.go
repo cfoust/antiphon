@@ -78,6 +78,7 @@ type event struct {
 type Channel struct {
 	hubURL  string
 	session string
+	kind    string
 	repo    string
 
 	outMu sync.Mutex
@@ -108,9 +109,19 @@ func New(hubURL string) *Channel {
 	return &Channel{
 		hubURL:  hubURL,
 		session: sessionID(),
+		kind:    kindName(),
 		repo:    repoName(),
 		seat:    -1,
 	}
+}
+
+// kindName lets non-Claude hosts (Codex etc.) label their sessions honestly:
+// the launcher script sets ANTIPHON_KIND; absent, the historical default holds.
+func kindName() string {
+	if k := os.Getenv("ANTIPHON_KIND"); k != "" {
+		return k
+	}
+	return "claude-code"
 }
 
 // Run serves MCP over rw (stdin/stdout) until EOF. Never returns an error for
@@ -251,7 +262,7 @@ func (c *Channel) hubLoop() {
 		log.Printf("connected to hub %s", c.hubURL)
 
 		hello := map[string]any{
-			"type": "hello", "session": c.session, "kind": "claude-code",
+			"type": "hello", "session": c.session, "kind": c.kind,
 			"repo": c.repo, "cwd": cwd(),
 		}
 		if inp := input.Detect(); inp != nil {

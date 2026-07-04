@@ -1,0 +1,9 @@
+{
+  "name": "antiphon-opencode",
+  "version": "0.1.0",
+  "description": "Narrate OpenCode sessions into Antiphon, the spatial-audio agent monitor.",
+  "type": "module",
+  "main": "index.ts",
+  "exports": "./index.ts",
+  "license": "MIT"
+}
