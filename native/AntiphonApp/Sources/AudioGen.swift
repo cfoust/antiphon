@@ -70,14 +70,18 @@ func makePing(_ freq: Float, sr: Double = 48_000) -> [Float] {
     return y
 }
 
-func makeChime(sr: Double = 48_000) -> [Float] {
+/// Accept chime in the agent's own key: its ping note rising a perfect fifth
+/// (the old fixed chime was this exact gesture in D — 587.33 → 880).
+func makeChime(_ freq: Float, sr: Double = 48_000) -> [Float] {
     let n = Int(sr * 0.5)
     var y = [Float](repeating: 0, count: n)
+    let f0 = Double(freq)
+    let f1 = f0 * pow(2, 7.0 / 12)
     for i in 0..<n {
         let t = Double(i) / sr
         var s = 0.0
-        s += sin(2 * .pi * 587.33 * t) * 0.34 * exp(-t * 6)
-        if t >= 0.1 { let t2 = t - 0.1; s += sin(2 * .pi * 880.0 * t2) * 0.34 * exp(-t2 * 6) }
+        s += sin(2 * .pi * f0 * t) * 0.34 * exp(-t * 6)
+        if t >= 0.1 { let t2 = t - 0.1; s += sin(2 * .pi * f1 * t2) * 0.34 * exp(-t2 * 6) }
         y[i] = Float(s)
     }
     return y

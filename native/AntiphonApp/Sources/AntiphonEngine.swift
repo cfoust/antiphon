@@ -94,6 +94,7 @@ final class AgentRuntime {
     var whisper: [Float] = []
     var summary: [Float] = []
     var ping: [Float] = []
+    var chime: [Float] = [] // accept chime, in this agent's key (ping note + fifth)
 
     // render-thread cursors (loop beds always advance; one-shots idle at -1)
     var clearCur = 0, whisperCur = 0
@@ -207,7 +208,6 @@ final class AntiphonEngine: ObservableObject {
     private let maxBlock = 4096
 
     private var agents: [AgentRuntime] = []
-    private var chime: [Float] = []
 
     private let q = DispatchQueue(label: "antiphon.state")
     private var timer: DispatchSourceTimer?
@@ -339,16 +339,16 @@ final class AntiphonEngine: ObservableObject {
 
         // load voices + synthesize earcons
         let base = res.appendingPathComponent("audio")
-        chime = makeChime()
         for (i, def) in AGENTS.enumerated() {
             let a = AgentRuntime(def: def, idx: i)
             let work = loadMono(base.appendingPathComponent("\(def.id).mp3")) ?? []
             a.clear = work
             a.whisper = work.isEmpty ? [] : whispered(work)
             a.summary = loadMono(base.appendingPathComponent("\(def.id)_done.mp3")) ?? []
-            a.ping = makePing(PING_FREQS[i % PING_FREQS.count])
-            a.bloom = makeBloom(PING_FREQS[i % PING_FREQS.count])
             let pf = PING_FREQS[i % PING_FREQS.count]
+            a.ping = makePing(pf)
+            a.chime = makeChime(pf)
+            a.bloom = makeBloom(pf)
             a.toolNotes = toolNoteFreqs(pf).map { makeToolNote($0) }
             a.drone = makeDrone(pf)
             a.pulse = makePulse(pf)
@@ -476,7 +476,7 @@ final class AntiphonEngine: ObservableObject {
                 if !a.whisper.isEmpty { s += a.whisper[a.whisperCur] * gw; a.whisperCur = (a.whisperCur + 1) % a.whisper.count }
                 if a.pingCur >= 0 { s += a.ping[a.pingCur] * gp; a.pingCur += 1; if a.pingCur >= a.ping.count { a.pingCur = -1 } }
                 // accept chime: spatialized through this agent's voice (was a centred, in-head one-shot)
-                if a.chimeCur >= 0 { s += chime[a.chimeCur] * CHIME_GAIN; a.chimeCur += 1; if a.chimeCur >= chime.count { a.chimeCur = -1 } }
+                if a.chimeCur >= 0 { s += a.chime[a.chimeCur] * CHIME_GAIN; a.chimeCur += 1; if a.chimeCur >= a.chime.count { a.chimeCur = -1 } }
                 if a.summaryCur >= 0 {
                     s += a.summary[a.summaryCur] * gsum; a.summaryCur += 1
                     if a.summaryCur >= a.summary.count { a.summaryCur = -1; a.summaryDone = true }

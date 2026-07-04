@@ -338,6 +338,10 @@ export class Antiphon {
   // onboarding), repositions it dead ahead, and opens the (otherwise silent)
   // agent bus for the duration.
   private fitSrc: AudioBufferSourceNode | null = null;
+  // While the fit voice speaks, the eye fade is held open — the tracker is
+  // already live here and eyes-open would otherwise drive immersion to 0 and
+  // silence the guide (mirrors the native `audTarget > 0` immersion pin).
+  private fitHold = false;
 
   startFitVoice(buf: AudioBuffer): void {
     this.stopFitVoice();
@@ -363,10 +367,14 @@ export class Antiphon {
     s.connect(N.sum); // direct: bypasses the whisper mix (its gain is 0 here)
     s.start();
     this.fitSrc = s;
+    this.fitHold = true;
+    this.pushImmersion();
     this.agentBus.gain.setTargetAtTime(1, this.ctx.currentTime, 0.1);
   }
 
   stopFitVoice(): void {
+    this.fitHold = false;
+    this.pushImmersion();
     if (!this.fitSrc) return;
     try {
       this.fitSrc.stop();
@@ -431,9 +439,11 @@ export class Antiphon {
   private playConfirm(id: string): void {
     const N = this.nodes[id];
     const at = this.ctx.currentTime;
+    // the agent's own key: its ping note rising a perfect fifth (mirrors makeChime)
+    const f0 = PING_FREQS[N.idx % PING_FREQS.length];
     for (const [f, dt] of [
-      [587.33, 0],
-      [880.0, 0.1],
+      [f0, 0],
+      [f0 * 2 ** (7 / 12), 0.1],
     ] as const) {
       const o = this.ctx.createOscillator();
       o.type = "triangle";
@@ -807,7 +817,7 @@ export class Antiphon {
   }
 
   private pushImmersion(): void {
-    this.wasm?.setImmersionEngine(this.immersionHold ? 1 : this.immersionEye);
+    this.wasm?.setImmersionEngine(this.immersionHold || this.fitHold ? 1 : this.immersionEye);
   }
 
   /** Convenience over setImmersion for the boolean eyes-closed detector: closed → full,
