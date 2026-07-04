@@ -1,17 +1,17 @@
 {
-  "name": "chamber",
+  "name": "antiphon",
   "owner": {
     "name": "Caleb Foust"
   },
   "metadata": {
-    "description": "Chamber — spatial-audio monitoring for coding agents",
+    "description": "Antiphon — spatial-audio monitoring for coding agents",
     "version": "0.2.0"
   },
   "plugins": [
     {
-      "name": "chamber",
-      "source": "./cc-chamber",
-      "description": "Narrate Claude Code sessions into the Chamber spatial-audio monitor (requires chamberd; silently inert without it)"
+      "name": "antiphon",
+      "source": "./plugins/claude-code",
+      "description": "Narrate Claude Code sessions into the Antiphon spatial-audio monitor (requires antiphond; silently inert without it)"
     }
   ]
 }

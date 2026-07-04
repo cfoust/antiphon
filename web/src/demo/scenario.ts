@@ -1,5 +1,5 @@
 import { DEMO_AGENT_COUNT } from "../agents";
-import type { Chamber } from "../audio/engine";
+import type { Antiphon } from "../audio/engine";
 
 // The scripted demo scenario: exactly the native experience, no talk-back.
 // A small roster of agents works audibly — the working drone hums, tool-note
@@ -95,7 +95,7 @@ interface Seat {
  * Load the scenario voices and start driving the engine. Returns a stop()
  * for symmetry (the demo page never calls it).
  */
-export async function startScenario(engine: Chamber): Promise<() => void> {
+export async function startScenario(engine: Antiphon): Promise<() => void> {
   const count = Math.min(DEMO_AGENT_COUNT, engine.agents.length);
   const t0 = performance.now();
 

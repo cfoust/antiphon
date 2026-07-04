@@ -1,0 +1,204 @@
+// Antiphon AudioWorklet — runs the Rust binaural engine (antiphon-ffi) on the audio thread.
+// Classic script (no imports). Generic N-source spatializer driven from the main thread:
+// each source has a mono sample buffer, a 3D position and gain; the listener has a 6DoF pose.
+// This is the shared audio core for BOTH the Antiphon app and the test harness.
+
+const BLOCK = 128;
+// AntiphonSource layout (must match antiphon-ffi):
+// x,y,z, gain, send, fx,fy,fz (facing; 0,0,0 = omni), directivity (0..1), extent (radius m)
+const SRC_FLOATS = 10;
+
+function packSource(dv, so, x, y, z, gain, send, fx, fy, fz, directivity, extent) {
+  dv.setFloat32(so, x, true);
+  dv.setFloat32(so + 4, y, true);
+  dv.setFloat32(so + 8, z, true);
+  dv.setFloat32(so + 12, gain, true);
+  dv.setFloat32(so + 16, send, true);
+  dv.setFloat32(so + 20, fx, true);
+  dv.setFloat32(so + 24, fy, true);
+  dv.setFloat32(so + 28, fz, true);
+  dv.setFloat32(so + 32, directivity, true);
+  dv.setFloat32(so + 36, extent, true);
+}
+
+class AntiphonProcessor extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    this.ready = false;
+    this.ex = null;
+    this.maxSources = (options.processorOptions && options.processorOptions.maxSources) || 16;
+    this.sources = new Map(); // id -> {buf, cursor, gain, x,y,z, loop, playing}
+    this.inputCfg = []; // per live audio-input source: {x,y,z,gain,send}
+    this.pose = { qw: 1, qx: 0, qy: 0, qz: 0, px: 0, py: 0, pz: 0 };
+    this.port.onmessage = (e) => this.onMsg(e.data);
+  }
+
+  async onMsg(d) {
+    switch (d.type) {
+      case "init":
+        await this.init(d);
+        break;
+      case "src": {
+        let s = this.sources.get(d.id);
+        if (!s) {
+          s = { buf: null, cursor: 0, gain: 1, x: 0, y: 0, z: -1, send: 0.3, loop: true, playing: false,
+                fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0 };
+          this.sources.set(d.id, s);
+        }
+        if (d.samples) { s.buf = d.samples; s.cursor = 0; }
+        if (d.gain !== undefined) s.gain = d.gain;
+        if (d.x !== undefined) { s.x = d.x; s.y = d.y; s.z = d.z; }
+        if (d.send !== undefined) s.send = d.send;
+        if (d.fx !== undefined) { s.fx = d.fx; s.fy = d.fy; s.fz = d.fz; }
+        if (d.directivity !== undefined) s.directivity = d.directivity;
+        if (d.extent !== undefined) s.extent = d.extent;
+        if (d.loop !== undefined) s.loop = d.loop;
+        if (d.play) { s.cursor = 0; s.playing = true; }
+        if (d.stop) s.playing = false;
+        // fresh samples on a looping source start it (param-only updates leave a paused
+        // source paused; explicit stop always wins)
+        else if (d.samples && s.loop && s.buf) s.playing = true;
+        break;
+      }
+      case "remove":
+        this.sources.delete(d.id);
+        break;
+      case "inputCfg":
+        this.inputCfg[d.index] = { x: d.x, y: d.y, z: d.z, gain: d.gain ?? 1, send: d.send ?? 0.3,
+                                   fx: d.fx ?? 0, fy: d.fy ?? 0, fz: d.fz ?? 0,
+                                   directivity: d.directivity ?? 0, extent: d.extent ?? 0 };
+        break;
+      case "pose":
+        this.pose = d;
+        break;
+      case "room":
+        if (this.ready) this.ex.antiphon_renderer_set_room(this.r, d.index >>> 0);
+        break;
+      case "reflections":
+        if (this.ready) this.ex.antiphon_renderer_set_reflections(this.r, d.on ? 1 : 0);
+        break;
+      case "master":
+        if (this.ready) this.ex.antiphon_renderer_set_master_gain(this.r, d.gain);
+        break;
+      case "attnAgents": // "an agent is waiting" cue: number of waiting agents (0 = silent)
+        if (this.ready) this.ex.antiphon_renderer_set_attention_agents(this.r, d.n >>> 0);
+        break;
+      case "attnBuild": // minutes to ramp the cue from silent -> full urgency
+        if (this.ready) this.ex.antiphon_renderer_set_attention_build_minutes(this.r, d.minutes);
+        break;
+      case "immersion": // eyes fade target 0..1 (1 = scene full/cue silent), applied per-source in-engine
+        if (this.ready) this.ex.antiphon_renderer_set_immersion(this.r, d.value);
+        break;
+      case "reverbBlend": // BRIR rooms: 0 = pure parametric FDN late tail, 1 = pure measured BRIR
+        if (this.ready) this.ex.antiphon_renderer_set_reverb_blend(this.r, d.value);
+        break;
+      case "freqScale": // HRTF "fit": warps the pinna spectral cue (dsp clamps 0.5..2.2)
+        this.freqScale = d.value;
+        if (this.ready) this.ex.antiphon_renderer_set_freq_scale(this.r, d.value);
+        break;
+      case "roomDims": {
+        // room geometry query: replies { type: "roomDims", index, dims: [w,h,d,earHeight] | null }
+        let dims = null;
+        if (this.ready && this.ex.antiphon_renderer_room_dims(this.r, d.index >>> 0, this.dimsP)) {
+          const f = new Float32Array(this.ex.memory.buffer, this.dimsP, 4);
+          dims = [f[0], f[1], f[2], f[3]];
+        }
+        this.port.postMessage({ type: "roomDims", index: d.index, dims });
+        break;
+      }
+    }
+  }
+
+  async init(d) {
+    const { instance } = await WebAssembly.instantiate(d.wasm, {});
+    const ex = (this.ex = instance.exports);
+    const asset = new Uint8Array(d.asset);
+    const aptr = ex.antiphon_alloc(asset.length);
+    new Uint8Array(ex.memory.buffer, aptr, asset.length).set(asset);
+    this.r = ex.antiphon_renderer_create(aptr, asset.length, sampleRate, this.maxSources, BLOCK);
+    this.numRooms = ex.antiphon_renderer_num_rooms(this.r);
+    ex.antiphon_renderer_set_master_gain(this.r, 0.9);
+    if (this.freqScale !== undefined) ex.antiphon_renderer_set_freq_scale(this.r, this.freqScale);
+    // preallocate wasm scratch
+    this.inPtrs = [];
+    for (let i = 0; i < this.maxSources; i++) this.inPtrs.push(ex.antiphon_alloc(BLOCK * 4));
+    this.inTab = ex.antiphon_alloc(this.maxSources * 4);
+    this.srcArr = ex.antiphon_alloc(this.maxSources * SRC_FLOATS * 4);
+    this.outL = ex.antiphon_alloc(BLOCK * 4);
+    this.outR = ex.antiphon_alloc(BLOCK * 4);
+    this.poseP = ex.antiphon_alloc(7 * 4);
+    this.dimsP = ex.antiphon_alloc(4 * 4); // roomDims query scratch [w,h,d,earHeight]
+    this.ready = true;
+    this.port.postMessage({ type: "ready", numRooms: this.numRooms });
+  }
+
+  process(inputs, outputs) {
+    const out = outputs[0];
+    if (!this.ready) return true;
+    const n = out[0].length;
+    const ex = this.ex;
+    const heap = new Float32Array(ex.memory.buffer);
+    const dv = new DataView(ex.memory.buffer);
+
+    let idx = 0;
+    // live audio inputs become sources (used by the Antiphon app: one mono input per agent)
+    for (let i = 0; i < inputs.length && idx < this.maxSources; i++) {
+      const ch = inputs[i][0];
+      if (!ch) continue; // input not connected
+      const cfg = this.inputCfg[i] || { x: 0, y: 0, z: -1, gain: 1, send: 0.3 };
+      const inBase = this.inPtrs[idx] / 4;
+      const g = cfg.gain;
+      for (let k = 0; k < n; k++) heap[inBase + k] = ch[k] * g;
+      const so = this.srcArr + idx * SRC_FLOATS * 4;
+      packSource(dv, so, cfg.x, cfg.y, cfg.z, 1.0, cfg.send,
+                 cfg.fx ?? 0, cfg.fy ?? 0, cfg.fz ?? 0, cfg.directivity ?? 0, cfg.extent ?? 0);
+      dv.setUint32(this.inTab + idx * 4, this.inPtrs[idx], true);
+      idx++;
+    }
+
+    // collect active buffer sources (harness), up to maxSources
+    for (const s of this.sources.values()) {
+      if (idx >= this.maxSources || !s.buf || !s.playing) continue;
+      const inBase = this.inPtrs[idx] / 4;
+      const buf = s.buf;
+      const len = buf.length;
+      let c = s.cursor;
+      let finished = false;
+      for (let k = 0; k < n; k++) {
+        if (c >= len) {
+          if (s.loop) { c = 0; }
+          else { heap[inBase + k] = 0; finished = true; continue; } // never read past the end (was NaN)
+        }
+        heap[inBase + k] = buf[c] * s.gain;
+        c++;
+      }
+      s.cursor = c;
+      if (finished) s.playing = false;
+      // source struct (gain = 1: per-source gain already applied to the samples above)
+      const so = this.srcArr + idx * SRC_FLOATS * 4;
+      packSource(dv, so, s.x, s.y, s.z, 1.0, s.send ?? 0.3,
+                 s.fx ?? 0, s.fy ?? 0, s.fz ?? 0, s.directivity ?? 0, s.extent ?? 0);
+      dv.setUint32(this.inTab + idx * 4, this.inPtrs[idx], true);
+      idx++;
+    }
+
+    // pose
+    const p = this.pose;
+    const pv = [p.px, p.py, p.pz, p.qw, p.qx, p.qy, p.qz];
+    for (let i = 0; i < 7; i++) dv.setFloat32(this.poseP + i * 4, pv[i], true);
+
+    ex.antiphon_renderer_process(this.r, this.poseP, this.srcArr, idx, this.inTab, this.outL, this.outR, n);
+
+    const h = new Float32Array(ex.memory.buffer); // re-view (may have grown)
+    const lo = this.outL / 4, ro = this.outR / 4;
+    const ol = out[0], or = out[1];
+    for (let k = 0; k < n; k++) {
+      const l = h[lo + k], r = h[ro + k];
+      ol[k] = l === l ? l : 0; // NaN backstop (NaN !== NaN)
+      or[k] = r === r ? r : 0;
+    }
+    return true;
+  }
+}
+
+registerProcessor("antiphon", AntiphonProcessor);

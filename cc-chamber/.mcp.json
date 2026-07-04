@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "chamber": {
-      "command": "sh",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/chamber-channel.sh"]
-    }
-  }
-}

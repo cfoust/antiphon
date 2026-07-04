@@ -9,20 +9,20 @@
 
 ## One-time: bake the HRTF asset
 ```sh
-cargo run -p chamber-bake --release -- assets/baked/chamber-default.chamber
+cargo run -p antiphon-bake --release -- assets/baked/antiphon-default.antiphon
 ```
-Produces the `.chamber` blob (analytic structural HRTF grid + 4 room presets). A measured
+Produces the `.antiphon` blob (analytic structural HRTF grid + 4 room presets). A measured
 SOFA importer can replace the analytic model behind the same output format later.
 
 ## Offline demos (audible quality check)
 ```sh
-cargo run -p chamber-render --release            # writes out/*.wav
+cargo run -p antiphon-render --release            # writes out/*.wav
 ```
 
 ## Native macOS app
 ```sh
-bash native/ChamberApp/make.sh                   # -> native/ChamberApp/ChamberApp.app
-open native/ChamberApp/ChamberApp.app
+bash native/AntiphonApp/make.sh                   # -> native/AntiphonApp/AntiphonApp.app
+open native/AntiphonApp/AntiphonApp.app
 ```
 Builds the Rust staticlib, links it into the Swift app with `swiftc -L/-l` (no SwiftPM),
 copies the asset into the bundle, and ad-hoc codesigns.
@@ -36,8 +36,8 @@ Single-threaded AudioWorklet → no SharedArrayBuffer, no COOP/COEP headers need
 
 ## Cross-target parity test
 ```sh
-cargo run -p chamber-render --release -- parity   # native reference
-cargo build -p chamber-ffi --release --target wasm32-unknown-unknown
+cargo run -p antiphon-render --release -- parity   # native reference
+cargo build -p antiphon-ffi --release --target wasm32-unknown-unknown
 node tools/parity.mjs                             # asserts native≈wasm < -90 dBFS
 ```
 

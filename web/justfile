@@ -1,4 +1,4 @@
-# Agent Chamber — spatial voice prototype (Bun + Vite + TypeScript)
+# Agent Antiphon — spatial voice prototype (Bun + Vite + TypeScript)
 
 # List recipes
 default:
@@ -22,7 +22,7 @@ dev: wasm
 # SFX/voices/ARPs/audio files, room + reverb controls, head tracking, immersion toggle.
 # Plain HTTP on :5174 (localhost is a secure context, so the camera still works).
 sandbox: wasm
-    CHAMBER_HTTP=1 bun run dev --port 5174 --strictPort --open /sandbox.html
+    ANTIPHON_HTTP=1 bun run dev --port 5174 --strictPort --open /sandbox.html
 
 # Back-compat alias for muscle memory.
 harness: sandbox
@@ -35,15 +35,15 @@ build: wasm
 preview:
     bun run preview
 
-# Build and deploy to Cloudflare Pages (https://agent-chamber.pages.dev)
+# Build and deploy to Cloudflare Pages (https://agent-antiphon.pages.dev)
 deploy:
     bun run deploy
 
 # --- live mode: monitor a real local Claude Code session by ear ----------------
-# chamberd (the Go daemon) is the hub now — the app or `chamberd serve` runs it.
+# antiphond (the Go daemon) is the hub now — the app or `antiphond serve` runs it.
 # The page connects to ws://127.0.0.1:8787/stream.
 
 # The page in LIVE mode (plain http on localhost so camera + ws coexist).
 # Then open http://localhost:5173/demo.html?live and run through onboarding.
 dev-live:
-    CHAMBER_LIVE=1 bun run dev
+    ANTIPHON_LIVE=1 bun run dev

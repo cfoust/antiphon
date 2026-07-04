@@ -18,7 +18,7 @@ from pathlib import Path
 
 import requests
 
-OUT = Path(__file__).resolve().parent.parent / "native/ChamberApp/Resources/onboarding"
+OUT = Path(__file__).resolve().parent.parent / "native/AntiphonApp/Resources/onboarding"
 MODEL = "gpt-4o-mini-tts"
 VOICE = "marin"  # recommended quality tier; falls back to coral if unavailable
 

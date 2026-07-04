@@ -1,0 +1,9 @@
+[package]
+name = "antiphon-pose"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Head-pose (6DoF) from 2D facial landmarks via PnP — the geometry the web gets from MediaPipe, computed natively from Vision's landmarks."
+
+[dependencies]

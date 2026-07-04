@@ -1,0 +1,34 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$HOME/.antiphon/antiphond.json\" ] && cat \"${CLAUDE_PLUGIN_ROOT}/hooks/narration.md\" 2>/dev/null; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/antiphon-tool.sh\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$HOME/.antiphon/antiphond.json\" ] && echo 'Antiphon: narrate this turn as you work — antiphon_task at the start, a short antiphon_progress line before each step, antiphon_done (two sentences) when the task is complete.'; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

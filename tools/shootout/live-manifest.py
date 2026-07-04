@@ -32,7 +32,7 @@ for fn in sorted(os.listdir(WASM)):
     trim = trims.get(name, 1.0)
     entry = {"name": name, "file": fn, "trim": trim}
     # optional per-engine HRTF asset: a sidecar "<id>.asset" naming a file under assets/baked/
-    # (used by HRTF-set candidates, e.g. hrtf_ari -> chamber-ari.chamber). Default is KEMAR.
+    # (used by HRTF-set candidates, e.g. hrtf_ari -> antiphon-ari.antiphon). Default is KEMAR.
     sidecar = os.path.join(WASM, name + ".asset")
     if os.path.exists(sidecar):
         entry["asset"] = open(sidecar).read().strip()

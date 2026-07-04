@@ -1,5 +1,5 @@
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
-import type { Chamber } from "../audio/engine";
+import type { Antiphon } from "../audio/engine";
 import {
   EyeClosureCore,
   OpenEyeCalibrator,
@@ -46,7 +46,7 @@ const decodePitchDeg = (m: number[]) => (Math.atan2(-m[9], m[5]) * 180) / Math.P
 export class HeadTracker {
   private video = document.createElement("video");
   private landmarker: FaceLandmarker | null = null;
-  private engine: Chamber | null = null;
+  private engine: Antiphon | null = null;
   private running = false;
   private live = false;
   private sawFace = false;
@@ -163,7 +163,7 @@ export class HeadTracker {
   }
 
   /** Attach the engine and go live with the current calibration. */
-  attach(engine: Chamber): void {
+  attach(engine: Antiphon): void {
     this.engine = engine;
     this.live = true;
   }
@@ -198,7 +198,7 @@ export class HeadTracker {
           );
           this.engine.setLookGate(1 - downAmt);
           // 6DoF head translation → true motion parallax. Convert frames: the tracker reports
-          // +z = TOWARD the camera (leaning in), but the engine/radar use the chamber convention
+          // +z = TOWARD the camera (leaning in), but the engine/radar use the antiphon convention
           // front = −z, so lean-in must be −z. Without this flip, leaning in slid you backward.
           const hp = this.pos;
           this.engine.setPosition({ x: hp.x, y: hp.y, z: -hp.z });

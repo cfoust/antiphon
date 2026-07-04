@@ -11,7 +11,7 @@ import "./site.css";
 
 import { mountHero } from "./hero";
 
-const GITHUB_URL = "https://github.com/cfoust/chamber";
+const GITHUB_URL = "https://github.com/cfoust/antiphon";
 
 // Concentric-circle mati eye mark, at several sizes.
 const navEyeSvg = `<svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="12" fill="#2743B8"/><circle cx="13" cy="13" r="7.5" fill="#FBF7F0"/><circle cx="13" cy="13" r="3.4" fill="#2A231B"/></svg>`;

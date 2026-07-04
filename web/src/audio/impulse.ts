@@ -39,7 +39,7 @@ export function makeNoise(ctx: BaseAudioContext, seconds: number): AudioBuffer {
 export const ENVS: Record<EnvName, (ctx: BaseAudioContext) => AudioBuffer> = {
   dry: (c) => makeIR(c, 0.25, 6.0),
   room: (c) => makeIR(c, 0.6, 4.0, 0.005),
-  chamber: (c) => makeIR(c, 1.6, 2.6, 0.012),
+  antiphon: (c) => makeIR(c, 1.6, 2.6, 0.012),
   hall: (c) => makeIR(c, 3.4, 1.7, 0.03),
 };
 
@@ -47,6 +47,6 @@ export const ENVS: Record<EnvName, (ctx: BaseAudioContext) => AudioBuffer> = {
 export const wetLevel: Record<EnvName, number> = {
   dry: 0.1,
   room: 0.28,
-  chamber: 0.5,
+  antiphon: 0.5,
   hall: 0.7,
 };

@@ -1,8 +1,8 @@
-# Agent bridge (`chamberd`) — productionizing live agent connection
+# Agent bridge (`antiphond`) — productionizing live agent connection
 
 Status: **design accepted, M1 in progress** (branch `feat/agent-bridge`).
 
-This is the production redesign of the voice-chamber prototype's live mode
+This is the production redesign of the voice-antiphon prototype's live mode
 (`~/Developer/machinus/voice-chamber`: Bun hub + `cc-chamber` MCP plugin + ElevenLabs),
 whose web half already lives in this repo (`web/bridge/`, `web/src/live/`). The prototype
 proved the experience; this doc pins down what it takes to make agent connection a thing
@@ -10,27 +10,27 @@ you can install and forget.
 
 ## What we're building
 
-A local daemon, **`chamberd`** (Go), that:
+A local daemon, **`antiphond`** (Go), that:
 
 1. accepts connections from coding agents (Claude Code first) which send **narration**:
    model-authored blips + done summaries — the prototype proved models are good at
    summarizing their own work, so narration stays model-driven,
 2. turns narration into **voice lines** via a pluggable TTS layer (ElevenLabs, macOS
    `say`, more later) with per-agent voice consistency and failure-driven fallback,
-3. feeds the spatialized Chamber clients — the **native macOS app** (primary) and the
+3. feeds the spatialized Antiphon clients — the **native macOS app** (primary) and the
    web app — over the same local WebSocket protocol the prototype already speaks.
 
 ```
-Claude Code ──stdio/MCP──> chamberd channel (same binary, subprocess mode)
+Claude Code ──stdio/MCP──> antiphond channel (same binary, subprocess mode)
                                  │ ws://127.0.0.1:8787/agent   {hello, task, progress, done, blocked}
 other agents ──HTTP POST──> /events (curl-simple adapter surface)
                                  ▼
-                          chamberd serve  ── registry (identity, voices, last-seen; persisted)
+                          antiphond serve  ── registry (identity, voices, last-seen; persisted)
                                  │            ├─ TTS chain: elevenlabs → macos-say → silent
-                                 │            └─ cache ~/.chamber/tts-cache (hash of provider+voice+text)
+                                 │            └─ cache ~/.antiphon/tts-cache (hash of provider+voice+text)
                                  │ ws://127.0.0.1:8787/stream  (frames + audio)
                                  ▼
-                    native Chamber app · web app (?live) · anything else
+                    native Antiphon app · web app (?live) · anything else
 ```
 
 ### Why Go (and not Rust or more Bun)
@@ -40,9 +40,9 @@ other agents ──HTTP POST──> /events (curl-simple adapter surface)
   maintainer's strongest language. The DSP core stays Rust; the boundary is a local
   socket, not FFI — no cgo anywhere (same conclusion as the prototype's
   `native-macos-plan.md`).
-- One static binary. It can be bundled inside `Chamber.app/Contents/MacOS/` and spawned
+- One static binary. It can be bundled inside `Antiphon.app/Contents/MacOS/` and spawned
   by the app, run headless for the web app, and *also* serve as the per-session MCP
-  channel subprocess (`chamberd channel`) so the Claude Code plugin ships no runtime of
+  channel subprocess (`antiphond channel`) so the Claude Code plugin ships no runtime of
   its own (the prototype needed Bun on the agent side; that dependency dies here).
 
 ## The wire contract (kept, then extended)
@@ -52,7 +52,7 @@ compatibility baseline. A frame's text field name depends on type
 (`task→headline, progress→note, done→summary, blocked→question`):
 
 ```jsonc
-// hub → chamber clients (/stream)
+// hub → antiphon clients (/stream)
 { "type":"hello",    "seats":[{"seat":0,"color":"#7aa2ff"}, ...] }
 { "type":"bind",     "seat":0, "color":"#7aa2ff", "agent":"a1b2", "name":"wren" }
 { "type":"task",     "seat":0, "color":"#7aa2ff", "agent":"a1b2", "headline":"…", "audioB64":"…", "audioUrl":"/audio/<hash>.wav", "degraded":false }
@@ -60,7 +60,7 @@ compatibility baseline. A frame's text field name depends on type
 { "type":"done",     "seat":0, …, "summary":"…",  … }
 { "type":"blocked",  "seat":0, …, "question":"…", … }
 { "type":"free",     "seat":0, "agent":"a1b2" }
-// chamber client → hub (talk-back), relayed to the agent as {type:"channel", text}
+// antiphon client → hub (talk-back), relayed to the agent as {type:"channel", text}
 { "type":"say", "seat":0, "text":"…" }
 ```
 
@@ -74,7 +74,7 @@ gap (identity was "whichever socket connected Nth"):
 
 ```jsonc
 // first message from the agent subprocess
-{ "type":"hello", "session":"<uuid>", "kind":"claude-code", "repo":"cfoust/chamber",
+{ "type":"hello", "session":"<uuid>", "kind":"claude-code", "repo":"cfoust/antiphon",
   "cwd":"/Users/…", "title":"fix parity drift" }
 // server reply
 { "type":"seat", "seat":2, "color":"#5fd0c5", "agent":"a1b2", "voice":"wren" }
@@ -91,20 +91,20 @@ different kinds of agents with varying integration quality":
 POST /events  {"session":"…","kind":"opencode","type":"progress","text":"running tests"}
 ```
 
-Narration is **model-driven** (the four MCP tools: `chamber_task`, `chamber_progress`,
-`chamber_done`, `chamber_blocked`) — the prototype showed models summarize their own
+Narration is **model-driven** (the four MCP tools: `antiphon_task`, `antiphon_progress`,
+`antiphon_done`, `antiphon_blocked`) — the prototype showed models summarize their own
 work well, and that stays the only source of spoken text. Hook events are never
 verbalized; a robot reading "running Bash: cargo test" is the wrong texture.
 
 **Tool blips** are the one hook-driven event, precisely because they carry no words:
-`{"type":"tool","seat":N,"agent":"a1b2"}` broadcast per tool call (cc-chamber's
-`PostToolUse` hook fires a backgrounded `chamberd emit -type tool`; also accepted on
+`{"type":"tool","seat":N,"agent":"a1b2"}` broadcast per tool call (the Claude Code plugin's
+`PostToolUse` hook fires a backgrounded `antiphond emit -type tool`; also accepted on
 `/agent` and `/events`). No text, no TTS — clients use it to tick the agent's chord
 (three gently descending notes cycling per call, with the chord root breathing as a
 "working" drone while blips keep arriving).
 
 **Settings surface** (the app's Settings ▸ Voices pane): `GET/PUT /config` persists
-provider enablement + API keys to `~/.chamber/config.json` (0600; env keys stay as
+provider enablement + API keys to `~/.antiphon/config.json` (0600; env keys stay as
 fallbacks) and rebuilds the TTS ladder live; `GET /voices[?refresh=1]` reports the
 runtime-discovered voice pool across all enabled providers (ElevenLabs `/v1/voices`,
 `say -v ?` minus the novelty voices, OpenAI's static list). Each new session draws a
@@ -118,22 +118,22 @@ whatever session key the client presents, and the protocol (`hello` + four narra
 events) is the whole contract. There is deliberately no per-agent code path to add.
 An agent integrates at whichever rung it can reach:
 
-1. **`chamberd emit`** — the floor. If the agent can run arbitrary commands (hooks,
+1. **`antiphond emit`** — the floor. If the agent can run arbitrary commands (hooks,
    wrappers, CI steps), it is already integrable:
 
    ```sh
-   chamberd emit -type task -text "reworking the auth flow"
-   chamberd emit -type done -text "Tests pass; the flow uses refresh tokens now."
+   antiphond emit -type task -text "reworking the auth flow"
+   antiphond emit -type done -text "Tests pass; the flow uses refresh tokens now."
    ```
 
-   Session/repo identity is derived (or passed via `-session`/`CHAMBER_SESSION`);
+   Session/repo identity is derived (or passed via `-session`/`ANTIPHON_SESSION`);
    the hub is found through the discovery file, so a missing daemon costs ~10 ms and
    nothing else. Always exits 0, never writes stdout — safe to call unconditionally
    from any hook pipeline.
 2. **`POST /events`** — same thing over plain HTTP for agents that would rather
    speak JSON than exec a binary.
 3. **`/agent` WebSocket** — the full-fidelity rung: persistent identity, instant
-   `bind/free` presence, and talk-back delivery. This is what `chamberd channel`
+   `bind/free` presence, and talk-back delivery. This is what `antiphond channel`
    (the Claude Code MCP driver) uses.
 
 So yes: an agent that can administer hooks and run commands needs nothing else — for
@@ -152,7 +152,7 @@ registry record, and used by the hub to route `say`. Kinds form a quality ladder
 2. **`tmux` / `cy`** — the generic floor: type the text + Enter into the pane the
    agent lives in (`tmux send-keys -l` so nothing is interpreted). The beauty is that
    ANY subprocess of the agent inherits the multiplexer env (`$TMUX_PANE`, `$CY`), so
-   `chamberd channel` and even a hook-level `chamberd emit` discover the pane
+   `antiphond channel` and even a hook-level `antiphond emit` discover the pane
    automatically — a hooks-only integration is *bidirectional* for free when it runs
    under a mux. cy: `$CY = <socket>:<node-id>` identifies the pane; injection is
    `cy -L <socket> exec` running `(pane/send-text id …)` + `(pane/send-keys id
@@ -195,7 +195,7 @@ POST /debug/emit        → drive frames with no session (kept; the mock/test ha
 
 ## Agent lifecycle: identity, staleness, liveness
 
-The registry is the source of truth, persisted to `~/.chamber/agents.json` (atomic
+The registry is the source of truth, persisted to `~/.antiphon/agents.json` (atomic
 write; tiny data). Per agent:
 
 - `created_at`, `last_seen_at` (any socket traffic / reconnect), `last_event_at`
@@ -210,7 +210,7 @@ write; tiny data). Per agent:
   management UX exists. This is how we avoid 10–15 dead sessions squatting seats:
   **seats and registry records are decoupled.**
 
-**Seats** are the spatial slots in the chamber (6 today). More agents than seats is
+**Seats** are the spatial slots in the antiphon (6 today). More agents than seats is
 expected: seatless agents live in the registry and get a seat on their next event,
 stealing from the longest-idle seated agent (bind/free frames make the swap audible and
 visible). The prototype's "overflow piles onto the last seat" dies.
@@ -224,7 +224,7 @@ Two separate concepts, deliberately decoupled:
 - A **voice** is a persistent persona (`atlas`, `echo`, `wren`, `cass`, `iris`, `rook` —
   name, color) with a **realization per provider**: wren = ElevenLabs `EXAVITQu…`
   *and* macOS `Samantha`. New voices = new roster entries (JSON, `--roster` /
-  `~/.chamber/roster.json`); new providers = a Go interface implementation plus one
+  `~/.antiphon/roster.json`); new providers = a Go interface implementation plus one
   realization column in the roster.
 
 **Consistency rule:** an agent is bound to a *voice persona* for the lifetime of its
@@ -244,55 +244,55 @@ preferred provider recovers, realization upgrades again — persona unbroken.
    whatever) from a 30-second timeout on *every* line into one clean, instant
    degradation — and what upgrades the voice back automatically when it recovers.
 3. `macos-say` is the floor on macOS: always installed, free, offline. If even that
-   fails, the frame ships without audio and the chamber shows text silently — exactly
+   fails, the frame ships without audio and the antiphon shows text silently — exactly
    the prototype's no-API-key behavior.
 
 **Caching:** every rendered line is content-addressed
-(`sha256(provider, realization, text)`) in `~/.chamber/tts-cache/` and served at
+(`sha256(provider, realization, text)`) in `~/.antiphon/tts-cache/` and served at
 `/audio/{hash}.wav|mp3`. Repeated lines (agents repeat themselves *constantly*) cost
 nothing, and the native app can stream the file instead of decoding base64 out of JSON.
 `macos-say` renders `WAVE/LEI16@48000` — natively matched to the engine's pinned 48 kHz.
 
-## Failure isolation: Chamber down must cost agents nothing
+## Failure isolation: Antiphon down must cost agents nothing
 
-The seam into the agent must be invisible when Chamber isn't in use:
+The seam into the agent must be invisible when Antiphon isn't in use:
 
 - Every hook/plugin touchpoint is **fail-open**: hard connect timeout (250 ms to
   localhost), silent no-op on any failure, always exit 0 / always return "ok" to the
   model. The prototype already did this right (tool calls return "ok" regardless);
   we keep that and add the timeout discipline.
-- The channel subprocess (`chamberd channel`) retries with capped backoff **+ jitter**
+- The channel subprocess (`antiphond channel`) retries with capped backoff **+ jitter**
   (prototype: 1 s tight loop forever — fine for one session, noisy for fifteen).
   Blips during an outage are dropped (they're ephemeral by definition); the **latest
   done-summary is held** (buffer of one) and delivered on reconnect — that's the line
   with durable value.
-- Cheap discovery: `chamberd serve` writes `~/.chamber/chamberd.json`
+- Cheap discovery: `antiphond serve` writes `~/.antiphon/antiphond.json`
   (`{port, pid, started_at}`) on start and removes it on clean exit. Clients check the
   file before ever touching the network; a stale file (dead pid) reads as "not running".
 - The native app **owns the daemon** on macOS: spawn on launch if not running, adopt if
-  running, supervise/restart. Standalone `chamberd serve` stays first-class for web/dev.
+  running, supervise/restart. Standalone `antiphond serve` stays first-class for web/dev.
   (launchd socket activation is a possible later refinement, not a dependency.)
 
 ## Install & distribution
 
 - **Plugin**: a marketplace manifest lives at the repo root
   (`.claude-plugin/marketplace.json`), so real installs are
-  `claude plugin marketplace add cfoust/chamber` + `claude plugin install
-  chamber@chamber`; `--plugin-dir` remains the dev path. See `cc-chamber/README.md`.
+  `claude plugin marketplace add cfoust/antiphon` + `claude plugin install
+  antiphon@antiphon`; `--plugin-dir` remains the dev path. See `plugins/claude-code/README.md`.
 - **Binary**: nothing needs PATH. The daemon records its own executable path in the
   discovery file, so the plugin launcher finds whatever binary is serving (e.g. the
-  copy inside Chamber.app); it also checks `/Applications`/`~/Applications` bundles,
-  the repo dev build, and `~/go/bin`. `$CHAMBERD` overrides everything.
-- **Hooks are gated** on `~/.chamber/chamberd.json` existing: machines where Chamber
+  copy inside Antiphon.app); it also checks `/Applications`/`~/Applications` bundles,
+  the repo dev build, and `~/go/bin`. `$ANTIPHOND` overrides everything.
+- **Hooks are gated** on `~/.antiphon/antiphond.json` existing: machines where Antiphon
   has never run get zero prompt injection from the plugin.
 
-## Claude Code integration (`cc-chamber`, rebuilt here)
+## Claude Code integration (`plugins/claude-code`, rebuilt here)
 
 Port the prototype plugin into this repo with the runtime dependency removed:
 
-- `.mcp.json` spawns `chamberd channel` (the bundled binary; `CHAMBER_HUB` overridable).
-  Same four narration tools (`chamber_task`, `chamber_progress`, `chamber_done`,
-  `chamber_blocked`), same `claude/channel` inbound path for talk-back.
+- `.mcp.json` spawns `antiphond channel` (the bundled binary; `ANTIPHON_HUB` overridable).
+  Same four narration tools (`antiphon_task`, `antiphon_progress`, `antiphon_done`,
+  `antiphon_blocked`), same `claude/channel` inbound path for talk-back.
 - `channel` mode sends the identity `hello` (session id from CC env, repo from git
   remote/cwd, title from the first task headline).
 - Hooks do two jobs: the prototype's prompt nudges (SessionStart narration mandate +
@@ -303,11 +303,11 @@ Port the prototype plugin into this repo with the runtime dependency removed:
 ## Milestones
 
 - **M0** — this document. ✅
-- **M1** ✅ — `chamberd serve` skeleton (this branch): registry w/ persistence + identity,
+- **M1** ✅ — `antiphond serve` skeleton (this branch): registry w/ persistence + identity,
   `/agent` `/stream` `/events` `/agents` `/health` `/debug/emit`, prototype-compatible
   frames, TTS chain (`elevenlabs` + `macos-say` + breaker + cache), roster with sticky
   voice binding. Verified with a headless WS test.
-- **M2** ✅ — `chamberd channel` (MCP subprocess mode) + `cc-chamber/` plugin in this repo;
+- **M2** ✅ — `antiphond channel` (MCP subprocess mode) + `plugins/claude-code/` plugin in this repo;
   end-to-end with a real Claude Code session. Fail-open verified by killing the daemon
   mid-session.
 - **M3** ✅ — native app client: WebSocket to `/stream`, live narration buffers replacing
@@ -322,9 +322,9 @@ Port the prototype plugin into this repo with the runtime dependency removed:
   to NON-VERBAL sound texture (typing, key clacks) at the agent's position via
   PostToolUse hooks and a `{type:"cue", kind}` event. Explicitly out of scope for now;
   it's additive to the wire protocol whenever we want it, and like the attention cue
-  the sounds could eventually live in `chamber-dsp` itself.
+  the sounds could eventually live in `antiphon-dsp` itself.
 - Auth: localhost-only bind is the current stance (like the prototype). If we ever bind
-  beyond loopback, a bearer token in `chamberd.json` is the shape.
+  beyond loopback, a bearer token in `antiphond.json` is the shape.
 - Audio transport for very long lines: current model is whole-line render; streaming TTS
   (ElevenLabs websocket API) is a latency refinement that doesn't change the contract
   (`audioUrl` can point at a growing file).

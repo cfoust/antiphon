@@ -5,14 +5,14 @@
 /assets/sofa
 # measured-SOFA bakes are regenerable from assets/sofa; only the analytic default is committed
 /assets/baked/*
-!/assets/baked/chamber-default.chamber
+!/assets/baked/antiphon-default.antiphon
 # web app: deps, build output, staged engine artifacts (produced by tools/build-web.sh)
 /web/node_modules
 /web/dist
 /web/.wrangler
 /web/.env
-/web/public/chamber_ffi.wasm
-/web/public/chamber.chamber
+/web/public/antiphon_ffi.wasm
+/web/public/antiphon.antiphon
 # native build output
 *.app
 .DS_Store

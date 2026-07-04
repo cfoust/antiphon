@@ -353,7 +353,7 @@ a ceiling, not bad luck. **Stop generating in-scope single-DSP-block candidates;
 
 - **`dfeq` (diffuse-field EQ)** → `main` commit `95148e2` (2026-06-30). Won rounds 1–3; the durable
   "sounds like a real voice" win. Parity re-checked: native↔wasm error **−153.2 dBFS** (< −90). The
-  one change (`crates/chamber-dsp/src/hrtf.rs`, `diffuse_field_eq` in `HrtfDb::from_asset`) is on main.
+  one change (`crates/antiphon-dsp/src/hrtf.rs`, `diffuse_field_eq` in `HrtfDb::from_asset`) is on main.
 
 ## Live (realtime, head-tracked) A/B rig — `tools/shootout/live/`
 
@@ -365,4 +365,4 @@ continuously so tails stay warm and the A/B is instant + click-free. Scene: one 
 off-forward; you turn your head to audition orientations — so it finally exercises the dynamic
 externalization cue. Same blind ELO logic as the offline harness. Bootstrapped + smoke-tested with
 `baseline` vs `dfeq` (engines differ 3.4 dB, finite). Serve from repo root → `/tools/shootout/live/`.
-Candidate contract: keep the chamber-ffi C ABI identical across engines (edit `chamber-dsp` internals).
+Candidate contract: keep the antiphon-ffi C ABI identical across engines (edit `antiphon-dsp` internals).

@@ -5,7 +5,7 @@
 """Generate the marketing hero's soundtrack OFFLINE through the real engine.
 
 Pipeline: OpenAI TTS agent lines (cached) → 48 k mono → earcons baked from the
-app's exact recipes (ping/chime/drone) → a .scn timeline → `chamber-render
+app's exact recipes (ping/chime/drone) → a .scn timeline → `antiphon-render
 scenario` (real HRTF + hall, app master/send levels) → immersion fade envelope
 → web/public/hero-demo.m4a + the RESOLVED timings the DOM animation syncs to
 (web/src/site/hero-timeline.json). Timings adapt to the actual line durations,
@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "tools/hero-cache"  # gitignored
 OUT_AUDIO = ROOT / "web/public/hero-demo.m4a"
 OUT_TIMELINE = ROOT / "web/src/site/hero-timeline.json"
-ASSET = ROOT / "assets/baked/chamber-kemar.chamber"
+ASSET = ROOT / "assets/baked/antiphon-kemar.antiphon"
 SR = 48000
 
 # ---- the scenario ------------------------------------------------------------
@@ -209,7 +209,7 @@ def main() -> int:
     # 5) render through the real engine
     raw_out = CACHE / "hero-raw.wav"
     subprocess.run(
-        ["cargo", "run", "-p", "chamber-render", "--release", "-q", "--",
+        ["cargo", "run", "-p", "antiphon-render", "--release", "-q", "--",
          "scenario", str(scn), str(ASSET), str(raw_out)],
         cwd=ROOT, check=True,
     )

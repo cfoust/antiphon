@@ -3,7 +3,7 @@
 # dependencies = ["numpy"]
 # ///
 """
-Sound-design concept generator for Chamber's "an agent is waiting" ambient cue.
+Sound-design concept generator for Antiphon's "an agent is waiting" ambient cue.
 
 Design brief (learned the hard way): a drifting near-ear whisper reads as a
 predator. The rule is: abstract + warm + musical + diffuse = presence;
@@ -366,7 +366,7 @@ def C4_urgency_ramp():
 
 
 # ---------------------------------------------------------------------------
-# Engine sources: DRY MONO, drone stripped -- fed to `chamber-render nearfield`
+# Engine sources: DRY MONO, drone stripped -- fed to `antiphon-render nearfield`
 # so the real engine places them at the ear with the near-field DVF. The events
 # (the arpeggio bloom / the accreting chord) are the whole signal now; no bed.
 # ---------------------------------------------------------------------------

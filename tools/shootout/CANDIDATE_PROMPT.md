@@ -6,8 +6,8 @@ Give this to each exploration agent via the **Agent tool** with `isolation: "wor
 
 ---
 
-You are improving the **Chamber** binaural renderer for a blind listening shootout. You are in an
-isolated git worktree of the chamber repo, branched off `research/shootout`. You will implement ONE
+You are improving the **Antiphon** binaural renderer for a blind listening shootout. You are in an
+isolated git worktree of the antiphon repo, branched off `research/shootout`. You will implement ONE
 idea, render a fixed scene to a shared location, and commit. Another process (the supervisor)
 loudness-matches all candidates and the human picks a winner by ear — so your job is a clean,
 working, *different* render, not a finished feature.
@@ -22,11 +22,11 @@ YOUR HYPOTHESIS — id `<ID>`: <HYPOTHESIS>
 CONTRACT (follow exactly):
 
 1. Orient first. Read `CLAUDE.md`, `docs/conventions.md`, and the signal flow in
-   `crates/chamber-dsp/src/lib.rs` (`Renderer::process`), plus whichever of
+   `crates/antiphon-dsp/src/lib.rs` (`Renderer::process`), plus whichever of
    `voice.rs` / `hrtf.rs` / `reverb.rs` / `dvf.rs` your idea touches. Do NOT guess at the
    coordinate/ITD conventions — they're pinned in `docs/conventions.md`.
 
-2. Implement your ONE idea in `crates/chamber-dsp` (the engine). Keep it self-contained and
+2. Implement your ONE idea in `crates/antiphon-dsp` (the engine). Keep it self-contained and
    deterministic. Make it **ON by default** (you may add a parameter, but it must take effect with
    no extra flags, since the scene renders with stock settings). Do not change unrelated behavior,
    the shootout scene, `tools/shootout/*`, or anything in `out/`.
@@ -41,11 +41,11 @@ CONTRACT (follow exactly):
    obviously artifacted).
 
 3. Build — this must succeed:
-   `cargo build -p chamber-render --release`
+   `cargo build -p antiphon-render --release`
 
 4. Render the fixed scene to the MAIN checkout's shared dir (both absolute paths so they resolve
    from your worktree):
-   `cargo run -p chamber-render --release -- shootout /Users/cfoust/Developer/cfoust/chamber/assets/baked/chamber-kemar.chamber /Users/cfoust/Developer/cfoust/chamber/out/shootout/<ID>.wav`
+   `cargo run -p antiphon-render --release -- shootout <repo>/assets/baked/antiphon-kemar.antiphon <repo>/out/shootout/<ID>.wav`
 
 5. Sanity-check the printed peak: it must be finite, not silent, and not wildly clipping (roughly
    0.05–1.2). If it's broken (silent / NaN / runaway), fix your change — a broken render is useless
@@ -57,8 +57,8 @@ CONTRACT (follow exactly):
 
 6. (LIVE RIG) Also build your change as a swappable wasm engine for the realtime, head-tracked A/B:
    `bash tools/shootout/build-live.sh <ID>` (emits `out/shootout/wasm/<ID>.wasm`). HARD RULE: do NOT
-   change the `chamber-ffi` C ABI (the exported `chamber_*` function signatures) — every engine must
-   be driven identically by the shared worklet. Edit `chamber-dsp` internals only; your change must
+   change the `antiphon-ffi` C ABI (the exported `antiphon_*` function signatures) — every engine must
+   be driven identically by the shared worklet. Edit `antiphon-dsp` internals only; your change must
    take effect with stock settings (ON by default, no new FFI flag needed for the A/B).
 
 7. Commit your change on your branch with a clear message (so a winner's diff is recoverable).

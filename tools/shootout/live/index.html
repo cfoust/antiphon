@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Chamber Shootout — live head-tracked A/B</title>
+<title>Antiphon Shootout — live head-tracked A/B</title>
 <style>
   :root { color-scheme: dark; }
   body { font: 15px/1.5 -apple-system, system-ui, sans-serif; background: #0a0c10; color: #e8eaed;
@@ -38,7 +38,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Chamber shootout — live, head-tracked A/B</h1>
+  <h1>Antiphon shootout — live, head-tracked A/B</h1>
   <div class="sub" id="sub">loading…</div>
 
   <div class="row">
@@ -96,7 +96,7 @@
 import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm";
 
 const WASM_DIR = "/out/shootout/wasm/";
-const ASSET_URL = "/assets/baked/chamber-kemar.chamber";
+const ASSET_URL = "/assets/baked/antiphon-kemar.antiphon";
 const VOICE_URL = "/tools/shootout/echo.wav";
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
@@ -105,7 +105,7 @@ const K_BASE = 32, START_ELO = 1500, SRC_DIST = 1.2;
 const $ = id => document.getElementById(id);
 let cands = [], R = {}, games = {}, history = [], pair = null, sel = "A", lastPair = "";
 let ctx = null, node = null, loaded = new Set(), wasmCache = new Map(), assetCache = new Map();
-const DEFAULT_ASSET = "chamber-kemar.chamber";
+const DEFAULT_ASSET = "antiphon-kemar.antiphon";
 let landmarker = null, video = null, neutral = null, curYaw = 0, curPitch = 0, curYawV = 0, curPitchV = 0, curX = 0, curY = 0, curZ = 0, live = false;
 const POS_SCALE = 0.012; // matrix translation -> world metres-ish (head lean -> source parallax)
 let predictSec = 0.045; // velocity-prediction lookahead (s); set ADAPTIVELY to the measured total latency
@@ -229,7 +229,7 @@ async function startAll() {
   ctx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
   if (ctx.state !== "running") await ctx.resume(); // Safari starts suspended -> silence
   await ctx.audioWorklet.addModule("/tools/shootout/live/swap-worklet.js");
-  node = new AudioWorkletNode(ctx, "chamber-swap", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+  node = new AudioWorkletNode(ctx, "antiphon-swap", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
   node.port.start(); // REQUIRED: we use addEventListener on the port, so it won't dispatch until started
   node.connect(ctx.destination);
   node.port.postMessage({ type: "room", index: parseInt($("room").value) });

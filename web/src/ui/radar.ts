@@ -1,7 +1,7 @@
-import type { Chamber } from "../audio/engine";
+import type { Antiphon } from "../audio/engine";
 import { rad, TAU } from "../math";
 
-// Full-bleed top-down chamber, visually mirroring the native RadarView
+// Full-bleed top-down antiphon, visually mirroring the native RadarView
 // (Radar.swift). Agents are world-anchored dots you can pick up and drag
 // anywhere in 2D — the engine follows live (with the audition pulse), so you
 // *hear* the dot move. The listener slides within the rings from head
@@ -16,7 +16,7 @@ function rgb(hex: string): string {
   return `${(v >> 16) & 0xff},${(v >> 8) & 0xff},${v & 0xff}`;
 }
 
-export function initRadar(engine: Chamber, cv: HTMLCanvasElement): void {
+export function initRadar(engine: Antiphon, cv: HTMLCanvasElement): void {
   const g = cv.getContext("2d")!;
   let W = 0,
     H = 0; // CSS px (the context is DPR-scaled)

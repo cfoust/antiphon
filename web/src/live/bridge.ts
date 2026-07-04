@@ -1,7 +1,7 @@
-import type { Chamber } from "../audio/engine";
+import type { Antiphon } from "../audio/engine";
 
 /**
- * Live mode: connect to the local chamber bridge and translate its frames into engine
+ * Live mode: connect to the local antiphon bridge and translate its frames into engine
  * calls. The bridge does identity (seat per session), narration content, and TTS; the
  * page just plays it spatially. Used only when the app is opened with `?live` against a
  * bridge running on the same machine (see docs/cc-integration-plan.md).
@@ -64,7 +64,7 @@ async function frameAudio(f: Frame): Promise<ArrayBuffer | null> {
   return f.audioB64 ? b64ToBuffer(f.audioB64) : null;
 }
 
-export function connectLive(engine: Chamber): void {
+export function connectLive(engine: Antiphon): void {
   engine.startLive();
 
   let socket: WebSocket | null = null;
@@ -80,7 +80,7 @@ export function connectLive(engine: Chamber): void {
 
     ws.onopen = () => {
       retry = 0;
-      console.info("[chamber] bridge connected");
+      console.info("[antiphon] bridge connected");
     };
     ws.onerror = () => ws.close();
     ws.onclose = () => {
@@ -140,7 +140,7 @@ export function connectLive(engine: Chamber): void {
  * head-drift while you dictate doesn't change the target), type or dictate, press Enter.
  * The field tints with the target agent's color. Unfocused, it tracks whoever you face.
  */
-function wireInput(engine: Chamber, send: (obj: unknown) => void): void {
+function wireInput(engine: Antiphon, send: (obj: unknown) => void): void {
   const form = document.getElementById("say") as HTMLFormElement | null;
   const input = document.getElementById("sayText") as HTMLInputElement | null;
   if (!form || !input) return;

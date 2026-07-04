@@ -1,6 +1,6 @@
 # Coordinate & data conventions
 
-One canonical frame lives in `chamber-dsp`. Every host (native Swift, web JS) converts at
+One canonical frame lives in `antiphon-dsp`. Every host (native Swift, web JS) converts at
 its edge. Pin these so left/right never flips.
 
 ## World / listener frame (right-handed)
@@ -9,7 +9,7 @@ its edge. Pin these so left/right never flips.
 - Positions are world metres. The listener pose is `{position, orientation quaternion}`.
 - A source's listener-relative direction is `inv(head_orientation) · (source_pos − head_pos)`.
 - **Room placement**: the world origin is the listener's nominal ear position. Rooms are
-  x/z-centred on it, but vertically the ears sit `EAR_HEIGHT_M` (1.6 m, `chamber-dsp`)
+  x/z-centred on it, but vertically the ears sit `EAR_HEIGHT_M` (1.6 m, `antiphon-dsp`)
   above the floor: floor at `y = -EAR_HEIGHT_M`, ceiling at `y = dims[1] - EAR_HEIGHT_M`.
 
 ## Spherical angles (HRTF grid)
@@ -18,7 +18,7 @@ its edge. Pin these so left/right never flips.
 - **Elevation `el`**: `0` = ear level, `+π/2` = straight up.
 - Unit vector for `(az, el)`: `[-cos(el)·sin(az), sin(el), -cos(el)·cos(az)]`
   (so `az=0,el=0 → (0,0,-1)` front; `az=-π/2 → (+1,0,0)` right). Defined once in
-  `chamber-assets::AssetBuilder::push_direction` and `chamber-bake`.
+  `antiphon-assets::AssetBuilder::push_direction` and `antiphon-bake`.
 
 ## ITD sign
 
@@ -32,7 +32,7 @@ its edge. Pin these so left/right never flips.
 - `Source.directivity ∈ [0,1]`: 0 = omni (bit-exact with the pre-directivity engine),
   1 = cardioid-like. The pattern is **frequency-dependent**: at 1.0 the broadband rear
   level is −12 dB and the per-path one-pole coefficient falls to ×0.3 behind the source
-  (HF beams harder than LF). See `directivity_gain` in `chamber-dsp/src/lib.rs`.
+  (HF beams harder than LF). See `directivity_gain` in `antiphon-dsp/src/lib.rs`.
 - **Image sources mirror the facing axis**: each axis' component flips when that axis'
   bounce count is odd (parity of `bounces[2a]+bounces[2a+1]`) — the standard image-source
   treatment of a directional emitter. The energy-ranking proxy evaluates the pattern toward
@@ -58,7 +58,7 @@ its edge. Pin these so left/right never flips.
 - **Native (Vision `FaceTracker`)**: `onOrient` yields a front-arc angle in degrees
   (−90…+90); the app maps it to yaw radians and builds `qw=cos(yaw/2), qy=sin(yaw/2)`.
 - **Web (pointer / MediaPipe)**: yaw about +y, pitch about +x; same quaternion construction
-  in `chamber-worklet.js`.
+  in `antiphon-worklet.js`.
 
 ## Audio format
 

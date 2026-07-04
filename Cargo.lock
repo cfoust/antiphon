@@ -9,6 +9,51 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "antiphon-assets"
+version = "0.1.0"
+
+[[package]]
+name = "antiphon-bake"
+version = "0.1.0"
+dependencies = [
+ "antiphon-assets",
+ "hound",
+ "rustfft",
+ "sofar",
+]
+
+[[package]]
+name = "antiphon-dsp"
+version = "0.1.0"
+dependencies = [
+ "antiphon-assets",
+ "fft-convolver",
+ "wide",
+]
+
+[[package]]
+name = "antiphon-ffi"
+version = "0.1.0"
+dependencies = [
+ "antiphon-assets",
+ "antiphon-dsp",
+ "antiphon-pose",
+]
+
+[[package]]
+name = "antiphon-pose"
+version = "0.1.0"
+
+[[package]]
+name = "antiphon-render"
+version = "0.1.0"
+dependencies = [
+ "antiphon-assets",
+ "antiphon-dsp",
+ "hound",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -69,51 +114,6 @@ name = "bytemuck"
 version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8efb64bd706a16a1bdde310ae86b351e4d21550d98d056f22f8a7f7a2183fec"
-
-[[package]]
-name = "chamber-assets"
-version = "0.1.0"
-
-[[package]]
-name = "chamber-bake"
-version = "0.1.0"
-dependencies = [
- "chamber-assets",
- "hound",
- "rustfft",
- "sofar",
-]
-
-[[package]]
-name = "chamber-dsp"
-version = "0.1.0"
-dependencies = [
- "chamber-assets",
- "fft-convolver",
- "wide",
-]
-
-[[package]]
-name = "chamber-ffi"
-version = "0.1.0"
-dependencies = [
- "chamber-assets",
- "chamber-dsp",
- "chamber-pose",
-]
-
-[[package]]
-name = "chamber-pose"
-version = "0.1.0"
-
-[[package]]
-name = "chamber-render"
-version = "0.1.0"
-dependencies = [
- "chamber-assets",
- "chamber-dsp",
- "hound",
-]
 
 [[package]]
 name = "fft-convolver"

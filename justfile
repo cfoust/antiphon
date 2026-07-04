@@ -1,4 +1,4 @@
-# Chamber top-level recipes. (Web recipes live in web/justfile.)
+# Antiphon top-level recipes. (Web recipes live in web/justfile.)
 
 # Generate ambient "agent waiting" sound-design concepts -> out/concepts/*.wav
 concepts:
@@ -11,14 +11,14 @@ concepts-list:
 # Render one mono clip statically close to one ear, through the engine (near-field + reverb).
 # usage: just nearfield in.wav out.wav [R|L] [dist] [gain] [room] [send]
 nearfield IN OUT SIDE="R" DIST="0.12" GAIN="0.10" ROOM="room" SEND="0.30":
-    cargo run -q -p chamber-render --release -- nearfield {{IN}} {{OUT}} {{SIDE}} {{DIST}} {{GAIN}} {{ROOM}} {{SEND}}
+    cargo run -q -p antiphon-render --release -- nearfield {{IN}} {{OUT}} {{SIDE}} {{DIST}} {{GAIN}} {{ROOM}} {{SEND}}
 
 # Regenerate all near-ear engine renders (drone-stripped + pulse sources, through reverb, quiet).
 ear-concepts: concepts
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo build -q -p chamber-render --release
-    BIN=target/release/chamber-render
+    cargo build -q -p antiphon-render --release
+    BIN=target/release/antiphon-render
     mkdir -p out/concepts/engine
     nf() { $BIN nearfield "$@"; }
     # held-chord originals, now with reverb, quieter (0.06 whisper / 0.10 soft)

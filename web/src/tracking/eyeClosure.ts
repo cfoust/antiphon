@@ -1,6 +1,6 @@
 // Eye-closure detection — shared core + MediaPipe adapter (web side).
 //
-// Mirrors the Chamber architecture: a PURE core (no MediaPipe, no DOM) does the
+// Mirrors the Antiphon architecture: a PURE core (no MediaPipe, no DOM) does the
 // calibration + hysteresis + blink-rejection state machine on a single normalized
 // "openness" scalar in [0,1]. A thin adapter turns the tracker's raw landmarks into
 // that scalar. The native side (EyeClosure.swift) runs the *same* core with the same

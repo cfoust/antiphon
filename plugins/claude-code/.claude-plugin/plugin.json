@@ -1,0 +1,8 @@
+{
+  "name": "antiphon",
+  "description": "Narrate this session into Antiphon, the spatial-audio agent monitor. Requires antiphond (see docs/agent-bridge.md); silently inert when it isn't running.",
+  "version": "0.3.0",
+  "author": {
+    "name": "Caleb Foust"
+  }
+}

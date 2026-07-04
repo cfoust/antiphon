@@ -1,0 +1,73 @@
+/* Antiphon binaural renderer — C ABI (see crates/antiphon-ffi).
+ * Hand-written to match the #[no_mangle] exports. Keep in sync with that crate. */
+#ifndef ANTIPHON_H
+#define ANTIPHON_H
+
+#include <stdint.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct AntiphonPose {
+    float px, py, pz;     /* listener position (world metres) */
+    float qw, qx, qy, qz; /* orientation quaternion */
+} AntiphonPose;
+
+typedef struct AntiphonSource {
+    float x, y, z;        /* source position (world metres) */
+    float gain;           /* linear pre-gain */
+    float send;           /* reverb send 0..1 */
+    float fx, fy, fz;     /* emission axis (world); all-zero = omnidirectional */
+    float directivity;    /* radiation pattern 0..1 (0 = omni, 1 = cardioid-like) */
+    float extent;         /* source radius in metres (0 = point source) */
+} AntiphonSource;
+
+/* Opaque handle. */
+typedef void AntiphonRenderer;
+
+AntiphonRenderer *antiphon_renderer_create(const uint8_t *blob, size_t len,
+                                         float sample_rate,
+                                         uint32_t max_sources, uint32_t max_block);
+void antiphon_renderer_destroy(AntiphonRenderer *h);
+void antiphon_renderer_set_room(AntiphonRenderer *h, uint32_t room);
+void antiphon_renderer_set_reflections(AntiphonRenderer *h, int32_t on);
+void antiphon_renderer_set_master_gain(AntiphonRenderer *h, float g);
+/* Late-tail blend for BRIR rooms: 0 = pure parametric FDN, 1 = pure measured BRIR. */
+void antiphon_renderer_set_reverb_blend(AntiphonRenderer *h, float b);
+/* HRTF frequency-scaling / "fit": 1.0 = baked HRTF; >1 shifts pinna cues up, <1 down. */
+void antiphon_renderer_set_freq_scale(AntiphonRenderer *h, float s);
+/* "An agent is waiting" cue: number of waiting agents (0 = silent, resets the build clock). */
+void antiphon_renderer_set_attention_agents(AntiphonRenderer *h, uint32_t n);
+/* Minutes over which the attention cue builds from silent -> full urgency (louder + faster). */
+void antiphon_renderer_set_attention_build_minutes(AntiphonRenderer *h, float m);
+/* Immersion (eyes) fade target 0..1: 1 = eyes-closed (scene full, cue silent), 0 = eyes-open
+ * (scene silent, cue audible). Applied per-source in-engine; scene<->cue crossfade is automatic. */
+void antiphon_renderer_set_immersion(AntiphonRenderer *h, float target);
+/* Current smoothed immersion value (for host UI/debug). */
+float antiphon_renderer_immersion(AntiphonRenderer *h);
+uint32_t antiphon_renderer_num_rooms(AntiphonRenderer *h);
+/* Geometry of room preset `room`: writes [width, height, depth, ear_height] (metres) to
+ * out[4]. Room is x/z-centred on the origin (the listener's nominal ear position); floor at
+ * y = -ear_height, ceiling at y = height - ear_height. Returns 1 on success, 0 on failure. */
+int32_t antiphon_renderer_room_dims(AntiphonRenderer *h, uint32_t room, float *out);
+
+/* Render `frames` samples. `inputs` is `n` pointers to `frames` mono floats each. */
+void antiphon_renderer_process(AntiphonRenderer *h, const AntiphonPose *pose,
+                              const AntiphonSource *sources, uint32_t n,
+                              const float *const *inputs,
+                              float *out_l, float *out_r, uint32_t frames);
+
+/* 6DoF head pose from facial landmarks (PnP). image_pts = 2*n pixel coords (x,y) in the
+ * model order: nose tip, chin, left-eye outer, right-eye outer, left-mouth, right-mouth.
+ * Writes yaw/pitch/roll (deg) to out_ypr[3], camera-frame position (m) to out_pos[3],
+ * mean reprojection error (px) to out_err[1]. Returns 1 on success, 0 on failure. */
+int32_t antiphon_solve_head_pose(const float *image_pts, uint32_t n,
+                                float focal, float cx, float cy,
+                                float *out_ypr, float *out_pos, float *out_err);
+
+#ifdef __cplusplus
+}
+#endif
+#endif /* ANTIPHON_H */

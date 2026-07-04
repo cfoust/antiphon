@@ -1,4 +1,4 @@
-import type { Chamber } from "../audio/engine";
+import type { Antiphon } from "../audio/engine";
 import type { AgentRow } from "../types";
 
 // The agent list: everyone in the room, at a glance (mirrors Sidebar.swift).
@@ -27,7 +27,7 @@ const MOON_SVG =
   '<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true">' +
   '<path d="M11.2 2.2a5.9 5.9 0 1 0 2.9 7.9 4.9 4.9 0 0 1-2.9-7.9z"/></svg>';
 
-export function initAgentList(engine: Chamber, root: HTMLElement): void {
+export function initAgentList(engine: Antiphon, root: HTMLElement): void {
   root.innerHTML =
     '<button type="button" class="agents-head">' +
     '<span class="agents-title">In the room</span>' +

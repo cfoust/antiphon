@@ -1,5 +1,5 @@
-// WasmEngine — loads the Rust binaural engine (chamber-ffi) into an AudioWorklet and
-// exposes a small, host-friendly API. This is the shared spatializer for the Chamber app
+// WasmEngine — loads the Rust binaural engine (antiphon-ffi) into an AudioWorklet and
+// exposes a small, host-friendly API. This is the shared spatializer for the Antiphon app
 // and the test harness, and is the web half of "native + web, identical engine".
 
 export interface Vec3 { x: number; y: number; z: number; }
@@ -48,8 +48,8 @@ export class WasmEngine {
       fetch(opts.wasmUrl).then((r) => r.arrayBuffer()),
       fetch(opts.assetUrl).then((r) => r.arrayBuffer()),
     ]);
-    await ctx.audioWorklet.addModule(opts.workletUrl ?? "/chamber-worklet.js");
-    e.node = new AudioWorkletNode(ctx, "chamber", {
+    await ctx.audioWorklet.addModule(opts.workletUrl ?? "/antiphon-worklet.js");
+    e.node = new AudioWorkletNode(ctx, "antiphon", {
       numberOfInputs: opts.numInputs ?? 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],
@@ -75,7 +75,7 @@ export class WasmEngine {
     this.node.connect(dst);
   }
 
-  /** Connect a WebAudio node to live-input source slot `i` (Chamber: one per agent). */
+  /** Connect a WebAudio node to live-input source slot `i` (Antiphon: one per agent). */
   connectInput(src: AudioNode, i: number): void {
     src.connect(this.node, 0, i);
   }
@@ -157,7 +157,7 @@ export class WasmEngine {
 
 /** Default asset/wasm URLs (staged into public/ by tools/build-web.sh). */
 export const ENGINE_URLS = {
-  wasmUrl: "/chamber_ffi.wasm",
-  assetUrl: "/chamber.chamber",
-  workletUrl: "/chamber-worklet.js",
+  wasmUrl: "/antiphon_ffi.wasm",
+  assetUrl: "/antiphon.antiphon",
+  workletUrl: "/antiphon-worklet.js",
 };

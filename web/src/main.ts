@@ -3,7 +3,7 @@ import "@fontsource/instrument-sans"; // onboarding body
 import "@fontsource/instrument-sans/500.css";
 import "@fontsource/instrument-sans/600.css";
 import { DEMO_AGENT_COUNT } from "./agents";
-import { Chamber } from "./audio/engine";
+import { Antiphon } from "./audio/engine";
 import { HeadTracker, type Calibration } from "./tracking/headTracking";
 import { initAgentList } from "./ui/agentList";
 import { initRadar } from "./ui/radar";
@@ -25,7 +25,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // bridge, instead of the standalone scripted demo. See docs/cc-integration-plan.md.
 const LIVE = new URLSearchParams(location.search).has("live");
 
-const CAL_KEY = "agent-chamber-calibration";
+const CAL_KEY = "agent-antiphon-calibration";
 const FIT_KEY = "antiphon-fit";
 const ONBOARD_KEY = "antiphon-onboarded"; // the Fit beat was completed once
 function loadCal(): Calibration | null {
@@ -39,7 +39,7 @@ function saveCal(c: Calibration) {
   localStorage.setItem(CAL_KEY, JSON.stringify(c));
 }
 
-const engine = new Chamber();
+const engine = new Antiphon();
 if (!LIVE) engine.activeCount = DEMO_AGENT_COUNT; // the scripted roster
 {
   const f = parseFloat(localStorage.getItem(FIT_KEY) || "");

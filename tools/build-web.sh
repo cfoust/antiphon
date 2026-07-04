@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # Build the wasm engine and stage it (+ the best HRTF asset) into web/public/ so the
-# Vite app and the test harness can fetch /chamber_ffi.wasm and /chamber.chamber.
+# Vite app and the test harness can fetch /antiphon_ffi.wasm and /antiphon.antiphon.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 RUSTFLAGS="-C target-feature=+simd128" \
-  cargo build -p chamber-ffi --release --target wasm32-unknown-unknown
+  cargo build -p antiphon-ffi --release --target wasm32-unknown-unknown
 
 mkdir -p web/public
-cp target/wasm32-unknown-unknown/release/chamber_ffi.wasm web/public/chamber_ffi.wasm
+cp target/wasm32-unknown-unknown/release/antiphon_ffi.wasm web/public/antiphon_ffi.wasm
 
 # prefer a measured HRTF (dummy head), else analytic default
 ASSET=""
-for c in chamber-kemar chamber-ari chamber-default; do
-  [ -f "assets/baked/$c.chamber" ] && ASSET="assets/baked/$c.chamber" && break
+for c in antiphon-kemar antiphon-ari antiphon-default; do
+  [ -f "assets/baked/$c.antiphon" ] && ASSET="assets/baked/$c.antiphon" && break
 done
-[ -z "$ASSET" ] && { cargo run -q -p chamber-bake --release -- assets/baked/chamber-default.chamber; ASSET="assets/baked/chamber-default.chamber"; }
-cp "$ASSET" web/public/chamber.chamber
+[ -z "$ASSET" ] && { cargo run -q -p antiphon-bake --release -- assets/baked/antiphon-default.antiphon; ASSET="assets/baked/antiphon-default.antiphon"; }
+cp "$ASSET" web/public/antiphon.antiphon
 
-echo "staged web/public/chamber_ffi.wasm ($(du -h web/public/chamber_ffi.wasm | cut -f1)) + $ASSET"
+echo "staged web/public/antiphon_ffi.wasm ($(du -h web/public/antiphon_ffi.wasm | cut -f1)) + $ASSET"

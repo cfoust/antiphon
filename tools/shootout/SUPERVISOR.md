@@ -1,6 +1,6 @@
 # Shootout supervisor — handoff / cold-start guide
 
-You are the **supervisor** for a blind ELO listening experiment on the Chamber binaural renderer.
+You are the **supervisor** for a blind ELO listening experiment on the Antiphon binaural renderer.
 This file is written so a *fresh* Claude Code instance with no prior chat history can run the whole
 thing. Read it top to bottom, then `tools/shootout/README.md` (the operational quick-ref) and
 `tools/shootout/CANDIDATE_PROMPT.md` (the exact prompt you give each exploration agent).
@@ -24,8 +24,8 @@ worse-than-nothing.
 
 ## Project context (enough to be dangerous)
 
-Chamber is a real-time binaural engine: one Rust DSP core (`crates/chamber-dsp`) behind one C ABI
-(`crates/chamber-ffi`), compiled native (macOS app) and wasm (web). Signal flow per source:
+Antiphon is a real-time binaural engine: one Rust DSP core (`crates/antiphon-dsp`) behind one C ABI
+(`crates/antiphon-ffi`), compiled native (macOS app) and wasm (web). Signal flow per source:
 direct-path min-phase HRIR FIR + separate fractional-delay ITD + near-field DVF → image-source
 early reflections → late reverb (FDN or measured-BRIR convolution). Read `CLAUDE.md` and
 `docs/conventions.md` first. The externalization work (head tracking, near-field DVF, 6DoF room
@@ -38,10 +38,10 @@ to render the scene correctly.
 
 ## Current state (update this as you go)
 
-- **Repo (main checkout):** `/Users/cfoust/Developer/cfoust/chamber`
+- **Repo (main checkout):** `<repo>`
 - **Branch:** `research/shootout` (off `main`). Scaffolding is committed here.
 - **Asset:** all candidates render on KEMAR via the main checkout's absolute path
-  `/Users/cfoust/Developer/cfoust/chamber/assets/baked/chamber-kemar.chamber` (it's gitignored, so
+  `<repo>/assets/baked/antiphon-kemar.antiphon` (it's gitignored, so
   not in worktrees — the absolute path is how every worktree reaches it).
 - **Seeded + validated:** `baseline` and `fit_1p5` (frequency-scale 1.5 via the `FREQ_SCALE` env
   hook) are rendered, ingested, and play in the harness.
@@ -74,7 +74,7 @@ to render the scene correctly.
 7. **Iterate or promote:** spawn a round 2 (new hypotheses, refinements of the leader, or
    combinations of complementary winners — adding candidates keeps existing ELO and starts new ones
    at 1500), or promote a winner: review its `cand/<id>` branch diff and cherry-pick/merge into
-   `main` after a parity check (`cargo run -p chamber-render --release -- parity` → wasm build →
+   `main` after a parity check (`cargo run -p antiphon-render --release -- parity` → wasm build →
    `node tools/parity.mjs`), re-tuning if the experimental change broke parity. Record the promotion
    in FINDINGS.md.
 
@@ -90,15 +90,15 @@ to render the scene correctly.
 
 ## The scene (don't change it mid-experiment — it must stay constant across candidates)
 
-`chamber-render shootout <asset> <out.wav> [voice.wav]` (code in
-`crates/chamber-render/src/main.rs`, `run_shootout`). One voice (`tools/shootout/echo.wav`) tours
+`antiphon-render shootout <asset> <out.wav> [voice.wav]` (code in
+`crates/antiphon-render/src/main.rs`, `run_shootout`). One voice (`tools/shootout/echo.wav`) tours
 the hard positions past a fixed head: front arc back-and-forth (0–6 s), then a full orbit with an
 elevation wobble (6–12 s). Room = `room` (FDN). Renders through the real `Renderer`, so a
-candidate's `chamber-dsp` edits take effect. Regenerate the baseline any time with:
+candidate's `antiphon-dsp` edits take effect. Regenerate the baseline any time with:
 
 ```sh
-cargo run -p chamber-render --release -- shootout \
-  /Users/cfoust/Developer/cfoust/chamber/assets/baked/chamber-kemar.chamber \
+cargo run -p antiphon-render --release -- shootout \
+  <repo>/assets/baked/antiphon-kemar.antiphon \
   out/shootout/baseline.wav
 ```
 
@@ -131,4 +131,4 @@ The two complaints map most directly to: `dfeq`, `crossfeed`, `front_notch`, `lf
 - `tools/shootout/ingest.py` — sanitize + loudness-match + manifest (uv inline deps).
 - `tools/shootout/live/index.html` — the realtime head-tracked A/B harness (served from repo root).
 - `tools/shootout/echo.wav` — the committed source clip (reproducible across worktrees).
-- `crates/chamber-render/src/main.rs` — the `shootout` subcommand (`run_shootout`).
+- `crates/antiphon-render/src/main.rs` — the `shootout` subcommand (`run_shootout`).

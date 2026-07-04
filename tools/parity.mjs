@@ -1,16 +1,16 @@
 // Cross-target parity check: drive the wasm-compiled engine through the SAME
-// deterministic scene as `chamber-render parity` and compare to its float dump.
+// deterministic scene as `antiphon-render parity` and compare to its float dump.
 //
-//   1) cargo run -p chamber-render --release -- parity
-//   2) cargo build -p chamber-ffi --release --target wasm32-unknown-unknown
+//   1) cargo run -p antiphon-render --release -- parity
+//   2) cargo build -p antiphon-ffi --release --target wasm32-unknown-unknown
 //   3) node tools/parity.mjs
 //
 // Passes if native vs wasm RMS error is below -90 dBFS (float-rounding tolerance).
 
 import { readFileSync } from "node:fs";
 
-const WASM = "target/wasm32-unknown-unknown/release/chamber_ffi.wasm";
-const ASSET = "assets/baked/chamber-default.chamber";
+const WASM = "target/wasm32-unknown-unknown/release/antiphon_ffi.wasm";
+const ASSET = "assets/baked/antiphon-default.antiphon";
 const BLOCK = 128;
 
 const wasmBytes = readFileSync(WASM);
@@ -24,14 +24,14 @@ const mem = () => new DataView(ex.memory.buffer);
 const f32 = () => new Float32Array(ex.memory.buffer);
 
 // stage the asset blob
-const assetPtr = ex.chamber_alloc(asset.length);
+const assetPtr = ex.antiphon_alloc(asset.length);
 new Uint8Array(ex.memory.buffer, assetPtr, asset.length).set(asset);
 
 const SR = 48000;
-const r = ex.chamber_renderer_create(assetPtr, asset.length, SR, 1, BLOCK);
+const r = ex.antiphon_renderer_create(assetPtr, asset.length, SR, 1, BLOCK);
 if (r === 0) throw new Error("renderer_create failed");
-ex.chamber_renderer_set_room(r, 0);
-ex.chamber_renderer_set_master_gain(r, 0.9);
+ex.antiphon_renderer_set_room(r, 0);
+ex.antiphon_renderer_set_master_gain(r, 0.9);
 
 const input = new Float32Array(
   inputBin.buffer,
@@ -41,13 +41,13 @@ const input = new Float32Array(
 const total = input.length;
 
 // scratch buffers in wasm memory
-const inPtr = ex.chamber_alloc(BLOCK * 4);
-const outLPtr = ex.chamber_alloc(BLOCK * 4);
-const outRPtr = ex.chamber_alloc(BLOCK * 4);
+const inPtr = ex.antiphon_alloc(BLOCK * 4);
+const outLPtr = ex.antiphon_alloc(BLOCK * 4);
+const outRPtr = ex.antiphon_alloc(BLOCK * 4);
 // pose (7 floats) + source (10 floats) + input-pointer table (1 ptr)
-const posePtr = ex.chamber_alloc(7 * 4);
-const srcPtr = ex.chamber_alloc(10 * 4);
-const inTabPtr = ex.chamber_alloc(4);
+const posePtr = ex.antiphon_alloc(7 * 4);
+const srcPtr = ex.antiphon_alloc(10 * 4);
+const inTabPtr = ex.antiphon_alloc(4);
 
 // identity pose
 {
@@ -69,7 +69,7 @@ let pos = 0;
 while (pos < total) {
   const n = Math.min(BLOCK, total - pos);
   f32().set(input.subarray(pos, pos + n), inPtr / 4);
-  ex.chamber_renderer_process(r, posePtr, srcPtr, 1, inTabPtr, outLPtr, outRPtr, n);
+  ex.antiphon_renderer_process(r, posePtr, srcPtr, 1, inTabPtr, outLPtr, outRPtr, n);
   const fl = f32();
   for (let i = 0; i < n; i++) {
     out[(pos + i) * 2] = fl[outLPtr / 4 + i];

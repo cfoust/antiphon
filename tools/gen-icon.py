@@ -8,7 +8,7 @@ pupil and highlight, drawn at 4x and downsampled per icon size.
 
     uv run tools/gen-icon.py
 
-Writes native/ChamberApp/Resources/Antiphon.icns (via iconutil).
+Writes native/AntiphonApp/Resources/Antiphon.icns (via iconutil).
 """
 
 import subprocess
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-OUT = Path(__file__).resolve().parent.parent / "native/ChamberApp/Resources/Antiphon.icns"
+OUT = Path(__file__).resolve().parent.parent / "native/AntiphonApp/Resources/Antiphon.icns"
 
 CREAM = (251, 247, 240, 255)  # #FBF7F0
 COBALT = (39, 67, 184, 255)  # #2743B8

@@ -1,6 +1,6 @@
 // Three.js viewport for the sandbox scene editor: orbitable 3D view with the listener
 // head, draggable source spheres, facing arrows (directivity) and extent shells.
-// Chamber frame throughout: +x right, +y up, +z back (front = −z). Three.js is the same
+// Antiphon frame throughout: +x right, +y up, +z back (front = −z). Three.js is the same
 // right-handed frame, so no conversion — the camera just starts behind/above the listener.
 
 import * as THREE from "three";

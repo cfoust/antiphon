@@ -1,5 +1,5 @@
 {
-  "name": "agent-chamber",
+  "name": "agent-antiphon",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "deploy": "vite build && wrangler pages deploy dist --project-name agent-chamber --branch main --commit-dirty=true"
+    "deploy": "vite build && wrangler pages deploy dist --project-name agent-antiphon --branch main --commit-dirty=true"
   },
   "dependencies": {
     "@fontsource/cormorant-garamond": "^5.2.11",

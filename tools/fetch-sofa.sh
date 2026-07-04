@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetch a free measured HRTF SOFA set for `chamber-bake --features sofa --sofa`.
+# Fetch a free measured HRTF SOFA set for `antiphon-bake --features sofa --sofa`.
 # MIT KEMAR (dummy head) from sofacoustics.org — small, canonical, permissively licensed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -18,7 +18,7 @@ fetch ari_nh2.sofa          "https://sofacoustics.org/data/database/ari/hrtf_nh2
 
 cat <<'EOF'
 bake (enumerate, full resolution):
-  cargo run -p chamber-bake --release --features sofa -- \
-      assets/baked/chamber-ari.chamber --sofa assets/sofa/ari_nh2.sofa
-  cargo run -p chamber-render --release -- assets/baked/chamber-ari.chamber out_ari
+  cargo run -p antiphon-bake --release --features sofa -- \
+      assets/baked/antiphon-ari.antiphon --sofa assets/sofa/ari_nh2.sofa
+  cargo run -p antiphon-render --release -- assets/baked/antiphon-ari.antiphon out_ari
 EOF

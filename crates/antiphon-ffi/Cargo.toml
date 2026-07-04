@@ -1,0 +1,16 @@
+[package]
+name = "antiphon-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "C ABI over antiphon-dsp for native (Swift/CoreAudio) hosts."
+
+[lib]
+name = "antiphon_ffi"
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+antiphon-assets = { path = "../antiphon-assets" }
+antiphon-dsp = { path = "../antiphon-dsp" }
+antiphon-pose = { path = "../antiphon-pose" }

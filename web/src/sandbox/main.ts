@@ -1,4 +1,4 @@
-// Chamber sandbox — the unified dev/experimentation tool. Merges the old test harness
+// Antiphon sandbox — the unified dev/experimentation tool. Merges the old test harness
 // (source placement, SFX/voices, file loading, head tracking), arp-lab (the arpeggio-bloom
 // synth with its full parameter panel) and attention-demo (the in-engine cue) into one
 // 3D scene editor driving the wasm binaural engine: place sources, aim them (directivity),
@@ -70,7 +70,7 @@ let trackedPos: Vec3 = { x: 0, y: 0, z: 0 };
 let headPos: Vec3 = { x: 0, y: 0, z: 0 };
 
 let roomIdx = 4; // room (BRIR) — the default that sounded best
-let roomDims: RoomDims | null = null; // fetched from the engine (chamber_room_dims)
+let roomDims: RoomDims | null = null; // fetched from the engine (antiphon_room_dims)
 let door: DoorConfig = { ...DOOR_DEFAULTS };
 let reflections = true;
 let reverbBlend = 1;
@@ -285,7 +285,7 @@ function applyImmersion(): void {
 }
 
 // ---- persistence ---------------------------------------------------------------
-const STORE_KEY = "chamber-sandbox-scene";
+const STORE_KEY = "antiphon-sandbox-scene";
 let saveTimer: number | undefined;
 function saveSoon(): void {
   clearTimeout(saveTimer);
@@ -912,7 +912,7 @@ view.onHover = (id, x, y) => {
   const blob = new Blob([JSON.stringify(sceneToJson(), null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "chamber-scene.json";
+  a.download = "antiphon-scene.json";
   a.click();
   URL.revokeObjectURL(a.href);
 };

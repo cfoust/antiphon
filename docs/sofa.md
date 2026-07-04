@@ -1,6 +1,6 @@
 # Measured SOFA HRTF import — implemented
 
-`chamber-bake` can import a measured SOFA HRTF instead of the analytic model. The runtime
+`antiphon-bake` can import a measured SOFA HRTF instead of the analytic model. The runtime
 format (per-direction minimum-phase HRIR + ITD) is unchanged, so the engine and both hosts
 are untouched — only the baker grows a SOFA path, behind the `sofa` cargo feature.
 
@@ -9,10 +9,10 @@ are untouched — only the baker grows a SOFA path, behind the `sofa` cargo feat
 # fetch a free dataset (MIT KEMAR dummy head)
 bash tools/fetch-sofa.sh
 # bake it (the `sofa` feature pulls in the pure-Rust `sofar` SOFA reader)
-cargo run -p chamber-bake --release --features sofa -- \
-    assets/baked/chamber-kemar.chamber --sofa assets/sofa/mit_kemar_normal.sofa
+cargo run -p antiphon-bake --release --features sofa -- \
+    assets/baked/antiphon-kemar.antiphon --sofa assets/sofa/mit_kemar_normal.sofa
 # render demos with it
-cargo run -p chamber-render --release -- assets/baked/chamber-kemar.chamber out_kemar
+cargo run -p antiphon-render --release -- assets/baked/antiphon-kemar.antiphon out_kemar
 ```
 
 ## How it works (`bake_sofa`)
@@ -50,5 +50,5 @@ sofacoustics.org. Other free sets to try: **SADIE II** (KU100), **SONICOM**, FAB
 - kd-tree the runtime nearest-search if a much larger grid is ever used (currently linear).
 
 ## Measured rooms (Tier-1 BRIR)
-Drop a 48 kHz stereo `assets/brir/<room>.wav` and `chamber-bake` uses it for that room's
+Drop a 48 kHz stereo `assets/brir/<room>.wav` and `antiphon-bake` uses it for that room's
 convolution reverb (`load_brir_wav`). A BRIR-SOFA path (early/late split) is the next step.

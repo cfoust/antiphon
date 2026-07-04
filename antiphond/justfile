@@ -1,0 +1,18 @@
+# antiphond — the Antiphon agent bridge daemon (see ../docs/agent-bridge.md)
+
+default:
+    @just --list
+
+# Build the daemon to bin/antiphond (the claude-code plugin launcher looks here).
+build:
+    go build -o bin/antiphond ./cmd/antiphond
+
+test:
+    go test ./...
+
+vet:
+    go vet ./...
+
+# Run the hub on 127.0.0.1:8787 (ANTIPHON_PORT / ELEVENLABS_API_KEY respected).
+serve: build
+    ./bin/antiphond serve

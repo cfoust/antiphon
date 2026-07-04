@@ -18,7 +18,7 @@ import type {
   AgentNode,
   AgentRow,
   Arrangement,
-  ChamberMode,
+  AntiphonMode,
   EnvName,
   SeatMeta,
 } from "../types";
@@ -27,11 +27,11 @@ import { WasmEngine, ENGINE_URLS } from "./wasmEngine";
 
 /** Map the prototype's env names to wasm room-preset indices. `room`/`hall` use the
  *  measured-style convolution-BRIR presets (4 = room_conv, 5 = hall_conv). */
-const ENV_ROOM: Record<EnvName, number> = { dry: 0, room: 4, chamber: 3, hall: 5 };
+const ENV_ROOM: Record<EnvName, number> = { dry: 0, room: 4, antiphon: 3, hall: 5 };
 const SOURCE_RADIUS = 1.3; // ~the first range ring — the distance that sounded best
 
 /** localStorage key for a seat's dragged world position (native: UserDefaults seatpos.*). */
-const seatPosKey = (i: number) => `chamber-seatpos.${i}`;
+const seatPosKey = (i: number) => `antiphon-seatpos.${i}`;
 function loadSeatPos(i: number): { x: number; z: number } | null {
   try {
     const p = JSON.parse(localStorage.getItem(seatPosKey(i)) || "null");
@@ -42,11 +42,11 @@ function loadSeatPos(i: number): { x: number; z: number } | null {
 }
 
 /**
- * Owns the Web Audio graph and all runtime state for the chamber. UI modules
+ * Owns the Web Audio graph and all runtime state for the antiphon. UI modules
  * read its public fields to render and call its setters to drive it; it emits
  * `onAgents` / `onOrient` so views can refresh.
  */
-export class Chamber {
+export class Antiphon {
   // audio graph
   ctx!: AudioContext;
   master!: GainNode;
@@ -60,13 +60,13 @@ export class Chamber {
   headPos = { x: 0, y: 0, z: 0 }; // 6DoF head translation (metres, neutral-relative) → true parallax
   ringIntel = 0; // 0..1 — ambient murmur bed kept at its quietest
   arrangement: Arrangement = "arc"; // a semicircle across the front
-  env: EnvName = "hall"; // hall (BRIR) — mirrors ChamberEngine.swift roomIndex = 5
+  env: EnvName = "hall"; // hall (BRIR) — mirrors AntiphonEngine.swift roomIndex = 5
   lookGate = 1; // 1 = forward, 0 = looking down (everyone whispers)
   activeCount = 5;
   fit = 2.0; // HRTF "fit": warps the pinna spectral cue until a source ahead sits OUT in front
   // Full-scale master level. The eyes/immersion fade is now PER-SOURCE inside the engine (see
   // setImmersion), not a master-gain ramp, so the master stays at this level.
-  readonly masterFull = 0.45; // mirrors ChamberEngine.swift openRoom()
+  readonly masterFull = 0.45; // mirrors AntiphonEngine.swift openRoom()
 
   // "Agent waiting" attention cue: minutes to build silent→full. Lower than native's 10 for the web
   // so the pulses are audible during a short session (tune later). `lastWaiting` de-dupes the count.
@@ -74,7 +74,7 @@ export class Chamber {
   private lastWaiting = -1;
 
   // what drives the agents (set in start()); demo loads canned audio, live never does
-  mode: ChamberMode = "demo";
+  mode: AntiphonMode = "demo";
 
   // simulation state
   autoFinish = false;
@@ -83,13 +83,13 @@ export class Chamber {
   private lingerStart = 0;
   private curFacedId: string | null = null;
 
-  // radar/list interactions (mirrors ChamberEngine.swift dragSeat/hoveredSeat/immersionHold)
+  // radar/list interactions (mirrors AntiphonEngine.swift dragSeat/hoveredSeat/immersionHold)
   dragSeat = -1; // seat being dragged on the radar; -1 = none
   hoveredSeat = -1; // seat hovered/tapped in the agent list; -1 = none
   private immersionHold = false; // a drag audition holds the scene fully in
   private immersionEye = 1; // last eye-driven immersion target (0..1)
   private eyesClosed = false; // detector state (false when no tracker runs)
-  // eyes-closed gaze dwell → the hum crests (mirrors ChamberEngine.swift updateTalkback)
+  // eyes-closed gaze dwell → the hum crests (mirrors AntiphonEngine.swift updateTalkback)
   private dwellSeat = -1;
   private dwellStart = 0;
   private cooldownSeat = -1;
@@ -114,7 +114,7 @@ export class Chamber {
 
   facedAgent(): AgentDef | null {
     // nearest visible agent by bearing — snoozed/absent agents can't be faced
-    // (mirrors ChamberEngine.swift facedIndex())
+    // (mirrors AntiphonEngine.swift facedIndex())
     let best = -1,
       bd = Infinity;
     for (const i of this.visibleSeats()) {
@@ -145,7 +145,7 @@ export class Chamber {
       pos: { x: N.posX, y: 0, z: N.posZ },
       gain: 1,
       // as dry as the voice, dragged or not — the direct path carries position
-      send: 0.05, // mirrors ChamberEngine.swift voiceSend
+      send: 0.05, // mirrors AntiphonEngine.swift voiceSend
     });
   }
 
@@ -182,7 +182,7 @@ export class Chamber {
     const summaryGain = ctx.createGain();
     summaryGain.gain.value = 0;
     summaryGain.connect(sum);
-    // --- chord identity + drag audition (mirrors ChamberEngine.swift setup()) ---
+    // --- chord identity + drag audition (mirrors AntiphonEngine.swift setup()) ---
     // the working drone: a seamless loop of the chord root, gated by gDrone in tick()
     const pf = PING_FREQS[idx % PING_FREQS.length];
     const droneGain = ctx.createGain();
@@ -271,7 +271,7 @@ export class Chamber {
   /** Build the graph and load voices. The context starts suspended (silent) so nothing
    *  plays until resume() is called from the Start gesture. `mode` decides whether the
    *  agents are the canned demo or driven live by a Claude Code session. */
-  async start(mode: ChamberMode = "demo"): Promise<void> {
+  async start(mode: AntiphonMode = "demo"): Promise<void> {
     this.mode = mode;
     const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     // 48 kHz to match the baked HRTF asset (most browsers honor this).
@@ -502,7 +502,7 @@ export class Chamber {
     N.heardAt = 0;
     if (N.departed) {
       // summary heard and the session is long gone — leave the room
-      // (mirrors ChamberEngine.swift reset())
+      // (mirrors AntiphonEngine.swift reset())
       N.departed = false;
       N.present = false;
     }
@@ -547,7 +547,7 @@ export class Chamber {
         ping = 0;
       if (active) {
         if (N.state === "working") {
-          const murmur = 0.06 + this.ringIntel * 0.5; // mirrors ChamberEngine.swift (murmur 0.06)
+          const murmur = 0.06 + this.ringIntel * 0.5; // mirrors AntiphonEngine.swift (murmur 0.06)
           const g = this.lookGate; // 1 = facing forward, 0 = looking down
           if (faced) {
             // turn toward it → opens from whisper into clear voice; look down → whisper again
@@ -564,7 +564,7 @@ export class Chamber {
         } else if (N.state === "done") {
           ping = (faced ? 0.9 : winnerDone ? 0.12 : 0.4) * (0.5 + 0.5 * this.lookGate);
         }
-        // "heard" rests silently until it recycles (static removed; mirrors ChamberEngine.swift)
+        // "heard" rests silently until it recycles (static removed; mirrors AntiphonEngine.swift)
         // 'summarizing' → all stay 0; summaryGain is driven by startSummary
       }
       // reverb is now the wasm room (per-source send), so no per-agent wet/dry here
@@ -581,7 +581,7 @@ export class Chamber {
     const now = performance.now(),
       at = this.ctx.currentTime;
 
-    // chord drone + drag audition pulse — mirrors ChamberEngine.swift tick():
+    // chord drone + drag audition pulse — mirrors AntiphonEngine.swift tick():
     // the drone hums while the agent is present, awake, working, and showed a
     // sign of life recently; the pulse opens for the dot being dragged.
     this.agents.forEach((a, i) => {
@@ -599,7 +599,7 @@ export class Chamber {
       N.pulseGain.gain.value = N.gPulse;
     });
 
-    // dwell/lock hum — mirrors ChamberEngine.swift updateTalkback(): rest an
+    // dwell/lock hum — mirrors AntiphonEngine.swift updateTalkback(): rest an
     // eyes-closed gaze on an agent and its chord-root hum builds in; holding
     // ~0.9 s "locks" (the hum leans up for a beat, then releases). There is no
     // talk-back panel on the web, so the lock is purely the acoustic moment;
@@ -670,7 +670,7 @@ export class Chamber {
       this.finishRandom();
     }
     // linger on a done agent → summary. Eyes-open must not consume one into a
-    // silent scene (mirrors ChamberEngine.swift); with no eye tracker the
+    // silent scene (mirrors AntiphonEngine.swift); with no eye tracker the
     // immersion rests at 1, so mobile keeps the old behavior.
     const fa = this.facedAgent();
     const attending = fa && this.lookGate > 0.6 && this.immersionEye >= 0.5;
@@ -687,9 +687,9 @@ export class Chamber {
   }
 
   // ---- radar drag + list interactions -------------------------------------
-  /** A dot picked up on the radar: hold the chamber audible (even with eyes
+  /** A dot picked up on the radar: hold the antiphon audible (even with eyes
    *  open) and pulse the agent with a hot reverb send so its place is felt.
-   *  // mirrors ChamberEngine.swift dragBegan */
+   *  // mirrors AntiphonEngine.swift dragBegan */
   dragBegan(seat: number): void {
     const a = this.agents[seat];
     if (!a || !this.nodes[a.id]) return;
@@ -722,7 +722,7 @@ export class Chamber {
 
   /** Clamps to a sane annulus (too close is deafening, too far is inaudible)
    *  and keeps position, bearing and the DSP source in sync.
-   *  // mirrors ChamberEngine.swift place(seat:) */
+   *  // mirrors AntiphonEngine.swift place(seat:) */
   private place(seat: number, x: number, z: number): void {
     const a = this.agents[seat];
     if (!a || !this.nodes[a.id]) return;
@@ -738,7 +738,7 @@ export class Chamber {
 
   /** Snooze: the agent leaves the world (no dot, no sound) but keeps receiving
    *  updates; un-snoozing brings it back where it was.
-   *  // mirrors ChamberEngine.swift setSnoozed */
+   *  // mirrors AntiphonEngine.swift setSnoozed */
   setSnoozed(seat: number, on: boolean): void {
     const a = this.agents[seat];
     if (!a || !this.nodes[a.id]) return;
@@ -914,7 +914,7 @@ export class Chamber {
 
   /** A session disconnected. If its unheard done-summary is still pending, the
    *  agent stays in the room (pinging) until it's heard — that's the whole point
-   *  of the chamber. Otherwise it leaves. // mirrors ChamberEngine.swift bridgeFree */
+   *  of the antiphon. Otherwise it leaves. // mirrors AntiphonEngine.swift bridgeFree */
   unbindSeat(idx: number): void {
     const a = this.agents[idx];
     if (!a) return;
@@ -940,7 +940,7 @@ export class Chamber {
   }
 
   /** Narration text (task/progress/blocked/done) → the list's last-line + the
-   *  drone's sign-of-life clock. // mirrors ChamberEngine.swift bridgeLine */
+   *  drone's sign-of-life clock. // mirrors AntiphonEngine.swift bridgeLine */
   bridgeLine(idx: number, kind: string, text: string): void {
     const a = this.agents[idx];
     if (!a) return;
@@ -954,7 +954,7 @@ export class Chamber {
 
   /** A tool call from the live bridge: play the next descending chord note.
    *  Triggered only while idle, so a burst of calls collapses into one note.
-   *  // mirrors ChamberEngine.swift bridgeTool */
+   *  // mirrors AntiphonEngine.swift bridgeTool */
   bridgeTool(idx: number): void {
     const a = this.agents[idx];
     if (!a) return;
@@ -1052,7 +1052,7 @@ export class Chamber {
 
   // ---- the agent list ------------------------------------------------------
   /** Rows for everyone in the room, snoozed included.
-   *  // mirrors ChamberEngine.swift buildAgentList */
+   *  // mirrors AntiphonEngine.swift buildAgentList */
   buildAgentList(): AgentRow[] {
     const now = performance.now();
     const live = this.mode === "live";

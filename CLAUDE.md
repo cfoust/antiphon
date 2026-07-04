@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Chamber is a real-time, headphone binaural rendering engine: mono voices placed in 3D space,
+Antiphon is a real-time, headphone binaural rendering engine: mono voices placed in 3D space,
 head-tracked, with room acoustics. The defining constraint is **one Rust DSP core**
-(`chamber-dsp`) exposed through **one C ABI** (`chamber-ffi`) that compiles to two targets and
+(`antiphon-dsp`) exposed through **one C ABI** (`antiphon-ffi`) that compiles to two targets and
 drives two hosts:
 
-- **Native macOS** — staticlib linked into a SwiftUI app (`native/ChamberApp`) via `AVAudioSourceNode`.
+- **Native macOS** — staticlib linked into a SwiftUI app (`native/AntiphonApp`) via `AVAudioSourceNode`.
 - **WebAssembly** — `wasm32` cdylib driven from an `AudioWorklet` (`web/`).
 
 The two outputs are verified **byte-identical** (parity error ≈ −157 dBFS). Preserving this
@@ -19,15 +19,15 @@ parity is a hard invariant — see below.
 
 ```
 crates/
-  chamber-assets   .chamber binary format + zero-dep no_std reader. Defines the HRTF grid
+  antiphon-assets   .antiphon binary format + zero-dep no_std reader. Defines the HRTF grid
                    direction convention (AssetBuilder::push_direction).
-  chamber-dsp      the engine. NO I/O, NO threads, NO hot-path allocation. Owns the one
+  antiphon-dsp      the engine. NO I/O, NO threads, NO hot-path allocation. Owns the one
                    canonical coordinate frame. Modules: hrtf, reverb, voice, math.
-  chamber-ffi      the SINGLE C-ABI surface for BOTH hosts (staticlib + wasm32 cdylib).
-  chamber-bake     offline: analytic/SOFA HRTF model + room presets -> .chamber blob.
-  chamber-render   offline: scene -> stereo WAV. Quality check AND the parity oracle.
-native/ChamberApp  SwiftUI host. Vision-framework webcam head tracking -> head pose.
-web/               Vite/Bun TS app + AudioWorklet (public/chamber-worklet.js) running the wasm.
+  antiphon-ffi      the SINGLE C-ABI surface for BOTH hosts (staticlib + wasm32 cdylib).
+  antiphon-bake     offline: analytic/SOFA HRTF model + room presets -> .antiphon blob.
+  antiphon-render   offline: scene -> stereo WAV. Quality check AND the parity oracle.
+native/AntiphonApp  SwiftUI host. Vision-framework webcam head tracking -> head pose.
+web/               Vite/Bun TS app + AudioWorklet (public/antiphon-worklet.js) running the wasm.
 ```
 
 Signal flow per source: minimum-phase HRIR FIR (128 taps, SIMD via `wide` f32x8) on the direct
@@ -43,10 +43,10 @@ bit-exact no-ops at 0 — see `docs/conventions.md` before touching them.
 
 ### Invariants that are easy to break
 
-- **Native↔wasm parity.** Any change in `chamber-dsp`/`chamber-ffi` must keep `node tools/parity.mjs`
+- **Native↔wasm parity.** Any change in `antiphon-dsp`/`antiphon-ffi` must keep `node tools/parity.mjs`
   passing (error < −90 dBFS). Avoid platform-dependent float behavior, threading, and
   allocation on the audio path.
-- **One coordinate frame.** `chamber-dsp` is the single source of truth (right-handed:
+- **One coordinate frame.** `antiphon-dsp` is the single source of truth (right-handed:
   +x right, +y up, +z back, front = −z; azimuth toward +left). Hosts convert at their edge.
   Read `docs/conventions.md` before touching anything geometry/ITD/pose related — the ITD sign
   and azimuth direction are pinned there and trivially flip left/right if you guess.
@@ -57,24 +57,24 @@ bit-exact no-ops at 0 — see `docs/conventions.md` before touching them.
 
 There is no automated perceptual test — **evaluate audible changes by ear** using the offline
 renders. After any DSP change, regenerate and listen to `out/*.wav` on headphones; keep
-`chamber-render` working as the listening + parity oracle. A/B reverb backends by ear
+`antiphon-render` working as the listening + parity oracle. A/B reverb backends by ear
 (`hall` FDN vs `hall_conv` convolution).
 
 ## Common commands
 
 ```sh
 # One-time: bake the HRTF + room asset (required before render/native/web).
-cargo run -p chamber-bake --release -- assets/baked/chamber-default.chamber
-# Measured SOFA instead of analytic: cargo run -p chamber-bake --release --features sofa -- <out> --sofa <file>
+cargo run -p antiphon-bake --release -- assets/baked/antiphon-default.antiphon
+# Measured SOFA instead of analytic: cargo run -p antiphon-bake --release --features sofa -- <out> --sofa <file>
 
 # Offline demos -> out/*.wav (listen on headphones).
-cargo run -p chamber-render --release
-# Other chamber-render subcommands: `parity`, `suite`, `voices`, `bench [asset]`.
+cargo run -p antiphon-render --release
+# Other antiphon-render subcommands: `parity`, `suite`, `voices`, `bench [asset]`.
 
 cargo test --release
 
 # Native macOS app: cargo staticlib -> swiftc link -> .app -> ad-hoc codesign (no Xcode/SwiftPM).
-bash native/ChamberApp/make.sh && open native/ChamberApp/Antiphon.app
+bash native/AntiphonApp/make.sh && open native/AntiphonApp/Antiphon.app
 
 # Web (wasm) app. build-web.sh rebuilds wasm + stages the best HRTF asset into web/public/.
 bash tools/build-web.sh && python3 -m http.server -d web 8080
@@ -85,8 +85,8 @@ bash tools/build-web.sh && python3 -m http.server -d web 8080
 ### Parity test (run after any dsp/ffi change)
 
 ```sh
-cargo run -p chamber-render --release -- parity              # writes native reference (out/parity_*.f32)
-cargo build -p chamber-ffi --release --target wasm32-unknown-unknown
+cargo run -p antiphon-render --release -- parity              # writes native reference (out/parity_*.f32)
+cargo build -p antiphon-ffi --release --target wasm32-unknown-unknown
 node tools/parity.mjs                                        # asserts native ≈ wasm < -90 dBFS
 ```
 
@@ -95,7 +95,7 @@ node tools/parity.mjs                                        # asserts native �
 - `rustup target add wasm32-unknown-unknown`. Web wasm is built with `RUSTFLAGS="-C target-feature=+simd128"`.
 - Native app needs only Command Line Tools `swiftc` (no Xcode, no SwiftPM). If `swiftc` errors
   about a duplicate `SwiftBridging` module, disable the stale CLT modulemap once (see `docs/build.md`).
-- `make.sh` bundles agent voice `.mp3`s from `$HOME/Developer/machinus/voice-chamber/public/audio`;
+- `make.sh` bundles agent voice `.mp3`s from `$HOME/Developer/machinus/voice-antiphon/public/audio`;
   if absent the app runs silent (HRTF/DSP still work).
 
 ## Key references
@@ -104,7 +104,7 @@ node tools/parity.mjs                                        # asserts native �
 - `docs/build.md` — full build/toolchain details.
 - `docs/web.md` — web app structure (worklet, `src/audio/`, bridge live mode).
 - `docs/sofa.md` — measured SOFA importer (strict fidelity upgrade over the analytic placeholder).
-- `web/justfile` — web recipes (dev/sandbox/wasm; live mode connects to chamberd).
-- The `scratch/` dir holds an earlier native spike; the live app is `native/ChamberApp`.
+- `web/justfile` — web recipes (dev/sandbox/wasm; live mode connects to antiphond).
+- The `scratch/` dir holds an earlier native spike; the live app is `native/AntiphonApp`.
 - `tools/shootout/SUPERVISOR.md` — (on the `research/shootout` branch) cold-start guide for the
   blind-ELO renderer-fidelity experiment: spawn candidate agents, loudness-match, A/B by ear.

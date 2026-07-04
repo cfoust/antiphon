@@ -1,0 +1,23 @@
+[package]
+name = "antiphon-bake"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Offline asset baker: builds .antiphon blobs from an analytic HRTF model (or, later, SOFA files)."
+
+[[bin]]
+name = "antiphon-bake"
+path = "src/main.rs"
+
+[features]
+# `sofa` pulls in libmysofa (C) to import measured SOFA HRTFs. Offline-only; off by default
+# so the normal analytic bake needs no C toolchain.
+default = []
+sofa = ["dep:sofar"]
+
+[dependencies]
+antiphon-assets = { path = "../antiphon-assets", features = ["write"] }
+rustfft = "6"
+hound = { workspace = true }
+sofar = { version = "0.3", optional = true }

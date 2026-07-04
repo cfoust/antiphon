@@ -1,6 +1,6 @@
-// Chamber live A/B swap worklet — the realtime, head-tracked counterpart to the offline shootout.
+// Antiphon live A/B swap worklet — the realtime, head-tracked counterpart to the offline shootout.
 //
-// Holds N wasm engines (each = one candidate's chamber-ffi build, instantiated from raw bytes into
+// Holds N wasm engines (each = one candidate's antiphon-ffi build, instantiated from raw bytes into
 // its own linear memory). Every quantum it runs BOTH engines of the current A/B pair on the SAME
 // source + head pose, then equal-power crossfades between their outputs. Because both engines run
 // continuously, their reverb tails stay warm, so flipping A<->B is instant and click-free. A
@@ -67,7 +67,7 @@ class SwapProcessor extends AudioWorkletProcessor {
         break;
       case "room":
         this.roomIndex = d.index >>> 0;
-        for (const e of this.engines.values()) e.ex.chamber_renderer_set_room(e.r, this.roomIndex);
+        for (const e of this.engines.values()) e.ex.antiphon_renderer_set_room(e.r, this.roomIndex);
         break;
     }
   }
@@ -77,20 +77,20 @@ class SwapProcessor extends AudioWorkletProcessor {
     const { instance } = await WebAssembly.instantiate(d.wasm, {});
     const ex = instance.exports;
     const asset = new Uint8Array(d.asset);
-    const aptr = ex.chamber_alloc(asset.length);
+    const aptr = ex.antiphon_alloc(asset.length);
     new Uint8Array(ex.memory.buffer, aptr, asset.length).set(asset);
-    const r = ex.chamber_renderer_create(aptr, asset.length, sampleRate, 1, BLOCK);
+    const r = ex.antiphon_renderer_create(aptr, asset.length, sampleRate, 1, BLOCK);
     if (!r) { this.port.postMessage({ type: "engineError", id: d.id }); return; }
-    ex.chamber_renderer_set_room(r, this.roomIndex);
-    ex.chamber_renderer_set_master_gain(r, 0.9);
+    ex.antiphon_renderer_set_room(r, this.roomIndex);
+    ex.antiphon_renderer_set_master_gain(r, 0.9);
     const eng = {
       ex, r,
-      inPtr: ex.chamber_alloc(BLOCK * 4),
-      inTab: ex.chamber_alloc(4),
-      srcArr: ex.chamber_alloc(10 * 4),
-      outL: ex.chamber_alloc(BLOCK * 4),
-      outR: ex.chamber_alloc(BLOCK * 4),
-      poseP: ex.chamber_alloc(7 * 4),
+      inPtr: ex.antiphon_alloc(BLOCK * 4),
+      inTab: ex.antiphon_alloc(4),
+      srcArr: ex.antiphon_alloc(10 * 4),
+      outL: ex.antiphon_alloc(BLOCK * 4),
+      outR: ex.antiphon_alloc(BLOCK * 4),
+      poseP: ex.antiphon_alloc(7 * 4),
       trim: d.trim ?? 1,
     };
     new DataView(ex.memory.buffer).setUint32(eng.inTab, eng.inPtr, true); // inputs[0] = inPtr
@@ -125,7 +125,7 @@ class SwapProcessor extends AudioWorkletProcessor {
     const p = this.pose;
     const pv = [p.px, p.py, p.pz, p.qw, p.qx, p.qy, p.qz];
     for (let i = 0; i < 7; i++) dv.setFloat32(eng.poseP + i * 4, pv[i], true);
-    ex.chamber_renderer_process(eng.r, eng.poseP, eng.srcArr, 1, eng.inTab, eng.outL, eng.outR, n);
+    ex.antiphon_renderer_process(eng.r, eng.poseP, eng.srcArr, 1, eng.inTab, eng.outL, eng.outR, n);
   }
 
   process(_inputs, outputs) {
@@ -161,4 +161,4 @@ class SwapProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor("chamber-swap", SwapProcessor);
+registerProcessor("antiphon-swap", SwapProcessor);

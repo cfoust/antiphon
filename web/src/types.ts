@@ -11,10 +11,10 @@ export type Arrangement = "ring" | "arc" | "cluster";
  *  - "live": a real Claude Code session via the bridge — agents are heard only through
  *    real narration; no canned audio is loaded at all.
  */
-export type ChamberMode = "demo" | "live";
+export type AntiphonMode = "demo" | "live";
 
 /** Procedural acoustic environments (impulse responses for the shared reverb). */
-export type EnvName = "dry" | "room" | "chamber" | "hall";
+export type EnvName = "dry" | "room" | "antiphon" | "hall";
 
 /** Static definition of an agent (identity, not runtime state). */
 export interface AgentDef {
@@ -33,7 +33,7 @@ export interface SeatMeta {
   input: string;
 }
 
-/** One row of the agent-list overlay (mirrors AgentListVM in ChamberEngine.swift). */
+/** One row of the agent-list overlay (mirrors AgentListVM in AntiphonEngine.swift). */
 export interface AgentRow {
   seat: number;
   name: string;
@@ -66,7 +66,7 @@ export interface AgentNode {
   pingBus: GainNode; // done-state ping volume; transient oscillators ride on top
   summaryGain: GainNode; // spoken summary
   summaryBuf: AudioBuffer | null; // spoken summary; demo: canned, live: set when it arrives
-  // chord identity (mirrors ChamberEngine.swift): each tool call plays the next of three
+  // chord identity (mirrors AntiphonEngine.swift): each tool call plays the next of three
   // descending notes; the chord root is the looping "working" drone.
   toolNotes: AudioBuffer[];
   toolIdx: number;
@@ -88,7 +88,7 @@ export interface AgentNode {
   heardAt: number; // wall-clock time the summary finished (for recycling)
   /** Snoozed: still receives updates, but is invisible and silent in the world. */
   snoozed: boolean;
-  /** Live mode: a bound chamberd seat. Demo mode: everyone is present. */
+  /** Live mode: a bound antiphond seat. Demo mode: everyone is present. */
   present: boolean;
   /** Session gone, but its unheard done-summary keeps it in the room. */
   departed: boolean;

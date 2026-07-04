@@ -40,7 +40,7 @@ export interface ArpParams {
   buildMinutes: number;
 }
 
-// P3 — the tuned defaults from arp-lab (see memory: chamber attention cue).
+// P3 — the tuned defaults from arp-lab (see memory: antiphon attention cue).
 export const ARP_DEFAULTS: ArpParams = {
   cyclePeriod: 4.5, noteCount: 4, stride: 0.18, humanize: 0.0, direction: "up",
   attack: 0.05, decay: 1.4, brightness: 2, detune: 0.003, tremRate: 5, tremDepth: 0.08,
