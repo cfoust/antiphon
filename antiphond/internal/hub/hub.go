@@ -44,6 +44,8 @@ type Hub struct {
 	cfgPath  string
 	buildTTS func(config.Config) TTSSetup
 
+	audioDir  string // narration + audition cache (served at /audio/)
+
 	mu        sync.Mutex
 	cfg       config.Config
 	chain     *tts.Chain
@@ -101,6 +103,8 @@ func New(reg *registry.Registry, roster voice.Roster,
 // Routes registers all endpoints on mux. audioDir is the TTS cache directory
 // served at /audio/ (the native app streams lines from here instead of base64).
 func (h *Hub) Routes(mux *http.ServeMux, audioDir string) {
+	h.audioDir = audioDir
+	mux.HandleFunc("/audition", h.handleAudition)
 	mux.HandleFunc("/agent", h.handleAgent)
 	mux.HandleFunc("/stream", h.handleStream)
 	mux.HandleFunc("/events", h.handleEvents)

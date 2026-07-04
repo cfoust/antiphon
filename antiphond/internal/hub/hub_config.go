@@ -2,10 +2,14 @@ package hub
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -264,4 +268,73 @@ func (h *Hub) handleVoices(w http.ResponseWriter, r *http.Request) {
 		"errors":       errs,
 		"refreshed_at": at.Format(time.RFC3339),
 	})
+}
+
+// handleAudition synthesizes a one-off sample with an EXPLICIT provider+voice —
+// the settings UI's per-voice play button. Uses the daemon's configured key,
+// assigns nothing, and caches content-addressed next to narration audio.
+func (h *Hub) handleAudition(w http.ResponseWriter, r *http.Request) {
+	cors(w)
+	if r.Method == http.MethodOptions {
+		return
+	}
+	q := r.URL.Query()
+	providerName, voiceID, text := q.Get("provider"), q.Get("voice"), q.Get("text")
+	if providerName == "" || voiceID == "" {
+		http.Error(w, "provider and voice required", http.StatusBadRequest)
+		return
+	}
+	if text == "" || len(text) > 200 {
+		text = "A voice for your room — steady, close, and easy to live with."
+	}
+
+	h.mu.Lock()
+	var prov tts.Provider
+	for _, p := range h.providers {
+		if p.Name() == providerName {
+			prov = p
+			break
+		}
+	}
+	h.mu.Unlock()
+	if prov == nil {
+		http.Error(w, "provider inactive — add its API key first", http.StatusConflict)
+		return
+	}
+
+	sum := sha256.Sum256([]byte("audition\x00" + providerName + "\x00" + voiceID + "\x00" + text))
+	stem := "audition-" + hex.EncodeToString(sum[:8])
+	if matches, _ := filepath.Glob(filepath.Join(h.audioDir, stem+".*")); len(matches) > 0 {
+		serveAudio(w, matches[0])
+		return
+	}
+
+	data, ext, err := prov.Synthesize(r.Context(), voiceID, text, true)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	path := filepath.Join(h.audioDir, stem+"."+ext)
+	_ = os.MkdirAll(h.audioDir, 0o755)
+	_ = os.WriteFile(path, data, 0o644)
+	serveAudio(w, path)
+}
+
+func serveAudio(w http.ResponseWriter, path string) {
+	types := map[string]string{
+		".mp3": "audio/mpeg", ".wav": "audio/wav",
+		".aiff": "audio/aiff", ".m4a": "audio/mp4", ".ogg": "audio/ogg",
+	}
+	ct := types[filepath.Ext(path)]
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	w.Header().Set("content-type", ct)
+	w.Header().Set("x-audition-ext", strings.TrimPrefix(filepath.Ext(path), "."))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		http.Error(w, "cache read failed", http.StatusInternalServerError)
+		return
+	}
+	w.Write(data)
 }

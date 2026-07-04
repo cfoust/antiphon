@@ -683,6 +683,28 @@ final class AntiphonEngine: ObservableObject {
     /// back to English) from `bearingDeg`. While it plays, agents duck and the
     /// eye fade holds open. `loop` repeats with a breath of silence (the fit
     /// loop); one-shots just end.
+    /// Play raw audio (the settings' live voice audition) through the audition
+    /// slot: same ducking, same immersion hold, self-releasing one-shot.
+    func auditionPlay(data: Data, ext: String, bearingDeg: Double = 0) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voice-audition.\(ext)")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            do { try data.write(to: url) } catch { return }
+            guard let samples = loadMono(url), !samples.isEmpty else { return }
+            self.q.async {
+                guard self.started else { return }
+                let b = rad(bearingDeg)
+                self.srcArr[self.audSlot].x = Float(sin(b)) * self.radius
+                self.srcArr[self.audSlot].z = Float(-cos(b)) * self.radius
+                self.audStaged = samples
+                self.audStagedLoop = false
+                self.audTarget = 1
+                self.audTrig += 1
+            }
+        }
+    }
+
     func onboardPlay(_ name: String, loop: Bool = false, bearingDeg: Double = 0) {
         let lang = I18n.shared.lang.rawValue
         guard let res = Bundle.main.resourceURL else { return }

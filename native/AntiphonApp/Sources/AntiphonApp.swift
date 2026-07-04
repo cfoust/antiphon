@@ -201,6 +201,12 @@ struct ContentView: View {
             let dev = ProcessInfo.processInfo.environment["ANTIPHON_DEV"] ?? ""
             // dev: straight into the room, no camera/onboarding (muted — enable() never runs)
             if dev.contains("live") { live = true }
+            // dev: open settings (with "voices", onto that pane) for dump runs
+            if dev.contains("voices") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                    NotificationCenter.default.post(name: .init("antiphon.showSettings"), object: nil)
+                }
+            }
             // dev: spotlight the first agent (exercises the radar hover bubble)
             if dev.contains("hover") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
