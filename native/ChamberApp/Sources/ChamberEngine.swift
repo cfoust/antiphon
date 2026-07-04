@@ -195,6 +195,9 @@ final class ChamberEngine: ObservableObject {
     private var srcNode: AVAudioSourceNode!
     private var renderer: ChamberRenderer!
     private let radius: Float = 1.3 // ~the first range ring — the distance that sounded best
+    /// Per-voice reverb send. Low on purpose: the hall answers faintly behind
+    /// close voices instead of washing them. Dragging bumps it (drag audition).
+    private let voiceSend: Float = 0.05
     private let maxBlock = 4096
 
     private var agents: [AgentRuntime] = []
@@ -360,12 +363,12 @@ final class ChamberEngine: ObservableObject {
             inTable[i] = UnsafePointer(inBufs[i])
             // fx/fy/fz zero = omnidirectional point source (legacy behaviour)
             srcArr[i] = ChamberSource(x: a.posX, y: 0,
-                                      z: a.posZ, gain: 1.0, send: 0.3,
+                                      z: a.posZ, gain: 1.0, send: voiceSend,
                                       fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
         }
         audSlot = n
         inTable[audSlot] = UnsafePointer(inBufs[audSlot])
-        srcArr[audSlot] = ChamberSource(x: 0, y: 0, z: -radius, gain: 1.0, send: 0.3,
+        srcArr[audSlot] = ChamberSource(x: 0, y: 0, z: -radius, gain: 1.0, send: voiceSend,
                                         fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
         renderer.setRoom(roomIndex)
         // Muted until the user enters the room (openRoom). setup() now runs at app
@@ -677,7 +680,7 @@ final class ChamberEngine: ObservableObject {
             self.dragSeat = -1
             self.immersionHold = false
             guard self.agents.indices.contains(seat) else { return }
-            self.srcArr?[seat].send = 0.3
+            self.srcArr?[seat].send = self.voiceSend
             let a = self.agents[seat]
             let ud = UserDefaults.standard
             ud.set(Double(a.posX), forKey: "seatpos.x.\(seat)")
