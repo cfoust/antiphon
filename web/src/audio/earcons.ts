@@ -71,8 +71,8 @@ export function makeBloom(ctx: BaseAudioContext, ping: number): AudioBuffer {
   });
 }
 
-/** Drag audition pulse: a sonar-ish blip once per 1.4 s loop, meant to be played
- *  with a hot reverb send so the room answers from the agent's spot. */
+/** Drag audition pulse: a sonar-ish blip once per 1.4 s loop, as dry as the
+ *  voices — the direct path is what tells you where the dot is. */
 export function makePulse(ctx: BaseAudioContext, ping: number): AudioBuffer {
   const dur = 1.4;
   const f = Math.round(ping * dur) / dur;

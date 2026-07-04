@@ -156,8 +156,8 @@ func makeDrone(_ ping: Float, sr: Double = 48_000) -> [Float] {
     return y
 }
 
-/// Drag audition pulse: a sonar-ish blip once per 1.4 s loop, meant to be
-/// played with a hot reverb send so the room answers from the agent's spot.
+/// Drag audition pulse: a sonar-ish blip once per 1.4 s loop, as dry as the
+/// voices — the direct path is what tells you where the dot is.
 func makePulse(_ ping: Float, sr: Double = 48_000) -> [Float] {
     let dur = 1.4
     let n = Int(sr * dur)

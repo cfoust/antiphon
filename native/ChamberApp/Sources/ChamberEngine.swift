@@ -196,7 +196,8 @@ final class ChamberEngine: ObservableObject {
     private var renderer: ChamberRenderer!
     private let radius: Float = 1.3 // ~the first range ring — the distance that sounded best
     /// Per-voice reverb send. Low on purpose: the hall answers faintly behind
-    /// close voices instead of washing them. Dragging bumps it (drag audition).
+    /// close voices instead of washing them. Everything — the drag pulse
+    /// included — stays this dry.
     private let voiceSend: Float = 0.05
     private let maxBlock = 4096
 
@@ -670,13 +671,13 @@ final class ChamberEngine: ObservableObject {
     }
 
     /// A dot picked up on the radar: hold the chamber audible (even with eyes
-    /// open) and pulse the agent with a hot reverb send so its place is felt.
+    /// open) and pulse the agent so its place is felt. The pulse stays as dry
+    /// as the voice — the direct path carries the position.
     func dragBegan(_ seat: Int) {
         q.async {
             guard self.agents.indices.contains(seat) else { return }
             self.dragSeat = seat
             self.immersionHold = true
-            self.srcArr?[seat].send = 0.8
         }
     }
 
@@ -691,7 +692,6 @@ final class ChamberEngine: ObservableObject {
             self.dragSeat = -1
             self.immersionHold = false
             guard self.agents.indices.contains(seat) else { return }
-            self.srcArr?[seat].send = self.voiceSend
             let a = self.agents[seat]
             let ud = UserDefaults.standard
             ud.set(Double(a.posX), forKey: "seatpos.x.\(seat)")

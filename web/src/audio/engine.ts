@@ -143,8 +143,8 @@ export class Chamber {
     this.wasm?.setInputCfg(N.idx, {
       pos: { x: N.posX, y: 0, z: N.posZ },
       gain: 1,
-      // hot reverb send while being dragged so the room answers from its spot
-      send: N.idx === this.dragSeat ? 0.8 : 0.05, // mirrors ChamberEngine.swift voiceSend/dragBegan
+      // as dry as the voice, dragged or not — the direct path carries position
+      send: 0.05, // mirrors ChamberEngine.swift voiceSend
     });
   }
 
@@ -641,7 +641,6 @@ export class Chamber {
     this.dragSeat = seat;
     this.immersionHold = true;
     this.pushImmersion();
-    this.placeAgent(a.id); // re-push cfg with the hot (0.8) send
   }
 
   /** Live position update while dragging (world metres). */
@@ -649,7 +648,7 @@ export class Chamber {
     this.place(seat, x, z);
   }
 
-  /** Drop: restore the resting (0.05) send, release the immersion hold, persist the spot. */
+  /** Drop: release the immersion hold, persist the spot. */
   dragEnded(): void {
     const seat = this.dragSeat;
     this.dragSeat = -1;
@@ -658,7 +657,6 @@ export class Chamber {
     const a = this.agents[seat];
     if (!a || !this.nodes[a.id]) return;
     const N = this.nodes[a.id];
-    this.placeAgent(a.id); // back to the resting send
     N.posSet = true;
     try {
       localStorage.setItem(seatPosKey(seat), JSON.stringify({ x: N.posX, z: N.posZ }));
