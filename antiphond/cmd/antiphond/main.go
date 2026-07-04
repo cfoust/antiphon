@@ -29,7 +29,7 @@ import (
 )
 
 // version is stamped by `just tag` (CalVer) and shipped in release builds.
-var version = "0.0.0-dev"
+var version = "2026.7.4"
 
 func main() {
 	args := os.Args[1:]

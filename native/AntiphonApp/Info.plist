@@ -5,8 +5,8 @@
   <key>CFBundleName</key>            <string>Antiphon</string>
   <key>CFBundleDisplayName</key>     <string>Antiphon</string>
   <key>CFBundleIdentifier</key>      <string>dev.antiphon.app</string>
-  <key>CFBundleVersion</key>         <string>1</string>
-  <key>CFBundleShortVersionString</key> <string>0.1</string>
+  <key>CFBundleVersion</key>         <string>2026.7.4</string>
+  <key>CFBundleShortVersionString</key> <string>2026.7.4</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>CFBundleExecutable</key>      <string>Antiphon</string>
   <key>CFBundleIconFile</key>        <string>Antiphon</string>
