@@ -32,18 +32,28 @@ export function makeToolNote(ctx: BaseAudioContext, freq: number): AudioBuffer {
   });
 }
 
-/** The working drone: a seamless 4 s loop of the chord root, breathing at 0.5 Hz
- *  with a 0.25 Hz two-oscillator beat. All components complete whole cycles over
- *  the loop so it can run forever without a click. */
+/** The working drone: a machine hum at the very bottom of the agent's register —
+ *  root, minor third and fifth three octaves below the ping (≈50–110 Hz), each
+ *  with a touch of second harmonic so it reads on headphones down there, each
+ *  rolling on its own slow rate so it turns over instead of pulsing. Seamless
+ *  4 s loop (all carriers + rolls complete whole cycles). Mirrors AudioGen.swift. */
 export function makeDrone(ctx: BaseAudioContext, ping: number): AudioBuffer {
   const dur = 4.0;
-  // quantize the carrier to whole cycles over the loop (seamless)
-  const f = Math.round((ping / 2) * dur) / dur;
-  const f2 = f + 1.0 / dur; // exactly one extra cycle → a slow, warm beat
+  const root = Math.round((ping / 8) * dur) / dur;
+  const tones = [1.0, Math.pow(2, 3 / 12), Math.pow(2, 7 / 12)].map(
+    (r) => Math.round(root * r * dur) / dur,
+  );
+  const amps = [0.5, 0.26, 0.24]; // root-heavy — it should sit low
+  const rates = [0.25, 0.5, 0.75]; // whole cycles over the loop
+  const phases = [0.0, 2.1, 4.2];
   return bake(ctx, dur, (t) => {
-    const breathe = 0.62 + 0.38 * Math.sin(TAU * 0.5 * t - Math.PI / 2);
-    const s = Math.sin(TAU * f * t) * 0.6 + Math.sin(TAU * f2 * t) * 0.4;
-    return s * breathe * 0.16;
+    let s = 0;
+    for (let k = 0; k < 3; k++) {
+      const roll = 0.7 + 0.3 * Math.sin(TAU * rates[k] * t + phases[k]);
+      const tone = Math.sin(TAU * tones[k] * t) + 0.35 * Math.sin(TAU * tones[k] * 2 * t);
+      s += tone * amps[k] * roll;
+    }
+    return s * 0.16;
   });
 }
 

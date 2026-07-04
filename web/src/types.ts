@@ -65,9 +65,6 @@ export interface AgentNode {
   lp: BiquadFilterNode; // low-pass: tames the top end
   pingBus: GainNode; // done-state ping volume; transient oscillators ride on top
   summaryGain: GainNode; // spoken summary
-  stGain: GainNode; // radio static (heard state) — faced gating
-  stMod: GainNode; // static intermittency (drifting "bits and pieces")
-  stNextMod: number; // wall-clock time to pick the next static modulation target
   summaryBuf: AudioBuffer | null; // spoken summary; demo: canned, live: set when it arrives
   // chord identity (mirrors ChamberEngine.swift): each tool call plays the next of three
   // descending notes; the chord root is the looping "working" drone.

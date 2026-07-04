@@ -21,7 +21,6 @@ import type {
   SeatMeta,
 } from "../types";
 import { makeDrone, makePulse, makeToolNote, toolNoteFreqs } from "./earcons";
-import { makeNoise } from "./impulse";
 import { WasmEngine, ENGINE_URLS } from "./wasmEngine";
 
 /** Map the prototype's env names to wasm room-preset indices. `room`/`hall` use the
@@ -51,7 +50,6 @@ export class Chamber {
   master!: GainNode;
   agentBus!: GainNode; // all agent audio; muted until the experience begins
   wasm!: WasmEngine; // the Rust binaural engine (HRTF + room reverb), via AudioWorklet
-  noiseBuf!: AudioBuffer;
   started = false;
   readonly nodes: Record<string, AgentNode> = {};
 
@@ -60,7 +58,7 @@ export class Chamber {
   headPos = { x: 0, y: 0, z: 0 }; // 6DoF head translation (metres, neutral-relative) → true parallax
   ringIntel = 0; // 0..1 — ambient murmur bed kept at its quietest
   arrangement: Arrangement = "arc"; // a semicircle across the front
-  env: EnvName = "room"; // measured-BRIR convolution room (the default that sounded best)
+  env: EnvName = "hall"; // hall (BRIR) — mirrors ChamberEngine.swift roomIndex = 5
   lookGate = 1; // 1 = forward, 0 = looking down (everyone whispers)
   activeCount = 5;
   fit = 2.0; // HRTF "fit": warps the pinna spectral cue until a source ahead sits OUT in front
@@ -140,7 +138,7 @@ export class Chamber {
       pos: { x: N.posX, y: 0, z: N.posZ },
       gain: 1,
       // hot reverb send while being dragged so the room answers from its spot
-      send: N.idx === this.dragSeat ? 0.8 : 0.3, // mirrors ChamberEngine.swift dragBegan/dragEnded
+      send: N.idx === this.dragSeat ? 0.8 : 0.05, // mirrors ChamberEngine.swift voiceSend/dragBegan
     });
   }
 
@@ -177,22 +175,6 @@ export class Chamber {
     const summaryGain = ctx.createGain();
     summaryGain.gain.value = 0;
     summaryGain.connect(sum);
-    // radio static (heard, when faced): noise -> tight bandpass -> gate -> drift -> panner
-    // A narrow band reads as a weak tuned signal rather than broadband hiss;
-    // the drift gain flutters in tick() so you only catch fragments of it.
-    const stSrc = ctx.createBufferSource();
-    stSrc.buffer = this.noiseBuf;
-    stSrc.loop = true;
-    const stBP = ctx.createBiquadFilter();
-    stBP.type = "bandpass";
-    stBP.frequency.value = 1400;
-    stBP.Q.value = 3.5;
-    const stGain = ctx.createGain();
-    stGain.gain.value = 0;
-    const stMod = ctx.createGain();
-    stMod.gain.value = 0;
-    stSrc.connect(stBP).connect(stGain).connect(stMod).connect(sum);
-
     // --- chord identity + drag audition (mirrors ChamberEngine.swift setup()) ---
     // the working drone: a seamless loop of the chord root, gated by gDrone in tick()
     const pf = PING_FREQS[idx % PING_FREQS.length];
@@ -248,9 +230,6 @@ export class Chamber {
       lp,
       pingBus,
       summaryGain,
-      stGain,
-      stMod,
-      stNextMod: 0,
       summaryBuf,
       toolNotes,
       toolIdx: 0,
@@ -275,7 +254,6 @@ export class Chamber {
     };
     this.placeAgent(a.id);
     if (src) src.start(0, Math.random() * src.buffer!.duration);
-    stSrc.start();
     droneSrc.start();
     pulseSrc.start();
   }
@@ -297,7 +275,6 @@ export class Chamber {
     this.agentBus.gain.value = 0;
     this.agentBus.connect(this.master);
     this.master.connect(this.ctx.destination);
-    this.noiseBuf = makeNoise(this.ctx, 2.0);
 
     // the wasm binaural engine: one live input per agent, output through the agentBus
     this.wasm = await WasmEngine.create(this.ctx, {
@@ -465,8 +442,6 @@ export class Chamber {
     const t = this.ctx.currentTime;
     N.pingBus.gain.setTargetAtTime(0, t, 0.05);
     N.summaryGain.gain.setTargetAtTime(0, t, 0.05);
-    N.stGain.gain.setTargetAtTime(0, t, 0.05);
-    N.stMod.gain.setTargetAtTime(0, t, 0.05);
     this.onAgents();
     if (this.started) this.updateMix();
   }
@@ -502,8 +477,7 @@ export class Chamber {
       let whisper = 0,
         hpF = 900, // high-pass: high = breathy whisper, low = full voice
         lpF = 5000,
-        ping = 0,
-        stat = 0;
+        ping = 0;
       if (active) {
         if (N.state === "working") {
           const murmur = 0.06 + this.ringIntel * 0.5; // mirrors ChamberEngine.swift (murmur 0.06)
@@ -522,9 +496,8 @@ export class Chamber {
           }
         } else if (N.state === "done") {
           ping = (faced ? 0.9 : winnerDone ? 0.12 : 0.4) * (0.5 + 0.5 * this.lookGate);
-        } else if (N.state === "heard") {
-          stat = faced ? 0.1 * this.lookGate : 0; // faint static only when you look at it
         }
+        // "heard" rests silently until it recycles (static removed; mirrors ChamberEngine.swift)
         // 'summarizing' → all stay 0; summaryGain is driven by startSummary
       }
       // reverb is now the wasm room (per-source send), so no per-agent wet/dry here
@@ -532,7 +505,6 @@ export class Chamber {
       N.hp.frequency.setTargetAtTime(hpF, t, k);
       N.lp.frequency.setTargetAtTime(lpF, t, k);
       N.pingBus.gain.setTargetAtTime(ping, t, 0.08);
-      N.stGain.gain.setTargetAtTime(stat, t, 0.15);
     });
   }
 
@@ -575,11 +547,6 @@ export class Chamber {
       } else if (N.state === "heard") {
         if (N.heardAt && now - N.heardAt > RECYCLE_MS) {
           this.resetAgent(this.agents[i].id);
-        } else if (now >= N.stNextMod) {
-          // drift the static in/out so we only catch fragments — sometimes it drops out
-          N.stNextMod = now + 120 + Math.random() * 380;
-          const target = Math.random() < 0.45 ? 0 : 0.25 + Math.random() * 0.75;
-          N.stMod.gain.setTargetAtTime(target, at, 0.05);
         }
       }
     }
@@ -594,9 +561,11 @@ export class Chamber {
         now + AUTO_FINISH_MIN_MS + Math.random() * (AUTO_FINISH_MAX_MS - AUTO_FINISH_MIN_MS);
       this.finishRandom();
     }
-    // linger on a done agent → summary
+    // linger on a done agent → summary. Eyes-open must not consume one into a
+    // silent scene (mirrors ChamberEngine.swift); with no eye tracker the
+    // immersion rests at 1, so mobile keeps the old behavior.
     const fa = this.facedAgent();
-    const attending = fa && this.lookGate > 0.6;
+    const attending = fa && this.lookGate > 0.6 && this.immersionEye >= 0.5;
     if (attending && this.nodes[fa.id]?.state === "done") {
       if (this.lingerId !== fa.id) {
         this.lingerId = fa.id;
@@ -627,7 +596,7 @@ export class Chamber {
     this.place(seat, x, z);
   }
 
-  /** Drop: restore the 0.3 send, release the immersion hold, persist the spot. */
+  /** Drop: restore the resting (0.05) send, release the immersion hold, persist the spot. */
   dragEnded(): void {
     const seat = this.dragSeat;
     this.dragSeat = -1;
