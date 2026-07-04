@@ -96,6 +96,16 @@ class ChamberProcessor extends AudioWorkletProcessor {
         this.freqScale = d.value;
         if (this.ready) this.ex.chamber_renderer_set_freq_scale(this.r, d.value);
         break;
+      case "roomDims": {
+        // room geometry query: replies { type: "roomDims", index, dims: [w,h,d,earHeight] | null }
+        let dims = null;
+        if (this.ready && this.ex.chamber_renderer_room_dims(this.r, d.index >>> 0, this.dimsP)) {
+          const f = new Float32Array(this.ex.memory.buffer, this.dimsP, 4);
+          dims = [f[0], f[1], f[2], f[3]];
+        }
+        this.port.postMessage({ type: "roomDims", index: d.index, dims });
+        break;
+      }
     }
   }
 
@@ -117,6 +127,7 @@ class ChamberProcessor extends AudioWorkletProcessor {
     this.outL = ex.chamber_alloc(BLOCK * 4);
     this.outR = ex.chamber_alloc(BLOCK * 4);
     this.poseP = ex.chamber_alloc(7 * 4);
+    this.dimsP = ex.chamber_alloc(4 * 4); // roomDims query scratch [w,h,d,earHeight]
     this.ready = true;
     this.port.postMessage({ type: "ready", numRooms: this.numRooms });
   }
