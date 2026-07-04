@@ -27,6 +27,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          cache-dependency-path: antiphond/go.sum
       - name: Daemon tests
         working-directory: antiphond
         run: go test ./...
