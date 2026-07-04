@@ -6,8 +6,10 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/cfoust/chamber/chamberd/internal/config"
 	"github.com/cfoust/chamber/chamberd/internal/tts"
 )
 
@@ -23,11 +25,43 @@ type TTSSetup struct {
 	Providers []tts.Provider
 }
 
-// VoiceRef is one entry of the cross-provider voice pool.
+// VoiceRef is one entry of the cross-provider voice pool. Enabled reflects the
+// user's per-voice toggle (or the provider's default policy); only enabled
+// voices are assigned to agents, but the UI sees the whole list.
 type VoiceRef struct {
 	Provider string `json:"provider"`
 	ID       string `json:"id"`
 	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+}
+
+// sayDefaultOn is the curated set of macOS voices that read clearly enough to
+// narrate work. Everything else `say` ships defaults OFF (togglable in the
+// settings UI) — several of the stock voices are basically uninterpretable.
+var sayDefaultOn = map[string]bool{
+	"Alex": true, "Daniel": true, "Fiona": true, "Karen": true, "Moira": true,
+	"Rishi": true, "Samantha": true, "Tessa": true, "Veena": true,
+}
+
+// defaultVoiceOn is the policy for voices with no explicit config override.
+func defaultVoiceOn(provider, id string) bool {
+	if provider != "macos-say" {
+		return true
+	}
+	// locale-decorated names ("Samantha (English (US))") match on the base name
+	base := id
+	if i := strings.IndexByte(base, '('); i > 0 {
+		base = strings.TrimSpace(base[:i])
+	}
+	return sayDefaultOn[base]
+}
+
+// voiceEnabled resolves a voice's on/off state: explicit override, else policy.
+func (h *Hub) voiceEnabled(cfg config.Config, provider, id string) bool {
+	if on, ok := cfg.Provider(provider).Voices[id]; ok {
+		return on
+	}
+	return defaultVoiceOn(provider, id)
 }
 
 const voicePoolTTL = 10 * time.Minute
@@ -47,6 +81,7 @@ func (h *Hub) refreshVoices() {
 	h.mu.Lock()
 	providers := make([]tts.Provider, len(h.providers))
 	copy(providers, h.providers)
+	cfg := h.cfg
 	h.mu.Unlock()
 
 	pool := []VoiceRef{}
@@ -61,13 +96,22 @@ func (h *Hub) refreshVoices() {
 			continue
 		}
 		for _, v := range voices {
-			pool = append(pool, VoiceRef{Provider: p.Name(), ID: v.ID, Name: v.Name})
+			pool = append(pool, VoiceRef{
+				Provider: p.Name(), ID: v.ID, Name: v.Name,
+				Enabled: h.voiceEnabled(cfg, p.Name(), v.ID),
+			})
 		}
 	}
 	h.voiceMu.Lock()
 	h.pool, h.poolErrs, h.poolAt = pool, errs, time.Now()
 	h.voiceMu.Unlock()
-	log.Printf("voices: pool has %d voices across %d providers", len(pool), len(providers))
+	on := 0
+	for _, v := range pool {
+		if v.Enabled {
+			on++
+		}
+	}
+	log.Printf("voices: pool has %d voices (%d enabled) across %d providers", len(pool), on, len(providers))
 }
 
 // voicePool returns the cached pool, kicking an async refresh when stale.
@@ -83,19 +127,24 @@ func (h *Hub) voicePool() []VoiceRef {
 }
 
 // assignTTS gives a record its sticky spoken voice: a random draw from the
-// cross-provider pool. No pool yet (offline, discovery pending) = no
-// assignment; the persona's built-in realizations keep working and the next
-// bind retries.
+// ENABLED voices of the cross-provider pool. No pool yet (offline, discovery
+// pending) or everything toggled off = no assignment; the persona's built-in
+// realizations keep working and the next bind retries.
 func (h *Hub) assignTTS(id string) {
 	rec, ok := h.reg.Get(id)
 	if !ok || rec.TTSProvider != "" {
 		return
 	}
-	pool := h.voicePool()
-	if len(pool) == 0 {
+	on := []VoiceRef{}
+	for _, v := range h.voicePool() {
+		if v.Enabled {
+			on = append(on, v)
+		}
+	}
+	if len(on) == 0 {
 		return
 	}
-	v := pool[rand.Intn(len(pool))]
+	v := on[rand.Intn(len(on))]
 	h.reg.BindTTS(id, v.Provider, v.ID, v.Name)
 	log.Printf("agent %s speaks with %s/%s", id, v.Provider, v.Name)
 }
@@ -113,8 +162,9 @@ func (h *Hub) handleConfig(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut, http.MethodPost:
 		var in struct {
 			Providers map[string]struct {
-				Enabled *bool   `json:"enabled"`
-				APIKey  *string `json:"api_key"`
+				Enabled *bool           `json:"enabled"`
+				APIKey  *string         `json:"api_key"`
+				Voices  map[string]bool `json:"voices"` // per-voice toggles, merged
 			} `json:"providers"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -130,6 +180,12 @@ func (h *Hub) handleConfig(w http.ResponseWriter, r *http.Request) {
 			if p.APIKey != nil { // explicit "" clears a stored key
 				cur.APIKey = *p.APIKey
 			}
+			for id, on := range p.Voices {
+				if cur.Voices == nil {
+					cur.Voices = map[string]bool{}
+				}
+				cur.Voices[id] = on
+			}
 			h.cfg.Providers[name] = cur
 		}
 		cfg := h.cfg
@@ -143,6 +199,13 @@ func (h *Hub) handleConfig(w http.ResponseWriter, r *http.Request) {
 		h.chain, h.providers = setup.Chain, setup.Providers
 		h.mu.Unlock()
 		log.Printf("config updated — TTS ladder rebuilt (%d providers)", len(setup.Providers))
+		// re-stamp the cached pool's enabled flags NOW (a voice toggle must not
+		// wait on a slow rediscovery), then rediscover in the background
+		h.voiceMu.Lock()
+		for i := range h.pool {
+			h.pool[i].Enabled = h.voiceEnabled(cfg, h.pool[i].Provider, h.pool[i].ID)
+		}
+		h.voiceMu.Unlock()
 		go h.refreshVoices()
 		h.writeConfigView(w)
 	default:

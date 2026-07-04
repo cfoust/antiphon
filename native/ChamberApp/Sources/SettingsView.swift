@@ -30,10 +30,11 @@ struct ProviderStatus: Decodable, Equatable {
     }
 }
 
-struct VoicePoolEntry: Decodable {
+struct VoicePoolEntry: Decodable, Identifiable, Equatable {
     let provider: String
     let id: String
     let name: String
+    var enabled: Bool
 }
 
 enum SettingsClient {
@@ -213,13 +214,15 @@ private struct GeneralPane: View {
 private struct VoicesPane: View {
     @ObservedObject private var i18n = I18n.shared
     @State private var providers: [String: ProviderStatus] = [:]
-    @State private var counts: [String: Int] = [:]
+    @State private var voices: [String: [VoicePoolEntry]] = [:] // provider → all discovered voices
     @State private var errors: [String: String] = [:]
-    @State private var total = 0
     @State private var keyDrafts: [String: String] = [:]
+    @State private var expanded: Set<String> = []
     @State private var loading = true
     @State private var applying = false
     @State private var daemonUp = true
+
+    private var enabledTotal: Int { voices.values.flatMap { $0 }.filter(\.enabled).count }
 
     private let order: [(id: String, label: String, blurb: String)] = [
         ("elevenlabs", "ElevenLabs", "Your voice library, discovered from the account"),
@@ -241,10 +244,10 @@ private struct VoicesPane: View {
         } else if loading {
             ProgressView().controlSize(.small)
         } else {
-            // pool summary
+            // pool summary — agents draw from the ENABLED voices
             HStack(spacing: 8) {
                 Image(systemName: "person.wave.2").foregroundStyle(SD.coral)
-                Text(LVoicePool(total))
+                Text(LVoicePool(enabledTotal))
                     .font(.callout.weight(.medium)).foregroundStyle(SD.ink)
                 Spacer()
                 Button {
@@ -280,6 +283,7 @@ private struct VoicesPane: View {
     @ViewBuilder
     private func providerCard(_ id: String, label: String, blurb: String) -> some View {
         let st = providers[id]
+        let list = voices[id] ?? []
         card(label) {
             labeledRow(blurb, statusLine(id, st)) {
                 Toggle("", isOn: Binding(
@@ -301,7 +305,45 @@ private struct VoicesPane: View {
                         .frame(width: 220)
                 }
             }
+            // every discovered voice, individually togglable — the pool agents
+            // draw from is exactly the ON set. Toggles apply immediately.
+            if !list.isEmpty {
+                divider()
+                DisclosureGroup(isExpanded: Binding(
+                    get: { expanded.contains(id) },
+                    set: { open in if open { expanded.insert(id) } else { expanded.remove(id) } })) {
+                    VStack(spacing: 2) {
+                        ForEach(list) { v in
+                            HStack {
+                                Text(v.name)
+                                    .font(.callout)
+                                    .foregroundStyle(v.enabled ? SD.ink : SD.faint)
+                                Spacer()
+                                Toggle("", isOn: Binding(
+                                    get: { v.enabled },
+                                    set: { on in setVoice(id, v.id, on) }))
+                                    .labelsHidden().toggleStyle(.switch).controlSize(.mini)
+                            }
+                            .padding(.vertical, 3)
+                        }
+                    }
+                    .padding(.top, 6)
+                } label: {
+                    Text("\(list.filter(\.enabled).count) / \(list.count) · \(L("Voices"))")
+                        .font(.callout).foregroundStyle(SD.sub)
+                }
+                .tint(SD.sub)
+            }
         }
+    }
+
+    /// Flip one voice: optimistic local update, then persist (merged server-side).
+    private func setVoice(_ provider: String, _ voiceID: String, _ on: Bool) {
+        if var list = voices[provider], let i = list.firstIndex(where: { $0.id == voiceID }) {
+            list[i].enabled = on
+            voices[provider] = list
+        }
+        Task { _ = await SettingsClient.putConfig([provider: ["voices": [voiceID: on]]]) }
     }
 
     private func statusLine(_ id: String, _ st: ProviderStatus?) -> String {
@@ -309,23 +351,22 @@ private struct VoicesPane: View {
         if let err = errors[id] { return Lf("discovery failed: %@", err) }
         if !st.enabled { return L("off") }
         if st.needsKey && !st.keySet { return L("needs an API key") }
-        if let n = counts[id] { return LVoiceCount(n) }
+        if let list = voices[id], !list.isEmpty { return LVoiceCount(list.filter(\.enabled).count) }
         return st.active ? L("active") : L("inactive")
     }
 
     private func load(refresh: Bool) async {
-        loading = counts.isEmpty
+        loading = voices.isEmpty
         guard let cfg = await SettingsClient.getConfig() else {
             daemonUp = false; loading = false; return
         }
         daemonUp = true
         providers = cfg
         if let v = await SettingsClient.getVoices(refresh: refresh) {
-            var c: [String: Int] = [:]
-            for entry in v.voices { c[entry.provider, default: 0] += 1 }
-            counts = c
+            var grouped: [String: [VoicePoolEntry]] = [:]
+            for entry in v.voices { grouped[entry.provider, default: []].append(entry) }
+            voices = grouped
             errors = v.errors
-            total = v.voices.count
         }
         loading = false
     }

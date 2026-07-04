@@ -15,6 +15,10 @@ import (
 type Provider struct {
 	Enabled *bool  `json:"enabled,omitempty"`
 	APIKey  string `json:"api_key,omitempty"`
+	// Per-voice overrides (voice id → on/off). A voice with no entry follows
+	// the provider's default policy (see hub.defaultVoiceOn) — which is how
+	// macOS's less-interpretable voices start off without hiding them.
+	Voices map[string]bool `json:"voices,omitempty"`
 }
 
 // On reports whether the provider is enabled (default: yes).
