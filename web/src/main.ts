@@ -1,18 +1,33 @@
+import "@fontsource/gfs-didot"; // the Antiphon serif (title + tagline)
+import "@fontsource/instrument-sans"; // onboarding body
+import "@fontsource/instrument-sans/500.css";
+import "@fontsource/instrument-sans/600.css";
+import { DEMO_AGENT_COUNT } from "./agents";
 import { Chamber } from "./audio/engine";
 import { HeadTracker, type Calibration } from "./tracking/headTracking";
 import { initAgentList } from "./ui/agentList";
 import { initRadar } from "./ui/radar";
 import "./ui/styles.css";
 
+// The Antiphon web demo: the native app's experience in a browser tab.
+// Onboarding mirrors Onboarding.swift's three beats — a full-bleed dark
+// welcome (the concentric eye watching the cursor), a voice-guided hold-still
+// calibration, then Fit with the guide voice looping from straight ahead —
+// and then the room runs a SCRIPTED scenario (src/demo/scenario.ts): agents
+// audibly working, completing tasks, and speaking generated summaries when
+// you face them. No talk-back here; ?live drives it from a real session.
+
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Live mode (?live): drive the agents from a real local Claude Code session via the
-// bridge, instead of the standalone auto-finishing demo. See docs/cc-integration-plan.md.
+// bridge, instead of the standalone scripted demo. See docs/cc-integration-plan.md.
 const LIVE = new URLSearchParams(location.search).has("live");
 
 const CAL_KEY = "agent-chamber-calibration";
+const FIT_KEY = "antiphon-fit";
+const ONBOARD_KEY = "antiphon-onboarded"; // the Fit beat was completed once
 function loadCal(): Calibration | null {
   try {
     return JSON.parse(localStorage.getItem(CAL_KEY) || "null");
@@ -25,6 +40,11 @@ function saveCal(c: Calibration) {
 }
 
 const engine = new Chamber();
+if (!LIVE) engine.activeCount = DEMO_AGENT_COUNT; // the scripted roster
+{
+  const f = parseFloat(localStorage.getItem(FIT_KEY) || "");
+  if (Number.isFinite(f)) engine.setFit(f);
+}
 const tracker = new HeadTracker();
 const canvas = $<HTMLCanvasElement>("radar");
 initRadar(engine, canvas);
@@ -35,7 +55,8 @@ initAgentList(engine, agentList);
 // still works — radar, drag, list and audio — just without head-driven pose.
 let tracking = false;
 
-const intro = $("intro");
+const onboard = $("onboard");
+const welcome = $("welcome");
 const enableBtn = $<HTMLButtonElement>("enable");
 const startBtn = $<HTMLButtonElement>("start");
 const statusEl = $("status");
@@ -43,25 +64,62 @@ const recalBtn = $<HTMLButtonElement>("recal");
 const calib = $("calib");
 const calArrow = $("calArrow");
 const calText = $("calText");
+const calHold = $("calHold");
+const calHoldLabel = $("calHoldLabel");
+const fitStep = $("fitStep");
+const obFit = $<HTMLInputElement>("obFit");
+const obFitVal = $("obFitVal");
+const fitDoneBtn = $<HTMLButtonElement>("fitDone");
 const controls = $("controls");
 const fitSlider = $<HTMLInputElement>("fit");
 const fitVal = $("fitVal");
 
-// HRTF "fit" — dial until a source straight ahead sits OUT in front at ear level.
-fitSlider.value = String(engine.fit);
-fitVal.textContent = engine.fit.toFixed(2);
-fitSlider.oninput = () => {
-  const v = parseFloat(fitSlider.value);
-  engine.setFit(v);
-  fitVal.textContent = v.toFixed(2);
-};
+// ---- the eye watches the cursor (hero behavior, mirrors WelcomeView) -------
+const eye = $("eye");
+const eyePupil = $("eyePupil");
+onboard.addEventListener("pointermove", (e) => {
+  if (welcome.hidden) return;
+  const r = eye.getBoundingClientRect();
+  const cx = r.left + r.width / 2,
+    cy = r.top + r.height / 2;
+  const dx = e.clientX - cx,
+    dy = e.clientY - cy;
+  const dist = Math.max(Math.hypot(dx, dy), 1);
+  const mag = Math.min(dist / 300, 1) * r.width * 0.1; // ±13 px on the 130 px eye
+  eyePupil.style.transform = `translate(${(dx / dist) * mag}px, ${(dy / dist) * mag}px)`;
+});
+onboard.addEventListener("pointerleave", () => {
+  eyePupil.style.transform = "";
+});
 
-type Clips = { left: AudioBuffer; right: AudioBuffer; done: AudioBuffer };
+// ---- HRTF "fit" (shared by the onboarding beat and the in-room pill) -------
+function showFit(v: number) {
+  const s = v.toFixed(2);
+  fitSlider.value = String(v);
+  fitVal.textContent = s;
+  obFit.value = String(v);
+  obFitVal.textContent = s;
+}
+function applyFit(v: number) {
+  engine.setFit(v);
+  showFit(v);
+  localStorage.setItem(FIT_KEY, String(v));
+}
+showFit(engine.fit);
+fitSlider.oninput = () => applyFit(parseFloat(fitSlider.value));
+obFit.oninput = () => applyFit(parseFloat(obFit.value));
+
+type Clips = {
+  left: AudioBuffer | null;
+  right: AudioBuffer | null;
+  done: AudioBuffer | null;
+  fit: AudioBuffer | null;
+};
 let clips: Clips | null = null;
 
 function setStatus(text: string, kind: "" | "ok" | "err" = "") {
   statusEl.textContent = text;
-  statusEl.className = "status" + (kind ? " " + kind : "");
+  statusEl.className = "ob-status" + (kind ? " " + kind : "");
 }
 
 let startReady = false;
@@ -75,11 +133,12 @@ function revealStart(label: string) {
 
 recalBtn.onclick = () => {
   localStorage.removeItem(CAL_KEY);
+  localStorage.removeItem(ONBOARD_KEY); // redo Fit too — the full setup
   recalBtn.hidden = true;
-  setStatus("Will recalibrate on start", "ok");
+  setStatus("Will set up again on start", "ok");
 };
 
-// Step 1 — one gesture: spin up audio, request camera, load model + clips.
+// Beat 1 — one gesture: spin up audio, request camera, load model + clips.
 enableBtn.onclick = async () => {
   enableBtn.disabled = true;
   enableBtn.classList.add("busy");
@@ -93,30 +152,39 @@ enableBtn.onclick = async () => {
     enableBtn.classList.remove("busy");
     return;
   }
+  // the spoken onboarding cues (best effort — the flow works silent too)
+  const clip = (url: string) => engine.loadClip(url).catch(() => null);
+  const clipsP = Promise.all([
+    clip("audio/cal_left.mp3"),
+    clip("audio/cal_right.mp3"),
+    clip("audio/cal_done.mp3"),
+    clip("audio/fit.mp3"),
+  ]).then(([left, right, done, fit]) => {
+    clips = { left, right, done, fit };
+  });
   try {
     setStatus("Requesting camera…");
     await tracker.startCamera();
 
     setStatus("Loading head-tracking model…");
     await tracker.loadModel();
-    const [left, right, done] = await Promise.all([
-      engine.loadClip("audio/cal_left.mp3"),
-      engine.loadClip("audio/cal_right.mp3"),
-      engine.loadClip("audio/cal_done.mp3"),
-    ]);
-    clips = { left, right, done };
+    await clipsP;
     tracking = true;
 
-    setStatus("Look at your screen…");
+    setStatus("Looking for your face…");
     tracker.startLoop(() => {
-      setStatus("Head tracking ready", "ok");
-      revealStart("Start");
+      setStatus(
+        loadCal() ? "Calibration restored" : "Head tracking ready",
+        "ok",
+      );
+      revealStart(loadCal() ? "Start" : "Continue");
     });
     setTimeout(() => revealStart("Start anyway"), 5000);
   } catch (err) {
     // No camera (denied, or a phone without tracking) — the room still works:
     // radar, dragging and the agent list, just without head-driven pose.
     const e = err as Error;
+    await clipsP;
     setStatus(
       e.name === "NotAllowedError"
         ? "Camera denied — starting without head tracking."
@@ -127,61 +195,126 @@ enableBtn.onclick = async () => {
   enableBtn.hidden = true;
 };
 
-// Step 2 — calibrate (first time) then begin the experience.
+// Beat 2 + 3 — calibrate and fit (first time), then begin the experience.
 startBtn.onclick = async () => {
   startBtn.disabled = true;
-  await engine.resume(); // unmute (still no auto-finishing yet)
+  await engine.resume(); // unmute (the room stays silent until the scenario starts)
 
+  welcome.hidden = true;
   if (tracking) {
     const stored = loadCal();
     if (stored) tracker.apply(stored);
     else await runCalibration();
     tracker.attach(engine); // go live with the calibration
   }
-  intro.classList.add("gone");
-  calib.hidden = true;
-  controls.hidden = false; // reveal the Fit slider once the experience is live
+  if (!localStorage.getItem(ONBOARD_KEY)) await runFit();
+
+  onboard.classList.add("gone");
+  controls.hidden = false; // reveal the Fit pill once the experience is live
   agentList.hidden = false; // …and the room list
   if (LIVE) {
     const { connectLive } = await import("./live/bridge");
     connectLive(engine); // agents driven by a real Claude Code session
   } else {
-    engine.startAuto(); // standalone demo: agents finish on their own
+    // the scripted scenario: agents work audibly and complete tasks over time
+    const { startScenario } = await import("./demo/scenario");
+    await startScenario(engine);
   }
 };
 
-/** Voice-guided two-point calibration: look fully left, then fully right. */
+// ---- beat 2: voice-guided two-point calibration with hold-still locks ------
+// (mirrors CalibrationStepView: turn >10° away, hold ~1 s within ~2.5°, the
+// teal capsule fills). A per-side timeout falls back to sampling the current
+// pose so a jittery tracker can never trap anyone here.
+const HOLD_MS = 1000;
+const TURN_MIN_DEG = 10;
+const STILL_TOL_DEG = 2.5;
+const SIDE_TIMEOUT_MS = 14000;
+
+function setHold(frac: number) {
+  calHold.style.width = (frac * 100).toFixed(1) + "%";
+  calHoldLabel.textContent = frac > 0 ? "Hold still…" : " ";
+}
+
+/** Resolve with the locked pose once the head has turned away from `yaw0` and
+ *  held still; `oppositeOf` forces the other side of the first lock. */
+function holdLock(
+  yaw0: number,
+  oppositeOf: number | null,
+): Promise<{ yaw: number; pitch: number }> {
+  return new Promise((res) => {
+    let anchor = NaN;
+    let holdStart = 0;
+    const begun = performance.now();
+    const step = () => {
+      const now = performance.now();
+      const yaw = tracker.yaw;
+      const dev = yaw - yaw0;
+      let turned = Math.abs(dev) > TURN_MIN_DEG;
+      if (oppositeOf !== null)
+        turned = turned && (dev >= 0) !== (oppositeOf - yaw0 >= 0);
+      const finish = () => {
+        setHold(0);
+        res({ yaw, pitch: tracker.pitch });
+      };
+      if (now - begun > SIDE_TIMEOUT_MS) return finish(); // fallback: sample as-is
+      if (!turned) {
+        anchor = NaN;
+        setHold(0);
+      } else if (Number.isNaN(anchor) || Math.abs(yaw - anchor) > STILL_TOL_DEG) {
+        anchor = yaw;
+        holdStart = now;
+        setHold(0);
+      } else {
+        const frac = Math.min(1, (now - holdStart) / HOLD_MS);
+        setHold(frac);
+        if (frac >= 1) return finish();
+      }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
 async function runCalibration() {
-  intro.classList.add("gone");
   calib.hidden = false;
 
-  const prompt = async (
-    arrow: string,
-    text: string,
-    clip: AudioBuffer | undefined,
-  ) => {
+  const cue = (arrow: string, text: string, clip: AudioBuffer | null) => {
     calArrow.textContent = arrow;
     calArrow.className = "cal-arrow show";
     calText.textContent = text;
-    if (clip) await engine.playClip(clip);
-    else await wait(2200);
-    await wait(1300); // let them settle into the hold before sampling
+    if (clip) void engine.playClip(clip); // speak over the hold, not before it
   };
 
-  await prompt("←", "Look all the way left… and hold", clips?.left);
-  const yawLeft = tracker.yaw,
-    pitchL = tracker.pitch;
+  const yaw0 = tracker.yaw; // where the head is when the step begins
+  cue("←", "Turn your head all the way to the left… and hold still.", clips?.left ?? null);
+  const L = await holdLock(yaw0, null);
 
-  await prompt("→", "Now all the way right… and hold", clips?.right);
-  const yawRight = tracker.yaw,
-    pitchR = tracker.pitch;
+  cue("→", "Now all the way to the right… and hold still.", clips?.right ?? null);
+  const R = await holdLock(yaw0, L.yaw);
 
-  tracker.calibrate(yawLeft, yawRight, (pitchL + pitchR) / 2);
+  tracker.calibrate(L.yaw, R.yaw, (L.pitch + R.pitch) / 2);
   saveCal(tracker.calibration);
 
   calArrow.textContent = "✓";
-  calText.textContent = "Calibrated";
+  calText.textContent = "Done. You're calibrated.";
+  setHold(0);
   if (clips?.done) await engine.playClip(clips.done);
   await wait(400);
   calib.hidden = true;
+}
+
+// ---- beat 3: fit, with the guide voice looping from straight ahead ---------
+// The voice plays THROUGH the binaural engine at bearing 0 — the fit is right
+// when it sits out in front, so ahead is the reference (mirrors FitStepView).
+async function runFit() {
+  fitStep.hidden = false;
+  showFit(engine.fit);
+  if (clips?.fit) engine.startFitVoice(clips.fit);
+  await new Promise<void>((res) => {
+    fitDoneBtn.onclick = () => res();
+  });
+  engine.stopFitVoice();
+  fitStep.hidden = true;
+  localStorage.setItem(ONBOARD_KEY, "1");
 }

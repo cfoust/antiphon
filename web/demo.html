@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#171210" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>Antiphon — web demo</title>
+</head>
+<body>
+<a class="backlink" href="/">&larr; antiphon.dev</a>
+
+<div class="stage">
+  <canvas id="radar"></canvas>
+</div>
+
+<!-- everyone in the room, at a glance (right rail on desktop, bottom sheet on phones) -->
+<aside id="agentList" class="agents" hidden></aside>
+
+<!-- HRTF "fit": dial until a source straight ahead sits OUT in front at ear level. Hidden until the experience starts. -->
+<div id="controls" class="controls" hidden>
+  <label class="ctl" for="fit">Fit</label>
+  <input id="fit" class="ctl-range" type="range" min="0.7" max="2.2" step="0.01" value="2.0" />
+  <span id="fitVal" class="ctl-val">2.00</span>
+</div>
+
+<!-- live mode only: type to the agent you're facing. The demo never shows this — no talk-back. -->
+<form id="say" class="say" hidden>
+  <input id="sayText" class="say-input" type="text" autocomplete="off"
+    autocapitalize="off" autocorrect="off" spellcheck="false"
+    placeholder="Face an agent and type to send…" />
+</form>
+
+<!-- Onboarding: one dark Antiphon room, three beats (welcome → calibrate → fit),
+     mirroring the native app's Onboarding.swift. -->
+<div id="onboard" class="onboard">
+
+  <!-- beat 1: the welcome (full-bleed brand + requirements + camera) -->
+  <section id="welcome" class="ob-welcome">
+    <div class="eye" id="eye" aria-hidden="true">
+      <div class="eye-pupil" id="eyePupil"><i></i></div>
+    </div>
+    <h1 class="ob-title">Antiphon</h1>
+    <p class="ob-tag">Your agents, speaking. You, listening.</p>
+    <p class="ob-body">Antiphon gives every coding agent a voice, placed in the
+      room around you. Put on headphones and overhear the work.</p>
+    <p class="ob-note">Headphones required — the audio is positioned in 3D.</p>
+    <button id="enable" class="pill">Enable camera &amp; continue</button>
+    <button id="start" class="pill" hidden>Start</button>
+    <p class="ob-note" id="camNote">Turn your head to face agents. Video never leaves your device.</p>
+    <div id="status" class="ob-status"></div>
+    <button id="recal" class="ob-link" hidden>Set up again</button>
+    <div class="ob-foot">By Caleb Foust</div>
+  </section>
+
+  <!-- beat 2: calibration (voice-guided, hold-still locks) -->
+  <section id="calib" class="ob-card" hidden>
+    <div class="ob-dots"><span class="on"></span><span></span></div>
+    <div id="calArrow" class="cal-arrow">←</div>
+    <div id="calText" class="cal-text">Turn your head all the way to the left… and hold still.</div>
+    <div class="cal-hold"><div id="calHold"></div></div>
+    <div id="calHoldLabel" class="ob-note cal-hold-label">&nbsp;</div>
+  </section>
+
+  <!-- beat 3: fit (slider + guide voice looping from straight ahead) -->
+  <section id="fitStep" class="ob-card" hidden>
+    <div class="ob-dots"><span></span><span class="on"></span></div>
+    <h2 class="ob-h2">Fit</h2>
+    <p class="ob-sub">Move the slider until my voice sits just ahead of you, out in the room.</p>
+    <div class="fit-row">
+      <input id="obFit" type="range" min="0.7" max="2.2" step="0.01" value="2.0" />
+      <span id="obFitVal">2.00</span>
+    </div>
+    <button id="fitDone" class="pill">Continue</button>
+  </section>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

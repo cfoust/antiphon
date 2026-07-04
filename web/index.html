@@ -2,57 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-<meta name="theme-color" content="#0a0c10" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<title>Chamber</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#FBF7F0" />
+<title>Antiphon — your agents, speaking</title>
+<meta name="description" content="Antiphon gives every coding agent a voice, placed in the room around you. Put on headphones and overhear the work." />
+<script type="module" src="/src/site/main.ts"></script>
 </head>
 <body>
-<div class="stage">
-  <canvas id="radar"></canvas>
-</div>
-
-<!-- everyone in the room, at a glance (right rail on desktop, bottom sheet on phones) -->
-<aside id="agentList" class="agents" hidden></aside>
-
-<!-- HRTF "fit": dial until a source straight ahead sits OUT in front at ear level. Hidden until the experience starts. -->
-<div id="controls" class="controls" hidden>
-  <label class="ctl" for="fit">Fit</label>
-  <input id="fit" class="ctl-range" type="range" min="0.7" max="2.2" step="0.01" value="2.0" />
-  <span id="fitVal" class="ctl-val">2.00</span>
-</div>
-
-<!-- live mode only: type to the agent you're facing (focus it, dictate or type, Enter) -->
-<form id="say" class="say" hidden>
-  <input id="sayText" class="say-input" type="text" autocomplete="off"
-    autocapitalize="off" autocorrect="off" spellcheck="false"
-    placeholder="Face an agent and type to send…" />
-</form>
-
-<div id="calib" class="calib" hidden>
-  <div id="calArrow" class="cal-arrow">←</div>
-  <div id="calText" class="cal-text">Look all the way left…</div>
-</div>
-
-<div id="intro" class="intro">
-  <div class="card">
-    <div class="mark"></div>
-    <h1>Chamber</h1>
-    <p class="lede">A team of AI agents, working around you in space. You hear them
-      murmur as they work, and chime when they finish — turn to face one to listen.</p>
-
-    <ul class="reqs">
-      <li><span class="ico">🎧</span><div><b>Headphones required</b><br><span>The audio is positioned in 3D — it only works over headphones.</span></div></li>
-      <li><span class="ico">📷</span><div><b>Camera access</b><br><span>Turn your head to face agents. Video never leaves your device.</span></div></li>
-    </ul>
-
-    <button id="enable" class="btn">Enable camera &amp; continue</button>
-    <button id="start" class="btn" hidden>Start</button>
-    <div id="status" class="status"></div>
-    <button id="recal" class="link" hidden>Recalibrate head tracking</button>
-  </div>
-</div>
-
-<script type="module" src="/src/main.ts"></script>
+<div id="site"></div>
 </body>
 </html>
