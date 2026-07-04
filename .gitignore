@@ -16,6 +16,9 @@
 # native build output
 *.app
 .DS_Store
+# marketing-site design handoff (local reference, not part of the repo)
+/design_handoff_antiphon_site
+/handoff.zip
 # Claude Code session data + agent worktrees
 /.claude
 *.mov

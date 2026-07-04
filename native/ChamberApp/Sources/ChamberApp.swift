@@ -2,165 +2,191 @@ import SwiftUI
 
 @main
 struct ChamberAppMain: App {
+    @StateObject private var tracker = FaceTracker()
+    @StateObject private var engine = ChamberEngine()
+
     var body: some Scene {
-        WindowGroup("Chamber") { ContentView() }
-            .defaultSize(width: 720, height: 980)
+        // Full-bleed: the radar IS the window — traffic lights float over it.
+        WindowGroup("Antiphon") { ContentView(tracker: tracker, engine: engine) }
+            .defaultSize(width: 1080, height: 780)
+            .windowStyle(.hiddenTitleBar)
     }
 }
 
-/// Mirrors the web experience: an intro gate, a voice-guided two-point calibration, then a
-/// full radar. (The web app and this share the same flow + radar so they feel identical.)
+/// The main window: an intro gate, a two-point calibration, then the chamber —
+/// a full-bleed top-down visualization with the residents' list on the right.
 struct ContentView: View {
-    @StateObject private var tracker = FaceTracker()
-    @StateObject private var engine = ChamberEngine()
+    @ObservedObject var tracker: FaceTracker
+    @ObservedObject var engine: ChamberEngine
+    @State private var showSettings = false
     @State private var enabled = false
     @State private var live = false
     @State private var showDebug = false
-    @State private var calArrow = ""
-    @State private var calText = ""
-    @State private var immersionEnabled = true // eyes-closed → scene fills in; user-toggleable below
-    private let rooms = ["dry", "room (FDN)", "hall (FDN)", "cathedral (FDN)", "room (BRIR)", "hall (BRIR)"]
+    /// Onboarding: voice-guided calibration → fit. `.none` = the welcome
+    /// screen (pre-live, camera choice included) or the chamber itself (live).
+    /// Recalibrate re-enters `.calibrate` alone.
+    private enum OnboardStep { case none, calibrate, fit }
+    @State private var step: OnboardStep = .none
+    @State private var menuBar = MenuBarController()
+    @ObservedObject private var i18n = I18n.shared
 
     var body: some View {
         ZStack {
-            Color(red: 0.04, green: 0.047, blue: 0.063).ignoresSafeArea()
+            // asleep = the room grays out (camera off, silent)
+            (engine.watching
+                ? Color(red: 0.04, green: 0.047, blue: 0.063)
+                : Color(white: 0.18))
+                .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.35), value: engine.watching)
 
             if live {
-                VStack(spacing: 14) {
-                    Radar(engine: engine)
-                    HStack(spacing: 16) {
-                        Picker("", selection: Binding(get: { engine.roomIndex }, set: { engine.setRoom($0) })) {
-                            ForEach(rooms.indices, id: \.self) { Text(rooms[$0]).tag($0) }
-                        }
-                        .labelsHidden().frame(width: 160)
-                        Button("Recalibrate") { runCalibration() }
-                            .buttonStyle(.borderless).foregroundStyle(.secondary)
-                    }
-                    .font(.caption)
-                    // BRIR rooms can blend their measured tail with the parametric FDN tail.
-                    if engine.roomIndex >= 4 {
+                RadarView(engine: engine).ignoresSafeArea()
+
+                // right rail: eye + gear over the residents' list
+                HStack(spacing: 0) {
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 10) {
                         HStack(spacing: 10) {
-                            Text("FDN").font(.caption2).foregroundStyle(.secondary)
-                            Slider(value: Binding(get: { engine.reverbBlend },
-                                                  set: { engine.setReverbBlend($0) }), in: 0...1)
-                                .frame(width: 170)
-                            Text("BRIR").font(.caption2).foregroundStyle(.secondary)
+                            // same eye as the menu bar — notched Macs hide
+                            // overflowing status items, so it lives here too
+                            Button {
+                                setWatching(!engine.watching)
+                            } label: {
+                                Image(systemName: engine.watching ? "eye" : "eye.slash")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.white.opacity(engine.watching ? 0.55 : 0.4))
+                                    .padding(7)
+                                    .background(.black.opacity(0.42), in: Circle())
+                                    .overlay(Circle().stroke(.white.opacity(0.07)))
+                            }
+                            .buttonStyle(.plain)
+                            .help(engine.watching
+                                ? L("Antiphon is watching — click to close its eyes (camera off, silent)")
+                                : L("Antiphon is asleep — click to wake it"))
+                            Button {
+                                withAnimation(.easeOut(duration: 0.15)) { showSettings.toggle() }
+                            } label: {
+                                Image(systemName: "gearshape")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.white.opacity(0.55))
+                                    .padding(7)
+                                    .background(.black.opacity(0.42), in: Circle())
+                                    .overlay(Circle().stroke(.white.opacity(0.07)))
+                            }
+                            .buttonStyle(.plain)
+                            .help(L("Settings"))
                         }
+                        AgentSidebar(engine: engine)
+                        Spacer(minLength: 0)
                     }
-                    // HRTF "fit": dial until a source straight ahead sits OUT in front at ear level.
-                    HStack(spacing: 10) {
-                        Text("Fit").font(.caption2).foregroundStyle(.secondary)
-                        Slider(value: Binding(get: { engine.freqScale },
-                                              set: { engine.setFreqScale($0) }), in: 0.7...2.2)
-                            .frame(width: 200)
-                        Text(String(format: "%.2f", engine.freqScale))
-                            .font(.caption2.monospaced()).foregroundStyle(.tertiary)
-                    }
-                    Text("Turn to face an agent to hear it open up · look down to whisper all")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                    Text(engine.bridged
-                        ? "● live — agents join as they connect (chamberd)"
-                        : "○ demo — canned agents (chamberd not running)")
-                        .font(.caption2)
-                        .foregroundStyle(engine.bridged ? Color.green.opacity(0.75) : Color.secondary.opacity(0.6))
-                    // Eyes-closed immersion fade: close your eyes and the scene fills in; open them and
-                    // it fades to silence. User-toggleable — off holds full audio regardless of eyes.
-                    Toggle(isOn: $immersionEnabled) {
-                        Text("Immersion fade · close eyes → scene fills in")
-                    }
-                    .toggleStyle(.switch).font(.caption).frame(width: 320)
-                    .onChange(of: immersionEnabled) { on in engine.setImmersionArmed(on) }
-                    Text(String(format: "eyes %@ · openness %.2f · immersion %.2f%@",
-                                tracker.eyesClosed ? "closed" : "open", tracker.eyeOpenness,
-                                engine.immersionLevel, tracker.eyesCalibratedPub ? "" : " · calibrating…"))
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(tracker.eyesClosed ? Color.green : Color.secondary)
+                    .padding(16)
                 }
-                .padding(20)
+
+                // settings live INSIDE the chamber window, over the radar
+                if showSettings {
+                    Color.black.opacity(0.45)
+                        .ignoresSafeArea()
+                        .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { showSettings = false } }
+                    SettingsView(engine: engine) {
+                        withAnimation(.easeOut(duration: 0.15)) { showSettings = false }
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+
+                // asleep: one obvious way back in, at the eye's centre
+                if !engine.watching, !showSettings {
+                    Button {
+                        setWatching(true)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "eye")
+                            Text(L("Wake"))
+                        }
+                        .font(.callout.weight(.semibold))
+                        .fontDesign(.rounded)
+                        .foregroundStyle(Color(white: 0.25))
+                        .padding(.horizontal, 18).padding(.vertical, 10)
+                        .background(Color(white: 0.92), in: Capsule())
+                        .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
 
-            // calibration overlay
-            if !calText.isEmpty {
-                VStack(spacing: 10) {
-                    Text(calArrow).font(.system(size: 76, weight: .thin))
-                    Text(calText).font(.title3)
+            // onboarding steps (calibrate also serves recalibration over the live radar)
+            switch step {
+            case .calibrate:
+                CalibrationStepView(tracker: tracker, engine: engine, standalone: live) {
+                    step = live ? .none : .fit
                 }
-                .foregroundStyle(.white)
-                .padding(40)
-                .background(.black.opacity(0.55))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+            case .fit:
+                FitStepView(engine: engine) {
+                    engine.armImmersion() // eyes-closed presence IS the app
+                    live = true
+                    step = .none
+                }
+            case .none:
+                EmptyView()
             }
 
             if showDebug {
                 TrackingDebugView(tracker: tracker, engine: engine) { showDebug = false }
             }
 
-            // intro gate
-            if !live && calText.isEmpty && !showDebug {
-                introCard
+            // the welcome: one full-bleed branded screen (identity + camera)
+            if !live && step == .none && !showDebug {
+                WelcomeView(tracker: tracker, engine: engine, enabled: enabled,
+                            onEnable: { enable() },
+                            onStart: { engine.armImmersion(); live = true },
+                            onSetUp: { step = .calibrate })
             }
         }
-        .frame(minWidth: 660, minHeight: 700)
+        .frame(minWidth: 720, minHeight: 560)
         .preferredColorScheme(.dark)
         // the room exists (muted) from launch so live-bridge state — binds, narration,
         // done-summaries — accumulates correctly before the user clicks in
         .onAppear {
             engine.setup()
+            menuBar.install()
+            // menu-bar eye mirrors the in-window one; both flip watching
+            menuBar.onToggle = { setWatching(!engine.watching) }
             // dev harness: CHAMBER_DEV=talkback locks onto a fake agent at launch so
             // the panel's focus-steal mechanics are testable with no daemon or camera
             if ProcessInfo.processInfo.environment["CHAMBER_DEV"]?.hasPrefix("talkback") == true {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { engine.talkbackHarness() }
             }
-        }
-    }
-
-    private var introCard: some View {
-        VStack(spacing: 18) {
-            Text("Agent Chamber").font(.system(size: 28, weight: .bold))
-            Text("A team of agents, working around you in space. You hear them murmur as they work, and chime when they finish — turn to face one to listen.")
-                .font(.callout).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 12) {
-                req("🎧", "Headphones required", "The audio is positioned in 3D — it only works over headphones.")
-                req("📷", "Camera access", "Turn your head to face agents. Video never leaves your device.")
-            }
-            if !enabled {
-                Button("Enable camera & continue") { enable() }.buttonStyle(.borderedProminent)
-            } else {
-                // Skip the two-point flow if a calibration was restored from a previous session.
-                Button(tracker.hasSavedCalibration ? "Start" : "Calibrate & start") {
-                    if tracker.hasSavedCalibration { engine.setImmersionArmed(immersionEnabled); live = true } else { runCalibration() }
+            // dev harness: CHAMBER_DEV=snooze exercises snooze/unsnooze on the first
+            // listed agent and dumps the list state (UI-independent engine check)
+            if ProcessInfo.processInfo.environment["CHAMBER_DEV"] == "snooze" {
+                func dump(_ tag: String) {
+                    NSLog("[snoozedev] %@: %@", tag,
+                          engine.agentList.map { "\($0.id)=\($0.snoozed ? "z" : "-")" }.joined(separator: " "))
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(!tracker.faceFound)
-                Text(tracker.faceFound ? (tracker.hasSavedCalibration ? "Calibration restored" : "Head tracking ready")
-                                       : "Looking for your face…")
-                    .font(.caption).foregroundStyle(tracker.faceFound ? .green : .secondary)
-                if tracker.hasSavedCalibration {
-                    Button("Recalibrate") { runCalibration() }
-                        .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    // a local fake bind so the harness works in live mode too
+                    engine.bridgeBind(seat: 0, agent: "dev-snooze", name: "wren",
+                                      kind: "demo", title: "snooze harness", input: "demo")
                 }
-                Button("Debug tracking →") { showDebug = true }
-                    .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
-            }
-            if !engine.hrtfName.isEmpty {
-                Text(engine.hrtfName).font(.caption2).foregroundStyle(.tertiary)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    dump("before")
+                    if let seat = engine.agentList.first?.id { engine.setSnoozed(seat, true) }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    dump("after-snooze")
+                    if let seat = engine.agentList.first?.id { engine.setSnoozed(seat, false) }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) { dump("after-unsnooze") }
             }
         }
-        .padding(28).frame(width: 400)
-        .background(Color.white.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.08)))
-    }
-
-    private func req(_ icon: String, _ title: String, _ desc: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text(icon).font(.title3)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.callout.weight(.semibold))
-                Text(desc).font(.caption).foregroundStyle(.secondary)
+        // Settings buttons act here — calibration needs this window's overlay.
+        .onReceive(NotificationCenter.default.publisher(for: .init("chamber.recalibrate"))) { _ in
+            if enabled {
+                withAnimation(.easeOut(duration: 0.15)) { showSettings = false }
+                step = .calibrate
             }
-            Spacer()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("chamber.showDebug"))) { _ in
+            if enabled { showDebug = true }
         }
     }
 
@@ -177,30 +203,19 @@ struct ContentView: View {
         // intro/calibration audio is audible even though the detector is already running.
         tracker.onEyesClosed = { [weak engine] closed in engine?.setEyesClosed(closed) }
         tracker.start()
-        enabled = true
+        enabled = true // the welcome's camera section appears in place
     }
 
     private func startDebug() { showDebug = true }
 
-    /// Voice-less two-point calibration: look fully left, then fully right.
-    private func runCalibration() {
-        Task { @MainActor in
-            calArrow = "←"; calText = "Look all the way left… and hold"
-            try? await Task.sleep(nanoseconds: 2_600_000_000)
-            let yl = tracker.yaw, pl = tracker.pitch
-            calArrow = "→"; calText = "Now all the way right… and hold"
-            try? await Task.sleep(nanoseconds: 2_600_000_000)
-            let yr = tracker.yaw, pr = tracker.pitch
-            tracker.calibrate(yawLeftRad: yl, yawRightRad: yr, neutralPitchRad: (pl + pr) / 2)
-            tracker.resetNeutral() // capture the 6DoF neutral at a comfortable resting pose
-            tracker.persistCalibration() // remember it so we don't recalibrate next launch
-            calArrow = "✓"; calText = "Calibrated"
-            try? await Task.sleep(nanoseconds: 900_000_000)
-            calText = ""; calArrow = ""
-            engine.setImmersionArmed(immersionEnabled) // arm the eyes-closed immersion fade (if enabled) as the live experience begins
-            live = true
-        }
+    /// The one watching toggle both eyes (menu bar + in-window) call: engine
+    /// silence, camera on/off, and both icons stay in sync.
+    private func setWatching(_ on: Bool) {
+        engine.setWatching(on)
+        if on { tracker.resume() } else { tracker.pause() }
+        menuBar.sync(on)
     }
+
 }
 
 /// Live PnP-tracking diagnostics — record this screen while moving your head so the

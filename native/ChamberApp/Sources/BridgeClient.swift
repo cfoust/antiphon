@@ -13,6 +13,7 @@ import Foundation
 private struct Frame: Decodable {
     let type: String
     let seat: Int?
+    let agent: String?
     let name: String?
     let kind: String?
     let title: String?
@@ -215,9 +216,11 @@ final class BridgeClient: NSObject {
             case "bind":
                 if let seat = f.seat {
                     NSLog("[bridge] bind seat=%d name=%@ input=%@", seat, f.name ?? "?", f.input ?? "-")
-                    engine.bridgeBind(seat: seat, name: f.name, kind: f.kind,
+                    engine.bridgeBind(seat: seat, agent: f.agent, name: f.name, kind: f.kind,
                                       title: f.title, input: f.input)
                 }
+            case "tool":
+                if let seat = f.seat { engine.bridgeTool(seat: seat) }
             case "free":
                 if let seat = f.seat {
                     NSLog("[bridge] free seat=%d", seat)

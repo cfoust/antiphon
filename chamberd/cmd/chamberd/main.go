@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/cfoust/chamber/chamberd/internal/channel"
+	"github.com/cfoust/chamber/chamberd/internal/config"
 	"github.com/cfoust/chamber/chamberd/internal/emit"
 	"github.com/cfoust/chamber/chamberd/internal/hub"
 	"github.com/cfoust/chamber/chamberd/internal/registry"
@@ -86,17 +87,27 @@ func serve(args []string) {
 	}
 
 	// Provider ladder in priority order; macos-say is the free offline floor.
+	// Built from ~/.chamber/config.json (+ env-var key fallbacks) and rebuilt
+	// live whenever the settings UI PUTs /config.
 	cacheDir := filepath.Join(*stateDir, "tts-cache")
-	providers := []tts.Provider{}
-	if key := os.Getenv("ELEVENLABS_API_KEY"); key != "" {
-		providers = append(providers, tts.NewElevenLabs(key))
-	} else {
-		log.Printf("ELEVENLABS_API_KEY not set — using macOS say only")
+	buildTTS := func(cfg config.Config) hub.TTSSetup {
+		providers := []tts.Provider{}
+		if key := cfg.Key("elevenlabs", "ELEVENLABS_API_KEY"); key != "" && cfg.Provider("elevenlabs").On() {
+			providers = append(providers, tts.NewElevenLabs(key))
+		}
+		if key := cfg.Key("openai", "OPENAI_API_KEY"); key != "" && cfg.Provider("openai").On() {
+			providers = append(providers, tts.NewOpenAI(key))
+		}
+		if cfg.Provider("macos-say").On() {
+			providers = append(providers, tts.Say{})
+		}
+		if len(providers) == 0 {
+			log.Printf("all TTS providers disabled — narration will be silent")
+		}
+		return hub.TTSSetup{Chain: tts.NewChain(cacheDir, providers...), Providers: providers}
 	}
-	providers = append(providers, tts.Say{})
-	chain := tts.NewChain(cacheDir, providers...)
 
-	h := hub.New(reg, roster, chain)
+	h := hub.New(reg, roster, buildTTS, filepath.Join(*stateDir, "config.json"))
 	mux := http.NewServeMux()
 	h.Routes(mux, cacheDir)
 

@@ -24,6 +24,13 @@ use reverb::{ConvReverb, Fdn};
 use voice::{Decorrelator, Voice};
 
 pub const SPEED_OF_SOUND: f32 = 343.0;
+/// Height of the listener's ears above the room floor, in metres. The world origin is the
+/// listener's nominal ear position: the room is x/z-centred on it, but vertically the floor
+/// sits at `y = -EAR_HEIGHT_M` and the ceiling at `y = dims[1] - EAR_HEIGHT_M` — so a 12 m
+/// hall towers above you instead of centring you 6 m off the floor. Rooms shorter than
+/// 2·EAR_HEIGHT_M put the ears above mid-height (room-centre offset goes negative); the
+/// image math stays valid.
+pub const EAR_HEIGHT_M: f32 = 1.6;
 const MAX_ITD_SAMPLES: usize = 64; // ~1.3 ms @48k
 /// Image sources rendered per source. The **K loudest** images (energy-ranked by a
 /// listener-independent proxy, so the image→slot map stays stable as the listener moves — no
@@ -306,6 +313,11 @@ impl Renderer {
 
     pub fn num_rooms(&self) -> usize {
         self.rooms.len()
+    }
+    /// Dimensions `[w, h, d]` in metres of room preset `idx`, or `None` if out of range.
+    /// The room is placed x/z-centred on the origin with the floor at `y = -EAR_HEIGHT_M`.
+    pub fn room_dims(&self, idx: usize) -> Option<[f32; 3]> {
+        self.rooms.get(idx).map(|r| r.dims)
     }
     pub fn current_room(&self) -> usize {
         self.cur_room
@@ -611,9 +623,10 @@ impl Renderer {
             let dims = self.room.dims;
             let per = REFLECT_PER_SOURCE;
             // Each source owns a fixed slot range. We keep the K LOUDEST images, ranked by a
-            // listener-independent energy proxy (mid-band path gain / distance from the room
-            // centre, where the listener sits), so the image→slot map is stable as the listener
-            // moves — no reshuffle clicks. Fixed-size top-K insertion: no alloc, deterministic.
+            // listener-independent energy proxy (mid-band path gain / distance from the origin —
+            // the listener's nominal spot: x/z room centre at ear height), so the image→slot map
+            // is stable as the listener moves — no reshuffle clicks. Fixed-size top-K insertion:
+            // no alloc, deterministic.
             for i in 0..n {
                 let s = sources[i].position;
                 let gain = sources[i].gain;
@@ -643,9 +656,9 @@ impl Renderer {
                 let mut count = 0usize;
                 shoebox_images(s, dims, order, |pos, ord, bounces| {
                     let g = band_gain(&surf, &bounces);
-                    // Directivity enters the proxy via the emission angle toward the room
-                    // CENTRE (where the listener nominally sits) — listener-independent, so
-                    // the image→slot map still never reshuffles as the head moves.
+                    // Directivity enters the proxy via the emission angle toward the ORIGIN
+                    // (the listener's nominal spot) — listener-independent, so the
+                    // image→slot map still never reshuffles as the head moves.
                     let g_dir = directivity_gain(
                         mirrored(&bounces).dot(Vec3::new(-pos.x, -pos.y, -pos.z).normalized()),
                         d_amt,
@@ -893,14 +906,20 @@ fn surface_bounces(mx: i32, my: i32, mz: i32) -> [u32; 6] {
     [xp, xn, yp, yn, zp, zn] // [+x, -x, +y, -y, +z, -z]
 }
 
-/// Enumerate shoebox image sources up to `order` for a room centred at the origin with
-/// walls at ±dim/2. For a 1-D room the image of source `s` is `m*L + (-1)^m * s`; the 3-D
-/// images are the product, with reflection order `|mx|+|my|+|mz|`. Calls
-/// `push(pos, order, surface_bounces)` for each image (excluding the direct path, order 0).
+/// Enumerate shoebox image sources up to `order` for a room x/z-centred on the origin with
+/// the listener's ears [`EAR_HEIGHT_M`] above the floor (floor at `y = -EAR_HEIGHT_M`,
+/// ceiling at `y = dims[1] - EAR_HEIGHT_M`). For a 1-D room centred at the origin the image
+/// of source `s` is `m*L + (-1)^m * s`. On y the room centre sits at `oy = L/2 - EAR_HEIGHT_M`
+/// (possibly negative for low rooms — still valid): reflecting in room-centred coordinates
+/// and translating back gives even-m images unchanged (`m*L + s`) and odd-m images at
+/// `m*L - s + 2*oy`. The 3-D images are the product, with reflection order `|mx|+|my|+|mz|`.
+/// Calls `push(pos, order, surface_bounces)` for each image (excluding the direct path, order 0).
 fn shoebox_images(s: Vec3, dims: [f32; 3], order: u32, mut push: impl FnMut(Vec3, u32, [u32; 6])) {
     let o = order as i32;
     let (lx, ly, lz) = (dims[0], dims[1], dims[2]);
+    let oy = 0.5 * ly - EAR_HEIGHT_M; // room centre height above the listener's ears
     let axis = |m: i32, l: f32, c: f32| m as f32 * l + if m & 1 == 0 { c } else { -c };
+    let axis_y = |m: i32| m as f32 * ly + if m & 1 == 0 { s.y } else { 2.0 * oy - s.y };
     for target in 1..=o {
         for mx in -o..=o {
             for my in -o..=o {
@@ -909,7 +928,7 @@ fn shoebox_images(s: Vec3, dims: [f32; 3], order: u32, mut push: impl FnMut(Vec3
                         continue;
                     }
                     push(
-                        Vec3::new(axis(mx, lx, s.x), axis(my, ly, s.y), axis(mz, lz, s.z)),
+                        Vec3::new(axis(mx, lx, s.x), axis_y(my), axis(mz, lz, s.z)),
                         target as u32,
                         surface_bounces(mx, my, mz),
                     );
@@ -1079,6 +1098,143 @@ mod tests {
         }
         assert!(l.iter().all(|x| x.is_finite() && x.abs() < 1e-3));
         assert!(rr.iter().all(|x| x.is_finite() && x.abs() < 1e-3));
+    }
+
+    #[test]
+    fn earliest_reflection_arrival_matches_ear_height_geometry() {
+        // Controlled render: delta HRIRs (tiny asset), room [5, 3, 6] order 1, source 2 m in
+        // front at ear level. Render an impulse with reflections on vs off; the first sample
+        // where the two differ is the earliest image arrival. With the ears 1.6 m above the
+        // floor the earliest image is the CEILING (1.4 m overhead): path
+        // sqrt(2.8^2 + 2^2) = 3.4409 m, direct 2 m -> +1.4409 m -> 201.6 samples @48k.
+        // (Pre-ear-height, floor/ceiling were both 1.5 m away -> ~224.7 samples.)
+        let a = tiny_asset();
+        let render = |reflections: bool| -> Vec<f32> {
+            let mut r = Renderer::new(&a, 48000.0, 1, 128);
+            r.set_room(0);
+            r.set_reflections_enabled(reflections);
+            let src = [Source::new(Vec3::new(0.0, 0.0, -2.0), 1.0)];
+            let silence = vec![0.0f32; 128];
+            let mut impulse = vec![0.0f32; 128];
+            impulse[0] = 1.0;
+            let mut l = vec![0.0; 128];
+            let mut rr = vec![0.0; 128];
+            // settle coefficient ramps with a live-but-silent source, then fire the impulse
+            for _ in 0..30 {
+                r.process(&Pose::default(), &src, &[&silence], &mut l, &mut rr, 128);
+            }
+            let mut out = Vec::new();
+            for b in 0..6 {
+                let inp = if b == 0 { &impulse } else { &silence };
+                r.process(&Pose::default(), &src, &[inp], &mut l, &mut rr, 128);
+                for i in 0..128 {
+                    out.push(l[i].abs().max(rr[i].abs()));
+                }
+            }
+            out
+        };
+        let with = render(true);
+        let without = render(false);
+        let first = with
+            .iter()
+            .zip(&without)
+            .position(|(a, b)| (a - b).abs() > 1e-4)
+            .expect("reflections should add energy");
+        let expected = (3.440_930_1f32 - 2.0) / SPEED_OF_SOUND * 48000.0; // 201.6
+        assert!(
+            (first as f32 - expected).abs() < 3.0,
+            "earliest reflection at sample {first}, expected ~{expected}"
+        );
+    }
+
+    /// Collect the first-order floor (`-y`) and ceiling (`+y`) images plus the two
+    /// second-order y-axis images (my = ±2) for a source.
+    fn y_images(s: Vec3, dims: [f32; 3]) -> (Vec3, Vec3, Vec3, Vec3) {
+        let (mut floor, mut ceil, mut y2p, mut y2n) = (None, None, None, None);
+        shoebox_images(s, dims, 2, |pos, ord, b| {
+            let y_only = b[0] == 0 && b[1] == 0 && b[4] == 0 && b[5] == 0;
+            if !y_only {
+                return;
+            }
+            match (ord, b[2], b[3]) {
+                (1, 0, 1) => floor = Some(pos),
+                (1, 1, 0) => ceil = Some(pos),
+                // my = ±2 both bounce once off each surface; sign of the mirror
+                // index tells them apart via the position itself.
+                (2, 1, 1) if pos.y > s.y => y2p = Some(pos),
+                (2, 1, 1) if pos.y < s.y => y2n = Some(pos),
+                _ => {}
+            }
+        });
+        (floor.unwrap(), ceil.unwrap(), y2p.unwrap(), y2n.unwrap())
+    }
+
+    #[test]
+    fn images_put_floor_at_ear_height_tall_room() {
+        // 12 m-tall hall: floor at -1.6 m, ceiling at 10.4 m. Source at ear level.
+        let dims = [18.0f32, 12.0, 28.0];
+        let s = Vec3::new(1.0, 0.0, -2.0);
+        let (floor, ceil, y2p, y2n) = y_images(s, dims);
+        // first-order floor image: mirrored across y = -1.6 -> 2*1.6 m below the source
+        assert!((floor.y - (-3.2)).abs() < 1e-4, "floor image y = {}", floor.y);
+        // first-order ceiling image: mirrored across y = 10.4 -> 20.8
+        assert!((ceil.y - 20.8).abs() < 1e-4, "ceiling image y = {}", ceil.y);
+        // x/z untouched by y mirrors
+        assert!((floor.x - s.x).abs() < 1e-6 && (floor.z - s.z).abs() < 1e-6);
+        // even-m images are offset-independent: m*L + s
+        assert!((y2p.y - (2.0 * 12.0 + s.y)).abs() < 1e-4);
+        assert!((y2n.y - (-2.0 * 12.0 + s.y)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn images_valid_for_low_room_negative_offset() {
+        // 3 m-tall room: room-centre offset o = 1.5 - 1.6 = -0.1 (ears just above
+        // mid-height). Floor image still 2*1.6 m down; ceiling (3.0 - 1.6 = 1.4 m up)
+        // image at 2*1.4 m up.
+        let dims = [5.0f32, 3.0, 6.0];
+        let s = Vec3::new(0.0, 0.0, -1.5);
+        let (floor, ceil, _, _) = y_images(s, dims);
+        assert!((floor.y - (-3.2)).abs() < 1e-4, "floor image y = {}", floor.y);
+        assert!((ceil.y - 2.8).abs() < 1e-4, "ceiling image y = {}", ceil.y);
+    }
+
+    #[test]
+    fn images_off_ear_level_source() {
+        // Source above ear level: odd-m images are m*L - s + 2*o.
+        let dims = [18.0f32, 12.0, 28.0];
+        let s = Vec3::new(0.0, 1.0, -3.0);
+        let (floor, ceil, _, _) = y_images(s, dims);
+        // floor at -1.6: image at 2*(-1.6) - 1.0 = -4.2
+        assert!((floor.y - (-4.2)).abs() < 1e-4, "floor image y = {}", floor.y);
+        // ceiling at 10.4: image at 2*10.4 - 1.0 = 19.8
+        assert!((ceil.y - 19.8).abs() < 1e-4, "ceiling image y = {}", ceil.y);
+    }
+
+    #[test]
+    fn x_and_z_images_stay_centred() {
+        // The ear-height offset applies to y ONLY: ±x/±z first-order images keep m*L - s.
+        let dims = [18.0f32, 12.0, 28.0];
+        let s = Vec3::new(2.0, 0.5, -3.0);
+        let mut got = 0;
+        shoebox_images(s, dims, 1, |pos, _ord, b| {
+            if b[0] == 1 {
+                assert!((pos.x - (18.0 - s.x)).abs() < 1e-4);
+                got += 1;
+            }
+            if b[1] == 1 {
+                assert!((pos.x - (-18.0 - s.x)).abs() < 1e-4);
+                got += 1;
+            }
+            if b[4] == 1 {
+                assert!((pos.z - (28.0 - s.z)).abs() < 1e-4);
+                got += 1;
+            }
+            if b[5] == 1 {
+                assert!((pos.z - (-28.0 - s.z)).abs() < 1e-4);
+                got += 1;
+            }
+        });
+        assert_eq!(got, 4);
     }
 }
 

@@ -57,8 +57,24 @@ struct AgentVM: Identifiable {
     let id: Int
     let hex: String
     let bearing: Double
+    let x: Double // world metres (radar maps these to pixels)
+    let z: Double
     let state: AgentState
     let pingAge: Double
+}
+
+/// One row of the sidebar's agent list (built on `q`, published ~2 Hz).
+struct AgentListVM: Identifiable, Equatable {
+    let id: Int // seat
+    let name: String
+    let kind: String
+    let title: String
+    let hex: String
+    let status: String
+    let lastLine: String
+    let lastKind: String
+    let waiting: Bool // has an unheard done-summary
+    let snoozed: Bool
 }
 
 // MARK: - Per-agent runtime
@@ -67,20 +83,24 @@ final class AgentRuntime {
     let def: AgentDef
     let idx: Int
     var bearing = 0.0
+    /// World position (metres, x = right, z = back; the listener origin is the
+    /// calibrated neutral). Dragging on the radar moves this; bearing is derived.
+    var posX: Float = 0, posZ: Float = -1.3
+    /// Snoozed: still receives updates, but is invisible and silent in the world.
+    var snoozed = false
 
     // 48 kHz mono sample buffers
     var clear: [Float] = []
     var whisper: [Float] = []
     var summary: [Float] = []
     var ping: [Float] = []
-    var stat: [Float] = []
 
     // render-thread cursors (loop beds always advance; one-shots idle at -1)
-    var clearCur = 0, whisperCur = 0, statCur = 0
+    var clearCur = 0, whisperCur = 0
     var summaryCur = -1, pingCur = -1
 
     // gains: written by the 60 Hz state machine, read by the render thread (benign races)
-    var gClear: Float = 0, gWhisper: Float = 0, gStat: Float = 0
+    var gClear: Float = 0, gWhisper: Float = 0
     var gPing: Float = 0, gSummary: Float = 0
 
     // one-shot triggers (atomic-enough Int counters)
@@ -92,7 +112,6 @@ final class AgentRuntime {
     // state-machine fields
     var state: AgentState = .working
     var nextPing = 0.0, lastPingWall = 0.0, heardAt = 0.0
-    var stNextMod = 0.0, stCurrent: Float = 0
 
     // live-bridge fields: presence (a bound chamberd seat) + the narration queue.
     // Queue is mutated only on the state queue; render plays via the one-shot
@@ -106,15 +125,38 @@ final class AgentRuntime {
     var narrTrig = 0, narrSeen = 0
     var gNarr: Float = 0
 
-    // talk-back dwell/lock earcons: the bloom is a baked rising swell gated by gBloom
-    // (aborted dwell = fade out); the lock chime is a plain one-shot. Both spatialized
-    // through this agent's voice like ping/chime.
+    // talk-back dwell/lock hum: one seamless chord-root loop; ALL of its shape
+    // (build during dwell, brief crest at lock, release) lives in gBloom.
+    // Spatialized through this agent's voice like ping/chime.
     var bloom: [Float] = []
-    var lockChime: [Float] = []
-    var bloomCur = -1, lockCur = -1
-    var bloomTrig = 0, bloomSeen = 0
-    var lockTrig = 0, lockSeen = 0
+    var bloomCur = 0
     var gBloom: Float = 0
+    /// Wall time of the lock — the hum leans up for a moment after this.
+    var crestAt = 0.0
+    /// The hum is a presence reminder — lovely once per sweep, cloying on
+    /// repeat. Per-agent: it sounds at most once per cooldown; the dwell/lock
+    /// mechanics keep working silently in between.
+    var lastBloomAt = 0.0
+    var bloomLive = false // this dwell's hum is sounding (not cooled down)
+
+    // chord identity: each tool call plays the next of three descending notes
+    // (one-shot, swapped only while idle so bursts collapse instead of
+    // machine-gunning); the chord root is the "working" drone loop.
+    var toolNotes: [[Float]] = []
+    var toolNote: [Float] = []
+    var toolIdx = 0
+    var toolCur = -1, toolTrig = 0, toolSeen = 0
+    var drone: [Float] = []
+    var droneCur = 0
+    var gDrone: Float = 0
+    /// Wall time of the last sign of life (tool call or narration event) —
+    /// gates the drone so idle-but-connected sessions don't hum forever.
+    var lastActivity = 0.0
+
+    // drag audition: a pulsing blip with a hot reverb send while being moved
+    var pulse: [Float] = []
+    var pulseCur = 0
+    var gPulse: Float = 0
 
     init(def: AgentDef, idx: Int) { self.def = def; self.idx = idx }
 }
@@ -135,7 +177,7 @@ final class ChamberEngine: ObservableObject {
     @Published var headPos = SIMD3<Double>(0, 0, 0)
     @Published var autoFinish = true
     @Published var ready = false
-    @Published var roomIndex = 4 // "room (BRIR)" = room_conv — matches the web default (measured tail)
+    @Published var roomIndex = 5 // hall (BRIR) — the chamber's one true acoustic (picker removed)
     @Published var reverbBlend = 1.0 // BRIR rooms: 0 = FDN tail, 1 = measured BRIR tail
     @Published var freqScale = 2.0   // HRTF fit: <1 / >1 warps the pinna spectral cue
     @Published var hrtfName = ""
@@ -147,11 +189,21 @@ final class ChamberEngine: ObservableObject {
     @Published var immersionLevel = 1.0
     @Published var immersionArmedPub = false
     @Published var immersionInvertPub = false
+    /// Sidebar rows (all agents in the room, snoozed included).
+    @Published var agentList: [AgentListVM] = []
+    /// Seat hovered in the sidebar (highlighted in the radar); -1 = none.
+    @Published var hoveredSeat = -1
+    /// Menu-bar eye: false = the app is silent and not responding to eyes.
+    @Published var watching = true
 
     private let engine = AVAudioEngine()
     private var srcNode: AVAudioSourceNode!
     private var renderer: ChamberRenderer!
     private let radius: Float = 1.3 // ~the first range ring — the distance that sounded best
+    /// Per-voice reverb send. Low on purpose: the hall answers faintly behind
+    /// close voices instead of washing them. Everything — the drag pulse
+    /// included — stays this dry.
+    private let voiceSend: Float = 0.05
     private let maxBlock = 4096
 
     private var agents: [AgentRuntime] = []
@@ -192,6 +244,35 @@ final class ChamberEngine: ObservableObject {
     private var pubCounter = 0
     private var started = false
     private var autoFinishInternal = true
+    private var lastAgentList: [AgentListVM] = []
+
+    // menu-bar eye + room state: watching off = master gain 0 (fully silent)
+    private var watchingInternal = true
+    private var roomOpened = false
+
+    // drag audition: while a dot is being moved, the chamber fades in even with
+    // eyes open and the dragged agent pulses with a hot reverb send
+    private var dragSeat = -1
+    private var immersionHold = false
+    /// Drone gate: how long after the last sign of life "working" keeps humming.
+    private let droneHoldSecs = 45.0
+
+    // The audition source: a dedicated extra source slot (index agents.count)
+    // for onboarding cues and the fit loop. While it speaks it takes the room
+    // over — agents duck against gAud and the eye fade is held open.
+    // DOUBLE-BUFFERED: unlike every other one-shot, a new cue may interrupt a
+    // playing one, so `q` stages into audStaged and bumps audTrig; the RENDER
+    // thread adopts it at the trigger ack. Mutating audBuf from `q` mid-read
+    // was a bounds trap on the IO thread (cal_left → cal_right crash).
+    private var audSlot = 0
+    private var audStaged: [Float] = []      // written on q, read by render at ack
+    private var audStagedLoop = false
+    private var audBuf: [Float] = []         // render-thread-owned after adoption
+    private var audCur = -1
+    private var audLoop = false
+    private var audTrig = 0, audSeen = 0
+    private var audTarget: Float = 0
+    private var gAud: Float = 0
 
     // live bridge (chamberd): when connected, agents exist only as bound seats and
     // speak real narration; the canned demo loops and auto-finish stay off.
@@ -219,6 +300,8 @@ final class ChamberEngine: ObservableObject {
     /// gaze leaves it or the eyes reopen (otherwise send-with-eyes-closed re-locks).
     private var cooldownSeat = -1
     private let dwellSecs = 0.9
+    /// A given agent's dwell hum sounds at most this often.
+    private let bloomCooldownSecs = 30.0
 
     // preallocated FFI scratch (no allocation in the render callback)
     private var inBufs: [UnsafeMutablePointer<Float>] = []
@@ -242,17 +325,21 @@ final class ChamberEngine: ObservableObject {
     func setup() {
         guard !started, let res = Bundle.main.resourceURL else { return }
         let assetURL = res.appendingPathComponent("chamber.chamber")
+        // +1: the audition source (onboarding cues, fit loop)
         guard let r = ChamberRenderer(assetURL: assetURL, sampleRate: SAMPLE_RATE,
-                                      maxSources: AGENTS.count, maxBlock: maxBlock) else {
+                                      maxSources: AGENTS.count + 1, maxBlock: maxBlock) else {
             print("[chamber] failed to load renderer/asset"); return
         }
         renderer = r
+        // the fit is personal — restore it (the slider lives in onboarding + settings)
+        if UserDefaults.standard.object(forKey: "fit.freqScale") != nil {
+            freqScale = UserDefaults.standard.double(forKey: "fit.freqScale")
+        }
         DispatchQueue.main.async { self.hrtfName = (try? String(contentsOf: res.appendingPathComponent("hrtf.txt"))) ?? "" }
 
         // load voices + synthesize earcons
         let base = res.appendingPathComponent("audio")
         chime = makeChime()
-        let sharedStatic = makeStatic()
         for (i, def) in AGENTS.enumerated() {
             let a = AgentRuntime(def: def, idx: i)
             let work = loadMono(base.appendingPathComponent("\(def.id).mp3")) ?? []
@@ -260,27 +347,43 @@ final class ChamberEngine: ObservableObject {
             a.whisper = work.isEmpty ? [] : whispered(work)
             a.summary = loadMono(base.appendingPathComponent("\(def.id)_done.mp3")) ?? []
             a.ping = makePing(PING_FREQS[i % PING_FREQS.count])
-            a.stat = sharedStatic
             a.bloom = makeBloom(PING_FREQS[i % PING_FREQS.count])
-            a.lockChime = makeLockChime(PING_FREQS[i % PING_FREQS.count])
+            let pf = PING_FREQS[i % PING_FREQS.count]
+            a.toolNotes = toolNoteFreqs(pf).map { makeToolNote($0) }
+            a.drone = makeDrone(pf)
+            a.pulse = makePulse(pf)
             agents.append(a)
         }
         let n = agents.count
+        let ud = UserDefaults.standard
         for (i, a) in agents.enumerated() {
-            a.bearing = n == 1 ? 0 : rad(-90 + 180 * Double(i) / Double(n - 1))
+            // default: the front arc at `radius`; a dragged position overrides it
+            let arcBearing = n == 1 ? 0 : rad(-90 + 180 * Double(i) / Double(n - 1))
+            if ud.bool(forKey: "seatpos.set.\(i)") {
+                a.posX = Float(ud.double(forKey: "seatpos.x.\(i)"))
+                a.posZ = Float(ud.double(forKey: "seatpos.z.\(i)"))
+            } else {
+                a.posX = Float(sin(arcBearing)) * radius
+                a.posZ = Float(-cos(arcBearing)) * radius
+            }
+            a.bearing = atan2(Double(a.posX), Double(-a.posZ))
         }
 
-        // preallocate FFI scratch
-        for _ in 0..<n { inBufs.append(.allocate(capacity: maxBlock)) }
-        inTable = .allocate(capacity: n)
-        srcArr = .allocate(capacity: n)
+        // preallocate FFI scratch (+1 = the audition source)
+        for _ in 0..<(n + 1) { inBufs.append(.allocate(capacity: maxBlock)) }
+        inTable = .allocate(capacity: n + 1)
+        srcArr = .allocate(capacity: n + 1)
         for (i, a) in agents.enumerated() {
             inTable[i] = UnsafePointer(inBufs[i])
             // fx/fy/fz zero = omnidirectional point source (legacy behaviour)
-            srcArr[i] = ChamberSource(x: Float(sin(a.bearing)) * radius, y: 0,
-                                      z: Float(-cos(a.bearing)) * radius, gain: 1.0, send: 0.3,
+            srcArr[i] = ChamberSource(x: a.posX, y: 0,
+                                      z: a.posZ, gain: 1.0, send: voiceSend,
                                       fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
         }
+        audSlot = n
+        inTable[audSlot] = UnsafePointer(inBufs[audSlot])
+        srcArr[audSlot] = ChamberSource(x: 0, y: 0, z: -radius, gain: 1.0, send: voiceSend,
+                                        fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
         renderer.setRoom(roomIndex)
         // Muted until the user enters the room (openRoom). setup() now runs at app
         // LAUNCH so live-bridge state (binds, dones) accumulates correctly from
@@ -309,7 +412,28 @@ final class ChamberEngine: ObservableObject {
     /// The user entered the room (intro click): un-mute. The close 1.3 m arc + 6
     /// summed voices + BRIR tail is hot → keep the master well down.
     func openRoom() {
-        q.async { self.renderer?.setMasterGain(0.45) }
+        q.async {
+            self.roomOpened = true
+            if self.watchingInternal { self.renderer?.setMasterGain(0.45) }
+        }
+    }
+
+    /// Menu-bar eye. Closed (false): the app is, for all intents and purposes,
+    /// silent — master gain to zero, any talk-back lock released. The caller
+    /// pauses the camera; eye state simply stops arriving.
+    func setWatching(_ on: Bool) {
+        q.async {
+            self.watchingInternal = on
+            self.renderer?.setMasterGain(on && self.roomOpened ? 0.45 : 0.0)
+            if !on {
+                self.dwellSeat = -1
+                if self.lockedSeat >= 0 {
+                    self.lockedSeat = -1
+                    DispatchQueue.main.async { self.talkback.dismiss(notify: false) }
+                }
+            }
+        }
+        DispatchQueue.main.async { self.watching = on }
     }
 
     private func buildGraph() {
@@ -333,22 +457,23 @@ final class ChamberEngine: ObservableObject {
     // MARK: render callback (audio thread)
 
     private func render(outL: UnsafeMutablePointer<Float>, outR: UnsafeMutablePointer<Float>, n: Int) {
+        // while the audition voice speaks, the agents step back
+        let duck = 1 - 0.85 * gAud
         // mix each agent's active signals into its mono input buffer
         for (ai, a) in agents.enumerated() {
             if a.pingTrig != a.pingSeen { a.pingSeen = a.pingTrig; a.pingCur = 0 }
             if a.summaryTrig != a.summarySeen { a.summarySeen = a.summaryTrig; a.summaryCur = 0 }
             if a.chimeTrig != a.chimeSeen { a.chimeSeen = a.chimeTrig; a.chimeCur = 0 }
             if a.narrTrig != a.narrSeen { a.narrSeen = a.narrTrig; a.narrCur = 0 }
-            if a.bloomTrig != a.bloomSeen { a.bloomSeen = a.bloomTrig; a.bloomCur = 0 }
-            if a.lockTrig != a.lockSeen { a.lockSeen = a.lockTrig; a.lockCur = 0 }
+            if a.toolTrig != a.toolSeen { a.toolSeen = a.toolTrig; a.toolCur = 0 }
             let buf = inBufs[ai]
-            let gc = a.gClear, gw = a.gWhisper, gs = a.gStat, gp = a.gPing, gsum = a.gSummary, gn = a.gNarr
-            let gb = a.gBloom
+            let gc = a.gClear, gw = a.gWhisper, gp = a.gPing, gsum = a.gSummary, gn = a.gNarr
+            let gb = a.gBloom, gd = a.gDrone, gpl = a.gPulse
+            let humOn = gb > 0.001 // loop bed: advances only while audible
             for k in 0..<n {
                 var s: Float = 0
                 if !a.clear.isEmpty { s += a.clear[a.clearCur] * gc; a.clearCur = (a.clearCur + 1) % a.clear.count }
                 if !a.whisper.isEmpty { s += a.whisper[a.whisperCur] * gw; a.whisperCur = (a.whisperCur + 1) % a.whisper.count }
-                if !a.stat.isEmpty { s += a.stat[a.statCur] * gs; a.statCur = (a.statCur + 1) % a.stat.count }
                 if a.pingCur >= 0 { s += a.ping[a.pingCur] * gp; a.pingCur += 1; if a.pingCur >= a.ping.count { a.pingCur = -1 } }
                 // accept chime: spatialized through this agent's voice (was a centred, in-head one-shot)
                 if a.chimeCur >= 0 { s += chime[a.chimeCur] * CHIME_GAIN; a.chimeCur += 1; if a.chimeCur >= chime.count { a.chimeCur = -1 } }
@@ -361,10 +486,38 @@ final class ChamberEngine: ObservableObject {
                     s += a.narr[a.narrCur] * gn; a.narrCur += 1
                     if a.narrCur >= a.narr.count { a.narrCur = -1 }
                 }
-                // talk-back dwell bloom + lock chime (spatialized from this agent)
-                if a.bloomCur >= 0 { s += a.bloom[a.bloomCur] * gb; a.bloomCur += 1; if a.bloomCur >= a.bloom.count { a.bloomCur = -1 } }
-                if a.lockCur >= 0 { s += a.lockChime[a.lockCur] * 0.9; a.lockCur += 1; if a.lockCur >= a.lockChime.count { a.lockCur = -1 } }
-                buf[k] = s
+                // talk-back dwell/lock hum (one continuous loop shaped by gBloom)
+                if humOn, !a.bloom.isEmpty { s += a.bloom[a.bloomCur] * gb; a.bloomCur = (a.bloomCur + 1) % a.bloom.count }
+                // chord identity: tool-call note (one-shot) + working drone (loop)
+                if a.toolCur >= 0, !a.toolNote.isEmpty {
+                    s += a.toolNote[a.toolCur]; a.toolCur += 1
+                    if a.toolCur >= a.toolNote.count { a.toolCur = -1 }
+                }
+                if !a.drone.isEmpty { s += a.drone[a.droneCur] * gd; a.droneCur = (a.droneCur + 1) % a.drone.count }
+                // drag audition pulse (reverb send is bumped while dragging)
+                if !a.pulse.isEmpty { s += a.pulse[a.pulseCur] * gpl; a.pulseCur = (a.pulseCur + 1) % a.pulse.count }
+                buf[k] = s * duck
+            }
+        }
+
+        // the audition source (onboarding cues / fit loop)
+        if started {
+            if audTrig != audSeen { // adopt the staged cue HERE — only render touches audBuf
+                audSeen = audTrig
+                audBuf = audStaged
+                audLoop = audStagedLoop
+                audCur = 0
+            }
+            let abuf = inBufs[audSlot]
+            let ga = gAud
+            for k in 0..<n {
+                var s: Float = 0
+                if audCur >= 0, audCur < audBuf.count {
+                    s = audBuf[audCur] * ga
+                    audCur += 1
+                    if audCur >= audBuf.count { audCur = audLoop ? 0 : -1 }
+                }
+                abuf[k] = s
             }
         }
 
@@ -380,9 +533,10 @@ final class ChamberEngine: ObservableObject {
         // we just forward the eyes target and the waiting-agent count before the single process()
         // call. The cue keeps building while eyes are closed (agents still waiting) — it's just
         // crossfaded to silence by the same immersion value, not reset.
-        renderer.setImmersion(immersionTarget)
+        // A drag or voice audition holds the scene fully in regardless of eye state.
+        renderer.setImmersion((immersionHold || audTarget > 0) ? 1 : immersionTarget)
         var waiting = 0
-        for a in agents where a.state == .done { waiting += 1 } // agents wanting to summarize
+        for a in agents where a.state == .done && !a.snoozed { waiting += 1 } // agents wanting to summarize
         renderer.setAttentionAgents(waiting)
 
         let h = 0.5 * orient
@@ -390,7 +544,7 @@ final class ChamberEngine: ObservableObject {
         // leaning/shifting gives true motion parallax — the strongest externalization cue.
         var pose = ChamberPose(px: Float(headX), py: Float(headY), pz: Float(headZ),
                                qw: Float(cos(h)), qx: 0, qy: Float(-sin(h)), qz: 0)
-        renderer.process(pose: &pose, sources: UnsafePointer(srcArr), n: agents.count,
+        renderer.process(pose: &pose, sources: UnsafePointer(srcArr), n: agents.count + 1,
                          inputs: UnsafePointer(inTable), outL: outL, outR: outR, frames: n)
         // Scene faded + cue crossfaded per-source inside process(); accept chime is mixed into its
         // agent's voice above (spatialized). Nothing to post-multiply.
@@ -453,9 +607,135 @@ final class ChamberEngine: ObservableObject {
         DispatchQueue.main.async { self.reverbBlend = b }
     }
     /// HRTF "fit": frequency-scale the HRTF to better match the listener's pinna (front-back cue).
+    /// Personal — persisted, set during onboarding and adjustable in Settings.
     func setFreqScale(_ s: Double) {
         q.async { self.renderer?.setFreqScale(Float(s)) }
+        UserDefaults.standard.set(s, forKey: "fit.freqScale")
         DispatchQueue.main.async { self.freqScale = s }
+    }
+
+    // MARK: onboarding / fit audition (the dedicated extra source)
+
+    /// Speak a bundled onboarding cue (onboarding/<name>_<lang>.mp3, falling
+    /// back to English) from `bearingDeg`. While it plays, agents duck and the
+    /// eye fade holds open. `loop` repeats with a breath of silence (the fit
+    /// loop); one-shots just end.
+    func onboardPlay(_ name: String, loop: Bool = false, bearingDeg: Double = 0) {
+        let lang = I18n.shared.lang.rawValue
+        guard let res = Bundle.main.resourceURL else { return }
+        var url = res.appendingPathComponent("onboarding/\(name)_\(lang).mp3")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            url = res.appendingPathComponent("onboarding/\(name)_en.mp3")
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self, var samples = loadMono(url), !samples.isEmpty else { return }
+            if loop { samples.append(contentsOf: [Float](repeating: 0, count: Int(SAMPLE_RATE * 1.1))) }
+            self.q.async {
+                guard self.started else { return }
+                let b = rad(bearingDeg)
+                self.srcArr[self.audSlot].x = Float(sin(b)) * self.radius
+                self.srcArr[self.audSlot].z = Float(-cos(b)) * self.radius
+                self.audStaged = samples
+                self.audStagedLoop = loop
+                self.audTarget = 1
+                self.audTrig += 1 // render adopts the staged buffer at the ack
+            }
+        }
+    }
+
+    /// Let the audition voice go (fades out; a finished one-shot is a no-op).
+    func onboardStop() {
+        q.async {
+            self.audTarget = 0
+            self.audLoop = false
+        }
+    }
+
+    // MARK: sidebar + radar interactions
+
+    /// Snooze: the agent leaves the world (no dot, no sound) but keeps
+    /// receiving updates; un-snoozing brings it back where it was.
+    func setSnoozed(_ seat: Int, _ on: Bool) {
+        q.async {
+            guard self.agents.indices.contains(seat) else { return }
+            self.agents[seat].snoozed = on
+            NSLog("[snooze] seat=%d %@", seat, on ? "snoozed" : "woken")
+            if on {
+                // the row leaves the hovered spot without an onHover(false)
+                DispatchQueue.main.async { if self.hoveredSeat == seat { self.hoveredSeat = -1 } }
+                if self.dragSeat == seat { self.dragSeat = -1; self.immersionHold = false }
+                if self.lockedSeat == seat {
+                    self.lockedSeat = -1
+                    DispatchQueue.main.async { self.talkback.dismiss(notify: false) }
+                }
+            }
+        }
+    }
+
+    /// Sidebar hover → radar highlight.
+    func setHovered(_ seat: Int) {
+        DispatchQueue.main.async { if self.hoveredSeat != seat { self.hoveredSeat = seat } }
+    }
+
+    /// A dot picked up on the radar: hold the chamber audible (even with eyes
+    /// open) and pulse the agent so its place is felt. The pulse stays as dry
+    /// as the voice — the direct path carries the position.
+    func dragBegan(_ seat: Int) {
+        q.async {
+            guard self.agents.indices.contains(seat) else { return }
+            self.dragSeat = seat
+            self.immersionHold = true
+        }
+    }
+
+    /// Live position update while dragging (world metres).
+    func dragMoved(_ seat: Int, x: Double, z: Double) {
+        q.async { self.place(seat: seat, x: x, z: z) }
+    }
+
+    func dragEnded() {
+        q.async {
+            let seat = self.dragSeat
+            self.dragSeat = -1
+            self.immersionHold = false
+            guard self.agents.indices.contains(seat) else { return }
+            let a = self.agents[seat]
+            let ud = UserDefaults.standard
+            ud.set(Double(a.posX), forKey: "seatpos.x.\(seat)")
+            ud.set(Double(a.posZ), forKey: "seatpos.z.\(seat)")
+            ud.set(true, forKey: "seatpos.set.\(seat)")
+        }
+    }
+
+    /// Runs on `q`. Clamps to a sane annulus (too close is deafening, too far
+    /// is inaudible) and keeps position, bearing and the DSP source in sync.
+    private func place(seat: Int, x: Double, z: Double) {
+        guard agents.indices.contains(seat) else { return }
+        var wx = x, wz = z
+        let d = max(sqrt(wx * wx + wz * wz), 1e-6)
+        let clamped = min(max(d, 0.45), 2.6)
+        wx *= clamped / d; wz *= clamped / d
+        let a = agents[seat]
+        a.posX = Float(wx); a.posZ = Float(wz)
+        a.bearing = atan2(wx, -wz)
+        srcArr?[seat].x = a.posX
+        srcArr?[seat].z = a.posZ
+    }
+
+    /// A tool call from the live bridge: play the next descending chord note.
+    /// Swapped only while idle, so a burst of calls collapses into one note.
+    func bridgeTool(seat: Int) {
+        q.async {
+            guard self.agents.indices.contains(seat) else { return }
+            let a = self.agents[seat]
+            a.lastActivity = self.now()
+            guard a.present, !a.snoozed else { return }
+            if a.toolCur == -1, a.toolTrig == a.toolSeen, !a.toolNotes.isEmpty {
+                a.toolNote = a.toolNotes[a.toolIdx]
+                a.toolIdx = (a.toolIdx + 1) % a.toolNotes.count
+                a.toolTrig += 1
+            }
+        }
     }
 
     // MARK: live bridge (chamberd /stream)
@@ -469,7 +749,7 @@ final class ChamberEngine: ObservableObject {
             a.present = boundSeats.contains(i)
             a.state = .working
             a.clear = []; a.whisper = [] // live agents speak narration, not loops
-            a.gClear = 0; a.gWhisper = 0; a.gStat = 0; a.gPing = 0
+            a.gClear = 0; a.gWhisper = 0; a.gPing = 0
         }
         // replay dones that arrived before the room existed
         for (seat, summary) in pendingDone where agents.indices.contains(seat) {
@@ -488,15 +768,23 @@ final class ChamberEngine: ObservableObject {
         }
     }
 
-    func bridgeBind(seat: Int, name: String? = nil, kind: String? = nil,
+    func bridgeBind(seat: Int, agent: String? = nil, name: String? = nil, kind: String? = nil,
                     title: String? = nil, input: String? = nil) {
         q.async {
             var m = self.seatMeta[seat] ?? TalkbackSeatMeta()
+            // a different session on the same seat is a new tenant — its
+            // predecessor's snooze must not silence it
+            var newTenant = false
+            if let agent, !agent.isEmpty {
+                newTenant = !m.agent.isEmpty && m.agent != agent
+                m.agent = agent
+            }
             if let name, !name.isEmpty { m.name = name }
             if let kind, !kind.isEmpty { m.kind = kind }
             if let title, !title.isEmpty { m.title = title }
             m.input = input ?? ""
             self.seatMeta[seat] = m
+            if newTenant { self.seatLines[seat] = [] }
             if self.lockedSeat == seat { self.pushTalkback(present: false) }
 
             self.boundSeats.insert(seat)
@@ -505,6 +793,7 @@ final class ChamberEngine: ObservableObject {
             a.present = true
             a.departed = false
             a.state = .working
+            if newTenant { a.snoozed = false }
         }
     }
 
@@ -515,6 +804,7 @@ final class ChamberEngine: ObservableObject {
             lines.append(TalkbackLine(kind: kind, text: text, at: Date().timeIntervalSince1970))
             if lines.count > 3 { lines.removeFirst(lines.count - 3) }
             self.seatLines[seat] = lines
+            if self.agents.indices.contains(seat) { self.agents[seat].lastActivity = self.now() }
             if self.lockedSeat == seat { self.pushTalkback(present: false) }
         }
     }
@@ -604,15 +894,32 @@ final class ChamberEngine: ObservableObject {
         // live narration: feed the next queued line into the one-shot slot when idle
         if liveBridge {
             for a in agents where a.present {
-                if a.narrCur == -1, a.narrTrig == a.narrSeen, !a.narrQueue.isEmpty {
+                if !a.snoozed, a.narrCur == -1, a.narrTrig == a.narrSeen, !a.narrQueue.isEmpty {
                     a.narr = a.narrQueue.removeFirst()
                     a.narrTrig += 1
                 }
                 // narration ducks like the clear voice: full when faced, murmur otherwise
                 let faced = a.idx == facedIndex()
-                let target: Float = a.narr.isEmpty ? 0 : (faced ? 0.95 : 0.55) * Float(0.4 + 0.6 * lookGate)
+                let target: Float = (a.narr.isEmpty || a.snoozed) ? 0 : (faced ? 0.95 : 0.55) * Float(0.4 + 0.6 * lookGate)
                 a.gNarr += (target - a.gNarr) * 0.15
             }
+        }
+
+        // audition voice fade (onboarding cues / fit loop). A finished one-shot
+        // cue lets go of the room by itself — otherwise the immersion hold and
+        // the agent duck stay pinned after calibration. (Loops hold until
+        // onboardStop; audTrig==audSeen guards a not-yet-started replacement.)
+        if audTarget > 0, !audLoop, audCur == -1, audTrig == audSeen { audTarget = 0 }
+        gAud += (audTarget - gAud) * 0.12
+
+        // chord drone: a quiet breathing root while the agent is actively working
+        // (live mode only — recent tool call/narration keeps it alive), plus the
+        // drag audition pulse for the dot being moved.
+        for (i, a) in agents.enumerated() {
+            let busy = liveBridge && a.present && !a.snoozed && a.state == .working
+                && t - a.lastActivity < droneHoldSecs && a.lastActivity > 0
+            a.gDrone += ((busy ? 0.5 : 0) - a.gDrone) * 0.03 // slow ~1.5 s fade either way
+            a.gPulse += ((i == dragSeat ? 0.9 : 0) - a.gPulse) * 0.12
         }
 
         for (i, a) in agents.enumerated() {
@@ -623,10 +930,6 @@ final class ChamberEngine: ObservableObject {
                 if a.summaryDone { a.summaryDone = false; a.state = .heard; a.heardAt = t; a.gSummary = 0 }
             case .heard:
                 if a.heardAt != 0, t - a.heardAt > RECYCLE_SECS { reset(a) }
-                else if t >= a.stNextMod {
-                    a.stNextMod = t + 0.12 + Double.random(in: 0...0.38)
-                    a.stCurrent = Double.random(in: 0...1) < 0.45 ? 0 : Float.random(in: 0.25...1.0)
-                }
             default: break
             }
         }
@@ -637,7 +940,11 @@ final class ChamberEngine: ObservableObject {
         }
 
         let fi = facedIndex()
-        if fi >= 0, lookGate > 0.6, agents[fi].state == .done {
+        // Summaries are an eyes-closed moment once the fade is armed: an
+        // eyes-open glance must not start one into a silent scene (it would
+        // be consumed unheard). Unarmed (demo/debug) keeps the old behavior.
+        let listening = !immersionArmed || lastEyesClosedState
+        if fi >= 0, listening, lookGate > 0.6, agents[fi].state == .done {
             if lingerIdx != fi { lingerIdx = fi; lingerStart = t }
             else if t - lingerStart >= LINGER_SECS { startSummary(agents[fi]) }
         } else { lingerIdx = -1 }
@@ -660,7 +967,9 @@ final class ChamberEngine: ObservableObject {
                 if dwellSeat != fi {
                     dwellSeat = fi
                     dwellStart = t
-                    agents[fi].bloomTrig += 1
+                    let a = agents[fi]
+                    a.bloomLive = t - a.lastBloomAt >= bloomCooldownSecs
+                    if a.bloomLive { a.lastBloomAt = t }
                 } else if t - dwellStart >= dwellSecs {
                     dwellSeat = -1
                     lock(seat: fi)
@@ -672,15 +981,22 @@ final class ChamberEngine: ObservableObject {
             dwellSeat = -1 // eyes open: existing lock freezes, no new dwell
             cooldownSeat = -1
         }
+        // One continuous hum per agent: builds in while dwelt on, leans up for
+        // a beat at the lock, releases gently — the shape is all in this gain.
+        // Cooled-down agents dwell/lock silently (bloomLive gates the sound).
         for (i, a) in agents.enumerated() {
-            let target: Float = i == dwellSeat ? 1 : 0
-            a.gBloom += (target - a.gBloom) * 0.3
+            var target: Float = (i == dwellSeat && a.bloomLive) ? 0.7 : 0
+            if t - a.crestAt < 0.45 { target = 1.0 } // the crest: same hum, leaning in
+            let rate: Float = target > a.gBloom ? 0.05 : 0.03 // slow build, slower release
+            a.gBloom += (target - a.gBloom) * rate
         }
     }
 
     private func lock(seat: Int) {
         lockedSeat = seat
-        if agents.indices.contains(seat) { agents[seat].lockTrig += 1 }
+        if agents.indices.contains(seat), agents[seat].bloomLive {
+            agents[seat].crestAt = now() // the crest belongs to an audible dwell
+        }
         NSLog("[talkback] locked seat=%d", seat)
         pushTalkback(present: true)
     }
@@ -751,7 +1067,7 @@ final class ChamberEngine: ObservableObject {
 
     private func facedIndex() -> Int {
         var best = -1, bd = Double.infinity
-        for (i, a) in agents.enumerated() where a.present {
+        for (i, a) in agents.enumerated() where a.present && !a.snoozed {
             let d = abs(angdiff(a.bearing, orient))
             if d < bd { bd = d; best = i }
         }
@@ -760,9 +1076,14 @@ final class ChamberEngine: ObservableObject {
 
     private func updateMix(facedIdx: Int) {
         for (i, a) in agents.enumerated() {
+            if a.snoozed { // silent in the world, state machine untouched
+                a.gClear += (0 - a.gClear) * 0.15
+                a.gWhisper += (0 - a.gWhisper) * 0.15
+                continue
+            }
             let faced = i == facedIdx
             let front = (cos(angdiff(a.bearing, orient)) + 1) / 2
-            var clear: Float = 0, whisper: Float = 0, stat: Float = 0
+            var clear: Float = 0, whisper: Float = 0
             switch a.state {
             case .working:
                 let murmur = 0.06, g = lookGate
@@ -773,13 +1094,10 @@ final class ChamberEngine: ObservableObject {
                 } else {
                     whisper = Float(murmur * (0.82 + 0.18 * front))
                 }
-            case .heard:
-                stat = faced ? Float(0.1 * lookGate) * a.stCurrent : 0
-            default: break
+            default: break // .heard rests silently until it recycles
             }
             a.gClear += (clear - a.gClear) * 0.15
             a.gWhisper += (whisper - a.gWhisper) * 0.15
-            a.gStat += (stat - a.gStat) * 0.15
         }
     }
 
@@ -793,6 +1111,7 @@ final class ChamberEngine: ObservableObject {
     }
 
     private func schedulePing(_ a: AgentRuntime, idx: Int) {
+        if a.snoozed { a.gPing = 0; return } // snoozed: no pings, timer keeps cycling
         let faced = idx == facedIndex()
         a.gPing = Float((faced ? 0.9 : 0.4) * (0.5 + 0.5 * lookGate))
         a.pingTrig += 1
@@ -811,7 +1130,7 @@ final class ChamberEngine: ObservableObject {
     }
 
     private func reset(_ a: AgentRuntime) {
-        a.state = .working; a.heardAt = 0; a.stCurrent = 0; a.gPing = 0
+        a.state = .working; a.heardAt = 0; a.gPing = 0
         if a.departed { // summary heard and the session is long gone — leave the room
             a.departed = false
             a.present = false
@@ -821,19 +1140,54 @@ final class ChamberEngine: ObservableObject {
     private func publish(facedIdx: Int, at t: Double) {
         pubCounter += 1
         guard pubCounter % 2 == 0 else { return }
-        let vms = agents.filter { $0.present }.map {
-            AgentVM(id: $0.idx, hex: $0.def.hex, bearing: $0.bearing, state: $0.state,
+        let vms = agents.filter { $0.present && !$0.snoozed }.map {
+            AgentVM(id: $0.idx, hex: $0.def.hex, bearing: $0.bearing,
+                    x: Double($0.posX), z: Double($0.posZ), state: $0.state,
                     pingAge: $0.lastPingWall > 0 ? t - $0.lastPingWall : 99)
         }
         let o = orient, g = lookGate
         let hp = SIMD3(headX, headY, headZ)
         let lat = lastRenderLatencyMs
         let imm = Double(renderer?.immersion() ?? 1) // smoothed value from the engine; benign race — fine for a debug readout
+        let list = buildAgentList(at: t)
+        let listChanged = list != lastAgentList
+        if listChanged { lastAgentList = list }
         DispatchQueue.main.async {
             self.snapshot = vms; self.orientRad = o; self.lookGatePub = g; self.facedPub = facedIdx
             self.headPos = hp
             self.latencyMs = lat
             self.immersionLevel = imm
+            if listChanged { self.agentList = list }
+        }
+    }
+
+    /// Sidebar rows for everyone in the room, snoozed included. Runs on `q`.
+    private func buildAgentList(at t: Double) -> [AgentListVM] {
+        agents.filter { $0.present }.map { a in
+            let meta = seatMeta[a.idx]
+            let last = seatLines[a.idx]?.last
+            // a locale-independent CODE — the sidebar localizes it (L10n.swift)
+            let status: String
+            switch a.state {
+            case .done: status = a.departed ? "waiting.gone" : "waiting"
+            case .summarizing: status = "reporting"
+            case .heard: status = "resting"
+            case .working:
+                if !liveBridge { status = "working" }
+                else if a.lastActivity > 0 && t - a.lastActivity < droneHoldSecs { status = "working" }
+                else { status = "idle" }
+            }
+            return AgentListVM(
+                id: a.idx,
+                name: meta?.name ?? a.def.name,
+                kind: meta?.kind ?? (liveBridge ? "" : "demo"),
+                title: meta?.title ?? "",
+                hex: a.def.hex,
+                status: status,
+                lastLine: last?.text ?? "",
+                lastKind: last?.kind ?? "",
+                waiting: a.state == .done,
+                snoozed: a.snoozed)
         }
     }
 }

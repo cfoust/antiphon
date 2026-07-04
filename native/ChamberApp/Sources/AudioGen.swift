@@ -83,43 +83,91 @@ func makeChime(sr: Double = 48_000) -> [Float] {
     return y
 }
 
-/// Talk-back dwell bloom: a soft swell that rises over ~1.2 s, built on the agent's ping
-/// frequency so the light "belongs" to the voice. The rising envelope is baked in — the
-/// dwell state machine only gates the gain, and an aborted dwell just fades it out.
+/// Talk-back dwell/lock hum: a barely-there loop on the agent's CHORD ROOT
+/// (the drone's register). ONE continuous sound whose whole shape lives in the
+/// engine's gain: it builds in slowly while the gaze dwells, leans up a touch
+/// at the lock, and releases — never a second tone. Seamless: both oscillators
+/// complete whole cycles over the loop.
 func makeBloom(_ freq: Float, sr: Double = 48_000) -> [Float] {
-    let dur = 1.2
+    let dur = 2.0
     let n = Int(sr * dur)
+    let f = (Double(freq) / 2 * dur).rounded() / dur // chord root, loop-quantized
+    let f2 = f + 1.0 / dur // one extra cycle → a slow 0.5 Hz warmth
     var y = [Float](repeating: 0, count: n)
-    var lp: Double = 0 // one-pole low-pass over noise → breathy air, no hiss edge
-    var seed: UInt64 = 0x9e3779b97f4a7c15
     for i in 0..<n {
         let t = Double(i) / sr
-        let p = min(1.0, t / dur)
-        let env = p * p * (3 - 2 * p) // smoothstep swell
-        seed = seed &* 6364136223846793005 &+ 1442695040888963407
-        let white = Double(Int64(bitPattern: seed >> 11)) / Double(Int64.max)
-        lp += (white - lp) * 0.035
-        let f = Double(freq) * 0.5
-        let tone = sin(2 * .pi * f * t) * 0.55 + sin(2 * .pi * f * 2.005 * t) * 0.2
-        let shimmer = 0.85 + 0.15 * sin(2 * .pi * 5.3 * t)
-        y[i] = Float((tone * shimmer + lp * 2.4) * env * 0.28)
+        let s = sin(2 * .pi * f * t) * 0.62 + sin(2 * .pi * f2 * t) * 0.38
+        y[i] = Float(s * 0.05)
     }
     return y
 }
 
-/// Talk-back lock chime: two gentle partials a major third apart, softer and rounder than
-/// the accept chime — "I'm with you now", not "task complete".
-func makeLockChime(_ freq: Float, sr: Double = 48_000) -> [Float] {
-    let n = Int(sr * 0.8)
+// MARK: chord identity (tool calls + working drone)
+//
+// Each agent's chord is a minor-7th built an octave below its ping frequency:
+// tool calls walk DOWN the chord's top three tones (m7 → 5th → m3), one gentle
+// note per call, and the chord's root is the agent's working drone — a quiet,
+// slowly breathing tone that says "this direction is busy" without words.
+
+/// The three descending tool-call notes for a ping frequency (Hz, high→low).
+func toolNoteFreqs(_ ping: Float) -> [Float] {
+    let root = ping / 2
+    return [root * powf(2, 10 / 12), root * powf(2, 7 / 12), root * powf(2, 3 / 12)]
+}
+
+/// One tool-call note: a soft, round pluck — sine + a whisper of octave.
+func makeToolNote(_ freq: Float, sr: Double = 48_000) -> [Float] {
+    let n = Int(sr * 0.9)
     var y = [Float](repeating: 0, count: n)
     for i in 0..<n {
         let t = Double(i) / sr
-        var s = sin(2 * .pi * Double(freq) * t) * 0.30 * exp(-t * 4.5)
-        if t >= 0.11 {
-            let t2 = t - 0.11
-            s += sin(2 * .pi * Double(freq) * 1.25 * t2) * 0.30 * exp(-t2 * 4.5)
+        let env = min(t / 0.008, 1) * exp(-t * 4.2)
+        let s = sin(2 * .pi * Double(freq) * t) * 0.85
+              + sin(2 * .pi * Double(freq) * 2 * t) * 0.10
+        y[i] = Float(s * env * 0.16)
+    }
+    return y
+}
+
+/// The working drone: a machine hum at the very bottom of the agent's
+/// register — the chord's root, minor third and fifth dropped three octaves
+/// below the ping (≈50–110 Hz), each tone with a touch of second harmonic so
+/// the hum reads through headphones down there, and each rolling on its own
+/// slow rate so it turns over instead of pulsing. Seamless 4 s loop.
+func makeDrone(_ ping: Float, sr: Double = 48_000) -> [Float] {
+    let dur = 4.0
+    let n = Int(sr * dur)
+    let root = (Double(ping) / 8 * dur).rounded() / dur
+    let tones = [1.0, pow(2, 3.0 / 12), pow(2, 7.0 / 12)].map { (root * $0 * dur).rounded() / dur }
+    let amps = [0.5, 0.26, 0.24] // root-heavy — it should sit low
+    let rates = [0.25, 0.5, 0.75] // whole cycles over the loop
+    let phases = [0.0, 2.1, 4.2]
+    var y = [Float](repeating: 0, count: n)
+    for i in 0..<n {
+        let t = Double(i) / sr
+        var s = 0.0
+        for k in 0..<3 {
+            let roll = 0.7 + 0.3 * sin(2 * .pi * rates[k] * t + phases[k])
+            let tone = sin(2 * .pi * tones[k] * t) + 0.35 * sin(2 * .pi * tones[k] * 2 * t)
+            s += tone * amps[k] * roll
         }
-        y[i] = Float(s)
+        y[i] = Float(s * 0.16)
+    }
+    return y
+}
+
+/// Drag audition pulse: a sonar-ish blip once per 1.4 s loop, as dry as the
+/// voices — the direct path is what tells you where the dot is.
+func makePulse(_ ping: Float, sr: Double = 48_000) -> [Float] {
+    let dur = 1.4
+    let n = Int(sr * dur)
+    let f = (Double(ping) * dur).rounded() / dur
+    var y = [Float](repeating: 0, count: n)
+    for i in 0..<n {
+        let t = Double(i) / sr
+        let env = min(t / 0.006, 1) * exp(-t * 5.5)
+        let s = sin(2 * .pi * f * t) * 0.7 + sin(2 * .pi * f / 2 * t) * 0.3
+        y[i] = Float(s * env * 0.5)
     }
     return y
 }

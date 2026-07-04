@@ -199,6 +199,25 @@ final class FaceTracker: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         }
     }
 
+    /// Menu-bar "closed eye": stop the capture session entirely so the camera indicator
+    /// goes dark. Tracking state (calibration, filters) is kept for resume().
+    func pause() {
+        queue.async {
+            if self.session.isRunning { self.session.stopRunning() }
+            DispatchQueue.main.async { self.status = "paused"; self.faceFound = false }
+        }
+    }
+
+    /// Menu-bar "open eye": resume watching with the previously configured device.
+    func resume() {
+        queue.async {
+            guard !self.session.isRunning, self.currentInput != nil else { return }
+            self.fYaw.reset(); self.fPitch.reset(); self.fRoll.reset()
+            self.session.startRunning()
+            DispatchQueue.main.async { self.status = "tracking" }
+        }
+    }
+
     private func configure(device: AVCaptureDevice) {
         session.beginConfiguration()
         if let existing = currentInput { session.removeInput(existing) }

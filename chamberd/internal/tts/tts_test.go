@@ -23,6 +23,9 @@ func (f *fake) Synthesize(_ context.Context, _, text string, _ bool) ([]byte, st
 	}
 	return []byte("audio:" + text), "wav", nil
 }
+func (f *fake) Voices(context.Context) ([]Voice, error) {
+	return []Voice{{ID: "voice-id", Name: f.name + " voice"}}, nil
+}
 
 func persona(providers ...string) voice.Persona {
 	r := map[string]string{}

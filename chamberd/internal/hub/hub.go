@@ -19,6 +19,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/cfoust/chamber/chamberd/internal/config"
 	"github.com/cfoust/chamber/chamberd/internal/input"
 	"github.com/cfoust/chamber/chamberd/internal/registry"
 	"github.com/cfoust/chamber/chamberd/internal/tts"
@@ -38,14 +39,24 @@ var FIELD = map[string]string{
 }
 
 type Hub struct {
-	reg    *registry.Registry
-	roster voice.Roster
-	chain  *tts.Chain
+	reg      *registry.Registry
+	roster   voice.Roster
+	cfgPath  string
+	buildTTS func(config.Config) TTSSetup
 
-	mu     sync.Mutex
-	seats  []string // seat index → agent id ("" = free)
-	pages  map[*conn]bool
-	agents map[string]*conn // agent id → live socket
+	mu        sync.Mutex
+	cfg       config.Config
+	chain     *tts.Chain
+	providers []tts.Provider
+	seats     []string // seat index → agent id ("" = free)
+	pages     map[*conn]bool
+	agents    map[string]*conn // agent id → live socket
+
+	// the discovered cross-provider voice pool (see hub_config.go)
+	voiceMu  sync.Mutex
+	pool     []VoiceRef
+	poolErrs map[string]string
+	poolAt   time.Time
 
 	upgrader websocket.Upgrader
 }
@@ -63,17 +74,28 @@ func (c *conn) send(v any) error {
 	return c.ws.WriteJSON(v)
 }
 
-func New(reg *registry.Registry, roster voice.Roster, chain *tts.Chain) *Hub {
-	return &Hub{
-		reg:    reg,
-		roster: roster,
-		chain:  chain,
-		seats:  make([]string, len(roster.Personas)),
-		pages:  map[*conn]bool{},
-		agents: map[string]*conn{},
+// New builds the hub. buildTTS constructs the synthesis ladder from a config —
+// called once here and again on every PUT /config (live rebuild).
+func New(reg *registry.Registry, roster voice.Roster,
+	buildTTS func(config.Config) TTSSetup, cfgPath string) *Hub {
+	cfg := config.Load(cfgPath)
+	setup := buildTTS(cfg)
+	h := &Hub{
+		reg:       reg,
+		roster:    roster,
+		cfgPath:   cfgPath,
+		buildTTS:  buildTTS,
+		cfg:       cfg,
+		chain:     setup.Chain,
+		providers: setup.Providers,
+		seats:     make([]string, len(roster.Personas)),
+		pages:     map[*conn]bool{},
+		agents:    map[string]*conn{},
 		// localhost-only bind; pages are file:// or vite dev servers
 		upgrader: websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }},
 	}
+	go h.refreshVoices()
+	return h
 }
 
 // Routes registers all endpoints on mux. audioDir is the TTS cache directory
@@ -85,6 +107,8 @@ func (h *Hub) Routes(mux *http.ServeMux, audioDir string) {
 	mux.HandleFunc("/agents", h.handleAgents)
 	mux.HandleFunc("/agents/", h.handleAgentByID)
 	mux.HandleFunc("/health", h.handleHealth)
+	mux.HandleFunc("/config", h.handleConfig)
+	mux.HandleFunc("/voices", h.handleVoices)
 	mux.HandleFunc("/debug/emit", h.handleDebugEmit)
 	mux.Handle("/audio/", http.StripPrefix("/audio/", http.FileServer(http.Dir(audioDir))))
 }
@@ -137,6 +161,7 @@ func (h *Hub) handleAgent(w http.ResponseWriter, r *http.Request) {
 		h.reg.SetInput(rec.ID, hello.Input.Kind, hello.Input.Target, hello.Input.Socket)
 	}
 	persona := h.bindPersona(rec.ID)
+	h.assignTTS(rec.ID)
 	seat := h.claimSeat(rec.ID, persona)
 
 	c.id = rec.ID
@@ -174,6 +199,10 @@ func (h *Hub) handleAgent(w http.ResponseWriter, r *http.Request) {
 		var ev agentEvent
 		if err := ws.ReadJSON(&ev); err != nil {
 			break
+		}
+		if ev.Type == "tool" {
+			h.tool(rec.ID, seat) // a tool call: broadcast-only blip, never voiced
+			continue
 		}
 		if FIELD[ev.Type] == "" {
 			h.reg.Touch(rec.ID, false) // traffic, but not a narration event
@@ -274,6 +303,30 @@ func (h *Hub) freeSeatLocked(id string) int {
 	return -1
 }
 
+// tool is the tool-call blip: a broadcast-only frame (no text, no TTS) that
+// lets clients tick the agent's chord. Cheap by design — one of these arrives
+// for EVERY tool call an agent makes.
+func (h *Hub) tool(agentID string, seat int) {
+	h.reg.Touch(agentID, false)
+	h.broadcast(map[string]any{"type": "tool", "seat": seat, "agent": agentID})
+}
+
+// speakPersona is the persona actually handed to TTS: same name/color, but
+// with the session's randomly-assigned voice replacing the built-in
+// realization (the macos-say floor is kept as the offline fallback).
+func (h *Hub) speakPersona(agentID string, p voice.Persona) voice.Persona {
+	rec, ok := h.reg.Get(agentID)
+	if !ok || rec.TTSProvider == "" {
+		return p
+	}
+	real := map[string]string{}
+	if s, ok := p.Realizations["macos-say"]; ok {
+		real["macos-say"] = s
+	}
+	real[rec.TTSProvider] = rec.TTSVoice
+	return voice.Persona{Name: p.Name, Color: p.Color, Realizations: real}
+}
+
 // emit builds a narration frame — synthesizing the voice line via the TTS
 // ladder — and broadcasts it to every chamber client.
 func (h *Hub) emit(agentID string, seat int, persona voice.Persona, typ, text string) {
@@ -288,7 +341,10 @@ func (h *Hub) emit(agentID string, seat int, persona voice.Persona, typ, text st
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	res, err := h.chain.Speak(ctx, persona, text, typ == "progress")
+	h.mu.Lock()
+	chain := h.chain // PUT /config swaps the ladder live
+	h.mu.Unlock()
+	res, err := chain.Speak(ctx, h.speakPersona(agentID, persona), text, typ == "progress")
 	voiced := "silent"
 	if err == nil {
 		if b, rerr := os.ReadFile(res.Path); rerr == nil {
@@ -469,7 +525,8 @@ func (h *Hub) handleEvents(w http.ResponseWriter, r *http.Request) {
 		EventType string `json:"type"`
 		Text      string `json:"text"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&ev); err != nil || ev.Session == "" || FIELD[ev.EventType] == "" {
+	if err := json.NewDecoder(r.Body).Decode(&ev); err != nil || ev.Session == "" ||
+		(FIELD[ev.EventType] == "" && ev.EventType != "tool") {
 		http.Error(w, "bad event", http.StatusBadRequest)
 		return
 	}
@@ -478,8 +535,13 @@ func (h *Hub) handleEvents(w http.ResponseWriter, r *http.Request) {
 		h.reg.SetInput(rec.ID, ev.Input.Kind, ev.Input.Target, ev.Input.Socket)
 	}
 	persona := h.bindPersona(rec.ID)
+	h.assignTTS(rec.ID)
 	seat := h.claimSeat(rec.ID, persona)
-	h.emit(rec.ID, seat, persona, ev.EventType, ev.Text)
+	if ev.EventType == "tool" {
+		h.tool(rec.ID, seat)
+	} else {
+		h.emit(rec.ID, seat, persona, ev.EventType, ev.Text)
+	}
 	json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": rec.ID, "seat": seat})
 }
 

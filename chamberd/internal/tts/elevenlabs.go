@@ -69,3 +69,38 @@ func (e *ElevenLabs) Synthesize(ctx context.Context, voiceID, text string, lowLa
 	}
 	return audio, "mp3", nil
 }
+
+// Voices lists the account's voice library (GET /v1/voices).
+func (e *ElevenLabs) Voices(ctx context.Context) ([]Voice, error) {
+	if e.APIKey == "" {
+		return nil, errors.New("elevenlabs: no api key")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.elevenlabs.io/v1/voices", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("xi-api-key", e.APIKey)
+	resp, err := e.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("elevenlabs voices: %s: %s", resp.Status, string(msg))
+	}
+	var out struct {
+		Voices []struct {
+			VoiceID string `json:"voice_id"`
+			Name    string `json:"name"`
+		} `json:"voices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	voices := make([]Voice, 0, len(out.Voices))
+	for _, v := range out.Voices {
+		voices = append(voices, Voice{ID: v.VoiceID, Name: v.Name})
+	}
+	return voices, nil
+}

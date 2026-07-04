@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Build Chamber.app: cargo staticlib -> swiftc link -> .app -> ad-hoc codesign.
+# Build Antiphon.app: cargo staticlib -> swiftc link -> .app -> ad-hoc codesign.
 # No Xcode / SwiftPM required. Bundles the best available HRTF asset + the agent voices.
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # repo root
 
-APP="native/ChamberApp/Chamber.app"
+APP="native/ChamberApp/Antiphon.app"
 TARGET="arm64-apple-macos14.0"
 VOICES="$HOME/Developer/machinus/voice-chamber/public/audio"
 
@@ -32,6 +32,7 @@ echo "[3/5] bundle layout + resources"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/audio"
 cp native/ChamberApp/Info.plist "$APP/Contents/Info.plist"
+cp native/ChamberApp/Resources/Antiphon.icns "$APP/Contents/Resources/Antiphon.icns"
 cp "$ASSET" "$APP/Contents/Resources/chamber.chamber"
 printf '%s' "$HRTF" > "$APP/Contents/Resources/hrtf.txt"
 # (whisper.wav prototype removed — the attention cue is now synthesized in-engine)
@@ -40,6 +41,13 @@ if [ -d "$VOICES" ]; then
   echo "  bundled $(ls "$APP/Contents/Resources/audio" | wc -l | tr -d ' ') voice files"
 else
   echo "  WARNING: voices not found at $VOICES — the app will run silent"
+fi
+# onboarding voice cues (calibration + fit), all UI languages — committed to the
+# repo; regenerate with tools/gen-onboarding-voices.py
+if [ -d native/ChamberApp/Resources/onboarding ]; then
+  mkdir -p "$APP/Contents/Resources/onboarding"
+  cp native/ChamberApp/Resources/onboarding/*.mp3 "$APP/Contents/Resources/onboarding/"
+  echo "  bundled $(ls "$APP/Contents/Resources/onboarding" | wc -l | tr -d ' ') onboarding cues"
 fi
 
 echo "[3.5/5] chamberd (agent bridge daemon)"
@@ -58,7 +66,7 @@ swiftc -O -target "$TARGET" -parse-as-library \
   target/release/libchamber_ffi.a \
   -lc -lm \
   -framework AVFoundation -framework AppKit -framework Vision -framework CoreMedia \
-  -o "$APP/Contents/MacOS/Chamber"
+  -o "$APP/Contents/MacOS/Antiphon"
 
 echo "[5/5] ad-hoc codesign"
 codesign --force --deep --sign - "$APP"

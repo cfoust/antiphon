@@ -20,6 +20,24 @@ export interface SceneSource {
   playing: boolean;
 }
 
+/** Room geometry as the engine places it: x/z-centred on the origin (the listener's
+ *  nominal ear position), floor at `y = -earHeight`, ceiling at `y = h - earHeight`. */
+export interface RoomBox {
+  w: number;
+  h: number;
+  d: number;
+  earHeight: number;
+}
+
+/** Doorway aperture on one wall. `along` = metres along the wall from its centre
+ *  (+x for the z walls, +z for the x walls); the aperture sits on the floor. */
+export interface DoorSpec {
+  wall: "-x" | "+x" | "-z" | "+z";
+  along: number;
+  width: number;
+  height: number;
+}
+
 interface SourceMeshes {
   ball: THREE.Mesh;
   ring: THREE.Mesh;
@@ -51,6 +69,12 @@ export class SceneView {
   private dragStartY = 0; // source y at vertical-drag start
   private dragStartHitY = 0; // plane-hit y at vertical-drag start
   private selected: string | null = null;
+  private defaultGrid: THREE.GridHelper;
+  private frontMark: THREE.Mesh;
+  private roomGroup: THREE.Group | null = null; // wire shoebox + floor grid
+  private doorGroup: THREE.Group | null = null; // doorway aperture marker
+  private roomBox: RoomBox | null = null;
+  private door: DoorSpec | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -65,21 +89,22 @@ export class SceneView {
     this.controls.maxPolarAngle = Math.PI * 0.495;
     this.controls.enableDamping = true;
 
-    const grid = new THREE.GridHelper(20, 20, 0x2a3242, 0x1a1f2b);
-    this.scene.add(grid);
+    // fallback grid at ear level, shown until the engine reports real room dims
+    this.defaultGrid = new THREE.GridHelper(20, 20, 0x2a3242, 0x1a1f2b);
+    this.scene.add(this.defaultGrid);
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.7));
     const key = new THREE.DirectionalLight(0xffffff, 1.4);
     key.position.set(2, 5, 3);
     this.scene.add(key);
 
     // "front" marker on the floor at −z
-    const frontMark = new THREE.Mesh(
+    this.frontMark = new THREE.Mesh(
       new THREE.ConeGeometry(0.1, 0.3, 12),
       new THREE.MeshBasicMaterial({ color: 0x3a4763 }),
     );
-    frontMark.rotation.x = -Math.PI / 2;
-    frontMark.position.set(0, 0.01, -4);
-    this.scene.add(frontMark);
+    this.frontMark.rotation.x = -Math.PI / 2;
+    this.frontMark.position.set(0, 0.01, -4);
+    this.scene.add(this.frontMark);
 
     this.head = buildHead();
     this.scene.add(this.head);
@@ -125,6 +150,82 @@ export class SceneView {
   setHead(pos: { x: number; y: number; z: number }, yawDeg: number): void {
     this.head.position.set(pos.x, pos.y + 0.35, pos.z); // head sits ~ear height above origin marker
     this.head.rotation.y = (-yawDeg * Math.PI) / 180; // yaw>0 turns toward +x (right)
+  }
+
+  /** Draw the current room as a wireframe shoebox positioned truthfully relative to the
+   *  listener (origin = ears): x/z centred, floor at `-earHeight`, ceiling at `h - earHeight`.
+   *  Pass null (engine not started / unknown room) to fall back to the plain grid. */
+  setRoom(box: RoomBox | null): void {
+    this.roomBox = box;
+    if (this.roomGroup) {
+      this.scene.remove(this.roomGroup);
+      this.roomGroup = null;
+    }
+    this.defaultGrid.visible = !box;
+    if (!box) {
+      this.frontMark.position.set(0, 0.01, -4);
+      this.rebuildDoor();
+      return;
+    }
+    const floorY = -box.earHeight;
+    const g = new THREE.Group();
+    // wire shoebox
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(box.w, box.h, box.d)),
+      new THREE.LineBasicMaterial({ color: 0x3a4a68 }),
+    );
+    edges.position.set(0, box.h / 2 + floorY, 0);
+    g.add(edges);
+    // subtle floor grid, 1 m spacing, exactly the room footprint
+    g.add(rectGrid(box.w, box.d, floorY + 0.005, 0x222b3c));
+    this.scene.add(g);
+    this.roomGroup = g;
+    // keep the front cone on the floor, inside the room
+    this.frontMark.position.set(0, floorY + 0.01, -Math.min(4, box.d / 2 - 0.4));
+    // make sure big rooms (hall/cathedral) aren't swallowed by the fog
+    const fog = this.scene.fog as THREE.Fog;
+    fog.far = Math.max(30, Math.hypot(box.w, box.d) * 1.2);
+    this.rebuildDoor();
+  }
+
+  /** Show a doorway aperture on a wall (null hides it). Positioned from the current room. */
+  setDoor(door: DoorSpec | null): void {
+    this.door = door;
+    this.rebuildDoor();
+  }
+
+  private rebuildDoor(): void {
+    if (this.doorGroup) {
+      this.scene.remove(this.doorGroup);
+      this.doorGroup = null;
+    }
+    const box = this.roomBox;
+    const door = this.door;
+    if (!box || !door) return;
+    const floorY = -box.earHeight;
+    const h = Math.min(door.height, box.h); // aperture can't exceed the wall
+    const yc = floorY + h / 2;
+    const g = new THREE.Group();
+    const plane = new THREE.PlaneGeometry(door.width, h);
+    const fill = new THREE.Mesh(
+      plane,
+      new THREE.MeshBasicMaterial({ color: 0xffce6b, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    const outline = new THREE.LineSegments(
+      new THREE.EdgesGeometry(plane),
+      new THREE.LineBasicMaterial({ color: 0xffce6b }),
+    );
+    for (const o of [fill, outline]) {
+      if (door.wall === "-z" || door.wall === "+z") {
+        o.position.set(door.along, yc, door.wall === "-z" ? -box.d / 2 : box.d / 2);
+      } else {
+        o.rotation.y = Math.PI / 2; // plane faces ±x
+        o.position.set(door.wall === "-x" ? -box.w / 2 : box.w / 2, yc, door.along);
+      }
+      g.add(o);
+    }
+    this.scene.add(g);
+    this.doorGroup = g;
   }
 
   setSelected(id: string | null): void {
@@ -280,11 +381,13 @@ export class SceneView {
     const p = new THREE.Vector3();
     if (!this.ray.ray.intersectPlane(this.dragPlane, p)) return;
     const m = this.meshes.get(this.dragId)!;
+    // generous bounds only (sanity, not walls): placing sources OUTSIDE the room —
+    // e.g. beyond a doorway — is a supported experiment.
     if (this.dragMode === "y") {
-      const y = Math.max(-2, Math.min(2.5, this.dragStartY + (p.y - this.dragStartHitY)));
+      const y = Math.max(-6, Math.min(24, this.dragStartY + (p.y - this.dragStartHitY)));
       this.onMove(this.dragId, { x: m.ball.position.x, y, z: m.ball.position.z });
     } else {
-      const clamp = (v: number) => Math.max(-9.5, Math.min(9.5, v));
+      const clamp = (v: number) => Math.max(-40, Math.min(40, v));
       this.onMove(this.dragId, { x: clamp(p.x), y: -this.dragPlane.constant, z: clamp(p.z) });
     }
   };
@@ -302,6 +405,19 @@ export class SceneView {
     const p = new THREE.Vector3();
     if (this.ray.ray.intersectPlane(ground, p)) this.onAdd({ x: p.x, y: 0, z: p.z });
   };
+}
+
+/** Rectangular floor grid (1 m spacing incl. the perimeter) lying in the XZ plane at `y`. */
+function rectGrid(w: number, d: number, y: number, color: number): THREE.LineSegments {
+  const pts: number[] = [];
+  const hw = w / 2, hd = d / 2;
+  for (let x = Math.ceil(-hw); x <= hw; x++) pts.push(x, y, -hd, x, y, hd);
+  for (let z = Math.ceil(-hd); z <= hd; z++) pts.push(-hw, y, z, hw, y, z);
+  pts.push(-hw, y, -hd, -hw, y, hd, hw, y, -hd, hw, y, hd); // perimeter x = ±w/2
+  pts.push(-hw, y, -hd, hw, y, -hd, -hw, y, hd, hw, y, hd); // perimeter z = ±d/2
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+  return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color }));
 }
 
 /** Redraw a sprite's canvas texture with the sound name (pill on a dark ground). */

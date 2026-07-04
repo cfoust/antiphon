@@ -96,6 +96,21 @@ Narration is **model-driven** (the four MCP tools: `chamber_task`, `chamber_prog
 work well, and that stays the only source of spoken text. Hook events are never
 verbalized; a robot reading "running Bash: cargo test" is the wrong texture.
 
+**Tool blips** are the one hook-driven event, precisely because they carry no words:
+`{"type":"tool","seat":N,"agent":"a1b2"}` broadcast per tool call (cc-chamber's
+`PostToolUse` hook fires a backgrounded `chamberd emit -type tool`; also accepted on
+`/agent` and `/events`). No text, no TTS — clients use it to tick the agent's chord
+(three gently descending notes cycling per call, with the chord root breathing as a
+"working" drone while blips keep arriving).
+
+**Settings surface** (the app's Settings ▸ Voices pane): `GET/PUT /config` persists
+provider enablement + API keys to `~/.chamber/config.json` (0600; env keys stay as
+fallbacks) and rebuilds the TTS ladder live; `GET /voices[?refresh=1]` reports the
+runtime-discovered voice pool across all enabled providers (ElevenLabs `/v1/voices`,
+`say -v ?` minus the novelty voices, OpenAI's static list). Each new session draws a
+random voice from that pool — sticky in the registry (`tts_provider`/`tts_voice`),
+with the persona's `macos-say` realization kept as the offline floor.
+
 ## Integrating a new coding agent: zero server changes, by design
 
 The server knows nothing about specific agents — `kind` is a free string, identity is

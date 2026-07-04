@@ -27,6 +27,7 @@ struct TalkbackLine: Equatable {
 
 /// Per-seat identity from bind frames; survives pre-setup on the engine.
 struct TalkbackSeatMeta {
+    var agent = "" // registry id — a different id on the same seat is a new tenant
     var name = ""
     var kind = ""
     var title = ""
@@ -324,12 +325,7 @@ private func prettyKind(_ kind: String) -> String {
         .joined(separator: " ")
 }
 
-private func ageLabel(_ at: TimeInterval) -> String {
-    let d = max(0, Date().timeIntervalSince1970 - at)
-    if d < 60 { return "\(Int(d))s" }
-    if d < 3600 { return "\(Int(d / 60))m" }
-    return "\(Int(d / 3600))h"
-}
+// (age labels + transcript tags localize via LAge/LTag in L10n.swift)
 
 // MARK: - views
 
@@ -383,8 +379,8 @@ private struct InputRow: View {
             PanelField(
                 text: $model.draft,
                 placeholder: info.reachable
-                    ? "tell \(info.name)…"
-                    : "\(info.name) has no input path — it isn’t in a pane chamber can type into",
+                    ? Lf("tell %@…", info.name)
+                    : Lf("%@ has no input path — it isn’t in a pane Antiphon can type into", info.name),
                 enabled: info.reachable,
                 onSubmit: { controller.submit() },
                 onCancel: { controller.cancel() })
@@ -448,7 +444,7 @@ private struct LetterView: View {
     private var reachBadge: some View {
         HStack(spacing: 5) {
             Circle().fill(info.reachable ? TB.sage : TB.clay).frame(width: 7, height: 7)
-            Text(info.reachable ? info.input : "can’t hear you")
+            Text(info.reachable ? info.input : L("can’t hear you"))
                 .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                 .foregroundColor(info.reachable ? TB.sage : TB.clay)
         }
@@ -459,7 +455,7 @@ private struct LetterView: View {
             ForEach(Array(info.lines.enumerated()), id: \.offset) { i, line in
                 let latest = i == info.lines.count - 1
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(line.kind.uppercased())
+                    Text(LTag(line.kind))
                         .font(.system(size: 10.5, weight: .heavy, design: .rounded))
                         .kerning(1.0)
                         .foregroundColor(tagColor(line.kind))
@@ -469,7 +465,7 @@ private struct LetterView: View {
                         .foregroundColor(latest ? TB.ink : TB.sub)
                         .lineLimit(2)
                     Spacer(minLength: 8)
-                    Text(ageLabel(line.at))
+                    Text(LAge(line.at))
                         .font(.system(size: 11, design: .rounded))
                         .foregroundColor(TB.faint)
                 }
@@ -489,12 +485,12 @@ private struct LetterView: View {
     private var footer: some View {
         HStack(spacing: 16) {
             if info.reachable {
-                HStack(spacing: 6) { KeyCap(label: "↩"); Text("send to \(info.name)") }
+                HStack(spacing: 6) { KeyCap(label: "↩"); Text(Lf("send to %@", info.name)) }
             } else {
-                Text("listening only").foregroundColor(TB.clay)
+                Text(L("listening only")).foregroundColor(TB.clay)
             }
             Spacer()
-            HStack(spacing: 6) { KeyCap(label: "esc"); Text("let go") }
+            HStack(spacing: 6) { KeyCap(label: "esc"); Text(L("let go")) }
         }
         .font(.system(size: 12, design: .rounded))
         .foregroundColor(TB.sub)
