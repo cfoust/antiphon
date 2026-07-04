@@ -15,8 +15,8 @@
     }
   },
   "captions": {
-    "summary_A": "Rebuilt the auth flow \u2014 all forty-two tests pass. Refresh tokens rotate cleanly now.",
-    "summary_B": "The docs draft is ready \u2014 two pages, with the migration notes you asked for."
+    "summary_A": "Rebuilt the auth flow — all forty-two tests pass. Refresh tokens rotate cleanly now.",
+    "summary_B": "The docs draft is ready — two pages, with the migration notes you asked for."
   },
   "reply": "Ship the docs. I'll look at auth after the tests.",
   "t": {

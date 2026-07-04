@@ -220,6 +220,34 @@ body {
   font: 400 12.5px var(--an-sans);
   cursor: pointer;
 }
+.ob-langs {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.ob-lang-btn {
+  background: none;
+  border: 1px solid rgba(246, 239, 226, 0.22);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(246, 239, 226, 0.6);
+  cursor: pointer;
+}
+
+.ob-lang-btn:hover {
+  border-color: rgba(246, 239, 226, 0.5);
+}
+
+.ob-lang-btn.on {
+  background: #f6efe2;
+  border-color: #f6efe2;
+  color: #171210;
+}
+
 .ob-foot {
   margin-top: 28px;
   font-size: 11px;

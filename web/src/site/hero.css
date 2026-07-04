@@ -18,7 +18,7 @@
   padding: 0 24px;
 }
 .hx-idle-title {
-  font-family: "GFS Didot", serif;
+  font-family: "GFS Didot", Georgia, "Songti SC", "Songti TC", serif;
   font-size: 28px;
   color: #2a231b;
 }
@@ -30,7 +30,7 @@
   border-radius: 999px;
   font-size: 16px;
   font-weight: 500;
-  font-family: "Instrument Sans", sans-serif;
+  font-family: "Instrument Sans", -apple-system, "PingFang SC", "PingFang TC", sans-serif;
   cursor: pointer;
 }
 .hx-idle-btn:hover {
@@ -193,7 +193,7 @@
   pointer-events: none;
   position: absolute;
   max-width: 250px;
-  font-family: "Cormorant Garamond", serif;
+  font-family: "Cormorant Garamond", Georgia, "Kaiti SC", "Kaiti TC", serif;
   font-style: italic;
   font-size: 20px;
   line-height: 1.35;
@@ -228,7 +228,7 @@
   box-shadow: 0 24px 60px rgba(16, 12, 10, 0.4);
   opacity: 0;
   transition: opacity 0.5s ease, transform 0.5s ease;
-  font-family: "Instrument Sans", sans-serif;
+  font-family: "Instrument Sans", -apple-system, "PingFang SC", "PingFang TC", sans-serif;
   z-index: 6;
 }
 .hx-letter.on {
@@ -322,7 +322,7 @@
   border-radius: 999px;
   padding: 8px 14px;
   font-size: 12.5px;
-  font-family: "Instrument Sans", sans-serif;
+  font-family: "Instrument Sans", -apple-system, "PingFang SC", "PingFang TC", sans-serif;
   cursor: pointer;
   backdrop-filter: blur(6px);
 }
@@ -342,7 +342,7 @@
   border-radius: 999px;
   padding: 9px 20px;
   font-size: 13px;
-  font-family: "Instrument Sans", sans-serif;
+  font-family: "Instrument Sans", -apple-system, "PingFang SC", "PingFang TC", sans-serif;
   cursor: pointer;
   opacity: 0;
   pointer-events: none;

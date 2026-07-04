@@ -1,0 +1,14 @@
+{
+  "title": {
+    "message": "隨筆",
+    "description": "The title for the blog used in SEO"
+  },
+  "description": {
+    "message": "打造 Antiphon 途中的隨筆",
+    "description": "The description for the blog used in SEO"
+  },
+  "sidebar.title": {
+    "message": "所有隨筆",
+    "description": "The label for the left sidebar"
+  }
+}

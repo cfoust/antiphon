@@ -1,0 +1,26 @@
+{
+  "title": {
+    "message": "Antiphon",
+    "description": "The title in the navbar"
+  },
+  "logo.alt": {
+    "message": "Antiphon",
+    "description": "The alt text of navbar logo"
+  },
+  "item.label.Docs": {
+    "message": "文档",
+    "description": "Navbar item with label Docs"
+  },
+  "item.label.Notes": {
+    "message": "随笔",
+    "description": "Navbar item with label Notes"
+  },
+  "item.label.Web demo": {
+    "message": "网页演示",
+    "description": "Navbar item with label Web demo"
+  },
+  "item.label.GitHub": {
+    "message": "GitHub",
+    "description": "Navbar item with label GitHub"
+  }
+}

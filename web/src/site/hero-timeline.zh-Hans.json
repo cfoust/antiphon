@@ -1,0 +1,40 @@
+{
+  "duration": 31.91,
+  "agents": {
+    "A": {
+      "name": "wren",
+      "color": "#C4694A",
+      "bearingDeg": -35.0,
+      "distance": 1.25
+    },
+    "B": {
+      "name": "sol",
+      "color": "#7D93E8",
+      "bearingDeg": 30.0,
+      "distance": 1.8
+    }
+  },
+  "captions": {
+    "summary_A": "鉴权流程重建完成——四十二个测试全部通过。刷新令牌现在能干净地轮换了。",
+    "summary_B": "文档草稿好了——两页，带上你要的迁移说明。"
+  },
+  "reply": "文档先发。鉴权等测试跑完我再看。",
+  "t": {
+    "eyesClose": 2.0,
+    "worldIn": 2.7,
+    "gazeA": 3.8,
+    "lockA": 6.2,
+    "lineA": 6.85,
+    "lineAEnd": 15.15,
+    "pingB": 15.85,
+    "gazeB": 16.35,
+    "lockB": 18.75,
+    "lineB": 19.4,
+    "lineBEnd": 24.4,
+    "eyesOpen": 25.4,
+    "letterIn": 26.0,
+    "typeStart": 26.8,
+    "typeEnd": 29.71,
+    "send": 30.31
+  }
+}

@@ -1,4 +1,5 @@
 import type { Antiphon } from "../audio/engine";
+import { D } from "../demoI18n";
 
 /**
  * Live mode: connect to the local antiphon bridge and translate its frames into engine
@@ -151,7 +152,7 @@ function wireInput(engine: Antiphon, send: (obj: unknown) => void): void {
   const tint = (seat: number) => {
     input.style.borderColor = seat >= 0 ? engine.agents[seat].color : "";
     input.placeholder =
-      seat >= 0 ? "Type a message to this agent…" : "Face an agent, then type to send…";
+      seat >= 0 ? D.sayPlaceholderSeat : D.sayPlaceholder;
   };
 
   // while not composing, follow whoever you're facing

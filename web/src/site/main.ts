@@ -1,4 +1,4 @@
-// Antiphon marketing site — static sections.
+// Antiphon marketing site — static sections, rendered from the language table.
 // Visual spec: design_handoff_antiphon_site/Antiphon.dc.html (+ README design tokens).
 // The listening-room panel (#listen-panel) internals are owned by hero.ts.
 
@@ -7,10 +7,11 @@ import "@fontsource/cormorant-garamond/400-italic.css";
 import "@fontsource/instrument-sans/400.css";
 import "@fontsource/instrument-sans/500.css";
 import "@fontsource/instrument-sans/600.css";
-import { VERSION } from "../version";
 import "./site.css";
 
 import { mountHero } from "./hero";
+import { VERSION } from "../version";
+import { detectLang, saveLang, LANGS, LANG_LABELS, SITE, type Lang } from "./i18n";
 
 const GITHUB_URL = "https://github.com/cfoust/antiphon";
 const DOWNLOAD_URL = `${GITHUB_URL}/releases/latest/download/Antiphon-macOS.zip`;
@@ -33,11 +34,24 @@ const getEyeSvg = `<svg class="anph-get-eye" width="56" height="56" viewBox="0 0
 const footerEyeSvg = `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="8" fill="none" stroke="#2743B8" stroke-width="1.4"/><circle cx="9" cy="9" r="2.8" fill="#2743B8"/></svg>`;
 
 // Line-art tenet icons.
-const tenetIconSpace = `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="20" fill="none" stroke="#2743B8" stroke-width="1.5"/><circle cx="12" cy="26" r="3.5" fill="#C4694A"/><circle cx="32" cy="16" r="3.5" fill="#2743B8"/><circle cx="22" cy="34" r="2.5" fill="#2A231B"/></svg>`;
-const tenetIconGentle = `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="6" fill="#C4694A"/><circle cx="22" cy="22" r="12" fill="none" stroke="#C4694A" stroke-width="1.2" opacity="0.55"/><circle cx="22" cy="22" r="18" fill="none" stroke="#C4694A" stroke-width="1" opacity="0.3"/></svg>`;
-const tenetIconTalk = `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true"><path d="M8 18 Q22 4 36 18" fill="none" stroke="#2743B8" stroke-width="1.6"/><path d="M36 26 Q22 40 8 26" fill="none" stroke="#C4694A" stroke-width="1.6"/></svg>`;
+const tenetIcons = [
+  `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="20" fill="none" stroke="#2743B8" stroke-width="1.5"/><circle cx="12" cy="26" r="3.5" fill="#C4694A"/><circle cx="32" cy="16" r="3.5" fill="#2743B8"/><circle cx="22" cy="34" r="2.5" fill="#2A231B"/></svg>`,
+  `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="6" fill="#C4694A"/><circle cx="22" cy="22" r="12" fill="none" stroke="#C4694A" stroke-width="1.2" opacity="0.55"/><circle cx="22" cy="22" r="18" fill="none" stroke="#C4694A" stroke-width="1" opacity="0.3"/></svg>`,
+  `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true"><path d="M8 18 Q22 4 36 18" fill="none" stroke="#2743B8" stroke-width="1.6"/><path d="M36 26 Q22 40 8 26" fill="none" stroke="#C4694A" stroke-width="1.6"/></svg>`,
+];
 
-const nav = `
+function page(lang: Lang): string {
+  const S = SITE[lang];
+
+  const langSwitch = `
+    <span class="anph-lang" role="group" aria-label="Language">
+      ${LANGS.map(
+        (l) =>
+          `<button class="anph-lang-btn${l === lang ? " on" : ""}" data-lang="${l}">${LANG_LABELS[l]}</button>`,
+      ).join("")}
+    </span>`;
+
+  const nav = `
 <nav class="anph-nav">
   <div class="anph-nav-inner">
     <a href="#top" class="anph-nav-logo">
@@ -46,91 +60,56 @@ const nav = `
     </a>
     <div class="anph-nav-links">
       <span class="anph-nav-textlinks anph-nav-links">
-        <a href="#listen">How it sounds</a>
-        <a href="#feel">How it feels</a>
-        <a href="#engineering">Engineering</a>
+        <a href="#listen">${S.nav.sounds}</a>
+        <a href="#feel">${S.nav.feels}</a>
+        <a href="#engineering">${S.nav.engineering}</a>
         <a href="${GITHUB_URL}">GitHub</a>
       </span>
-      <a href="#get" class="anph-nav-cta">Download for macOS</a>
+      ${langSwitch}
+      <a href="#get" class="anph-nav-cta">${S.nav.download}</a>
     </div>
   </div>
 </nav>`;
 
-const hero = `
+  const hero = `
 <header id="top" class="anph-hero">
   <div class="anph-hero-eye-wrap">
     ${heroEyeSvg}
     <div class="anph-halo"></div>
     <div class="anph-halo anph-halo--outer"></div>
   </div>
-  <h1>Your agents, speaking.<br>You, listening.</h1>
-  <p class="anph-hero-sub">Antiphon gives every coding agent a voice, placed in the room around you. Put on headphones and overhear the work.</p>
+  <h1>${S.hero.h1}</h1>
+  <p class="anph-hero-sub">${S.hero.sub}</p>
   <div class="anph-hero-ctas">
-    <a href="${DOWNLOAD_URL}" class="anph-btn anph-btn--primary">Download for macOS</a>
-    <a href="/demo.html" class="anph-btn anph-btn--secondary">Try it in the browser</a>
+    <a href="${DOWNLOAD_URL}" class="anph-btn anph-btn--primary">${S.hero.download}</a>
+    <a href="/demo.html" class="anph-btn anph-btn--secondary">${S.hero.browser}</a>
   </div>
-  <div class="anph-fineprint">Free &amp; open source · Headphones recommended</div>
+  <div class="anph-fineprint">${S.hero.fineprint}</div>
 </header>`;
 
-const listen = `
+  const listen = `
 <section id="listen" class="anph-listen">
   <div class="anph-listen-inner">
-    <div class="anph-eyebrow">How it sounds</div>
-    <h2 class="anph-h2" style="margin-bottom:18px">Close your eyes.</h2>
-    <p class="anph-listen-intro">When you do, the terminals disappear and another room appears — voices placed in real space, each exactly where its work is. This is the whole pitch, in fifteen seconds.</p>
+    <div class="anph-eyebrow">${S.listen.eyebrow}</div>
+    <h2 class="anph-h2" style="margin-bottom:18px">${S.listen.h2}</h2>
+    <p class="anph-listen-intro">${S.listen.intro}</p>
     <div id="listen-panel" class="listen-panel"></div>
-    <p class="anph-listen-note">In the app, voices are real speech — synthesized, spatialized, and yours to answer. Here, a sketch in tone and caption.</p>
+    <p class="anph-listen-note">${S.listen.note}</p>
     <div class="anph-listen-demo-cta">
-      <a href="/demo.html" class="anph-btn anph-btn--primary">Try the web demo</a>
+      <a href="/demo.html" class="anph-btn anph-btn--primary">${S.listen.cta}</a>
     </div>
   </div>
 </section>`;
 
-interface Bubble {
-  label: string;
-  text: string;
-  you?: boolean;
-}
-
-const bubbles: Bubble[] = [
-  { label: "agent · to your left", text: "“Reworking the auth token flow. Tests next.”" },
-  { label: "you", text: "“Keep the refresh logic. Just tighten expiry.”", you: true },
-  { label: "agent · behind, slightly right", text: "“Tests are failing — digging in.”" },
-];
-
-interface Tenet {
-  icon: string;
-  title: string;
-  body: string;
-}
-
-const tenets: Tenet[] = [
-  {
-    icon: tenetIconSpace,
-    title: "Placed in space",
-    body: "Each agent has a position — left, right, near, far. Turn your head and the voices stay put in the room.",
-  },
-  {
-    icon: tenetIconGentle,
-    title: "Gentle by design",
-    body: "A waiting agent builds a soft harmonic cue in one ear rather than interrupting. Nothing pings. Nothing flashes.",
-  },
-  {
-    icon: tenetIconTalk,
-    title: "Talk back",
-    body: "Answer in a keystroke — or just speak, with voice input like Wispr Flow. Call and response, across the room.",
-  },
-];
-
-const feel = `
+  const feel = `
 <section id="feel" class="anph-feel">
   <div class="anph-feel-inner">
     <div class="anph-section-head">
-      <div class="anph-eyebrow">How it feels</div>
-      <h2 class="anph-h2">Overhear the workshop.</h2>
+      <div class="anph-eyebrow">${S.feel.eyebrow}</div>
+      <h2 class="anph-h2">${S.feel.h2}</h2>
     </div>
     <div class="anph-exchange">
-      ${bubbles
+      ${S.feel.bubbles
         .map(
           (b) => `
       <div class="anph-bubble-row${b.you ? " anph-bubble-row--you" : ""}">
@@ -142,11 +121,11 @@ const feel = `
         .join("")}
     </div>
     <div class="anph-tenets">
-      ${tenets
+      ${S.feel.tenets
         .map(
-          (t) => `
+          (t, i) => `
       <div class="anph-tenet">
-        ${t.icon}
+        ${tenetIcons[i]}
         <div class="anph-tenet-title">${t.title}</div>
         <div class="anph-tenet-body">${t.body}</div>
       </div>`,
@@ -156,80 +135,45 @@ const feel = `
   </div>
 </section>`;
 
-const choir = `
+  const agents: { name: string; badge: string; muted?: boolean; terracotta?: boolean }[] = [
+    { name: "Claude Code", badge: S.choir.full },
+    { name: "Codex CLI", badge: S.choir.full },
+    { name: "OpenCode", badge: S.choir.full },
+    { name: "Pi", badge: S.choir.fullTalkback },
+    { name: "Aider", badge: S.choir.presence },
+    { name: S.choir.yourAgent, badge: S.choir.openProtocol, muted: true, terracotta: true },
+  ];
+
+  const choir = `
 <section id="choir" class="anph-choir">
   <div class="anph-choir-inner">
-    <div class="anph-eyebrow">Voices in the choir</div>
-    <h2 class="anph-h2" style="margin-bottom:18px">Sings with your agents.</h2>
-    <p class="anph-choir-intro">Antiphon listens to agent sessions through a small plugin and a local daemon. Open source, open protocol.</p>
+    <div class="anph-eyebrow">${S.choir.eyebrow}</div>
+    <h2 class="anph-h2" style="margin-bottom:18px">${S.choir.h2}</h2>
+    <p class="anph-choir-intro">${S.choir.intro}</p>
     <div class="anph-agent-list">
+      ${agents
+        .map(
+          (a) => `
       <div class="anph-agent-row">
-        <span class="anph-agent-name">Claude Code</span>
-        <span class="anph-badge">Full fidelity</span>
-      </div>
-      <div class="anph-agent-row">
-        <span class="anph-agent-name">Codex CLI</span>
-        <span class="anph-badge">Full fidelity</span>
-      </div>
-      <div class="anph-agent-row">
-        <span class="anph-agent-name">OpenCode</span>
-        <span class="anph-badge">Full fidelity</span>
-      </div>
-      <div class="anph-agent-row">
-        <span class="anph-agent-name">Pi</span>
-        <span class="anph-badge">Full fidelity + talk-back</span>
-      </div>
-      <div class="anph-agent-row">
-        <span class="anph-agent-name">Aider</span>
-        <span class="anph-badge">Presence + nudges</span>
-      </div>
-      <div class="anph-agent-row">
-        <span class="anph-agent-name anph-agent-name--muted">Your agent here</span>
-        <span class="anph-badge anph-badge--terracotta">Open protocol · PRs welcome</span>
-      </div>
+        <span class="anph-agent-name${a.muted ? " anph-agent-name--muted" : ""}">${a.name}</span>
+        <span class="anph-badge${a.terracotta ? " anph-badge--terracotta" : ""}">${a.badge}</span>
+      </div>`,
+        )
+        .join("")}
     </div>
-    <div class="anph-choir-link"><a href="${GITHUB_URL}">Write an adapter on GitHub →</a></div>
+    <div class="anph-choir-link"><a href="${GITHUB_URL}">${S.choir.link}</a></div>
   </div>
 </section>`;
 
-interface EngCard {
-  index: string;
-  title: string;
-  body: string;
-}
-
-const engCards: EngCard[] = [
-  {
-    index: "01 · spatial engine",
-    title: "Research-grade binaural rendering",
-    body: "A real spatial-audio engine written from scratch in Rust: HRTF rendering, early reflections, room reverb. Voices have position, distance, and presence — over ordinary headphones.",
-  },
-  {
-    index: "02 · head tracking",
-    title: "The room holds still",
-    body: "Your webcam tracks your head. Turn to look at a voice and it stays exactly where it was — anchored to the room, not to your ears.",
-  },
-  {
-    index: "03 · one core",
-    title: "Native and web, byte-identical",
-    body: "The macOS app and the browser demo run the same DSP core, verified to produce byte-identical output. What you hear in the demo is the product.",
-  },
-  {
-    index: "04 · attention, composed",
-    title: "Voices, not notifications",
-    body: "Waiting agents build gentle harmonic cues instead of firing alerts. The soundscape is mixed like music — so ten agents feel like a workshop, not a slot machine.",
-  },
-];
-
-const engineering = `
+  const engineering = `
 <section id="engineering" class="anph-engineering">
   <div class="anph-engineering-inner">
     <div class="anph-section-head">
-      <div class="anph-eyebrow">Engineering</div>
-      <h2 class="anph-h2">Built like an instrument.</h2>
+      <div class="anph-eyebrow">${S.eng.eyebrow}</div>
+      <h2 class="anph-h2">${S.eng.h2}</h2>
     </div>
     <div class="anph-eng-grid">
-      ${engCards
+      ${S.eng.cards
         .map(
           (c) => `
       <div class="anph-eng-card">
@@ -243,35 +187,38 @@ const engineering = `
   </div>
 </section>`;
 
-const get = `
+  const get = `
 <section id="get" class="anph-get">
   <div class="anph-get-inner">
     ${getEyeSvg}
-    <h2>Let something keep watch.</h2>
-    <p class="anph-get-sub">Antiphon lives in your menu bar — a small eye, always listening on your behalf. Free and open source.</p>
+    <h2>${S.get.h2}</h2>
+    <p class="anph-get-sub">${S.get.sub}</p>
     <div class="anph-get-ctas">
-      <a href="${DOWNLOAD_URL}" class="anph-btn anph-btn--primary">Download for macOS</a>
-      <a href="/demo.html" class="anph-btn anph-btn--secondary">Open the web demo</a>
+      <a href="${DOWNLOAD_URL}" class="anph-btn anph-btn--primary">${S.get.download}</a>
+      <a href="/demo.html" class="anph-btn anph-btn--secondary">${S.get.demo}</a>
     </div>
-    <div class="anph-fineprint">macOS 14+ · Apple silicon · MIT license</div>
+    <div class="anph-fineprint">${S.get.fineprint}</div>
   </div>
 </section>`;
 
-const footer = `
+  const footer = `
 <footer class="anph-footer">
   <div class="anph-footer-inner">
     <div class="anph-footer-brand">
       ${footerEyeSvg}
       <span>antiphon.dev</span>
     </div>
-    <div class="anph-footer-greek">ἀντίφωνον — voices, answering across a space</div>
+    <div class="anph-footer-greek">${S.footer.greek}</div>
     <div class="anph-footer-links">
       <a href="${GITHUB_URL}">GitHub</a>
-      <a href="/docs/">Docs</a>
+      <a href="/docs/${lang === "en" ? "" : lang + "/"}">${S.footer.docs}</a>
       <span class="anph-footer-version">${VERSION === "0.0.0-dev" ? "" : `v${VERSION}`}</span>
     </div>
   </div>
 </footer>`;
+
+  return nav + hero + listen + feel + choir + engineering + get + footer;
+}
 
 function initPupilTracking(): void {
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -297,8 +244,22 @@ function initPupilTracking(): void {
 }
 
 const root = document.getElementById("site");
-if (root) {
-  root.innerHTML = nav + hero + listen + feel + choir + engineering + get + footer;
-  mountHero(document.getElementById("listen-panel"));
+
+function render(lang: Lang): void {
+  if (!root) return;
+  document.documentElement.lang = lang;
+  document.title = SITE[lang].title;
+  root.innerHTML = page(lang);
+  mountHero(document.getElementById("listen-panel"), lang, SITE[lang].hx);
   initPupilTracking();
+  root.querySelectorAll<HTMLButtonElement>(".anph-lang-btn").forEach((b) => {
+    b.addEventListener("click", () => {
+      const l = b.dataset.lang as Lang;
+      if (l === lang) return;
+      saveLang(l);
+      render(l);
+    });
+  });
 }
+
+render(detectLang());

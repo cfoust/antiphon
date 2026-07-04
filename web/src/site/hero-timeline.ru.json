@@ -1,0 +1,40 @@
+{
+  "duration": 34.45,
+  "agents": {
+    "A": {
+      "name": "wren",
+      "color": "#C4694A",
+      "bearingDeg": -35.0,
+      "distance": 1.25
+    },
+    "B": {
+      "name": "sol",
+      "color": "#7D93E8",
+      "bearingDeg": 30.0,
+      "distance": 1.8
+    }
+  },
+  "captions": {
+    "summary_A": "Переделал поток авторизации — все сорок два теста проходят. Refresh-токены теперь ротируются чисто.",
+    "summary_B": "Черновик документации готов — две страницы, с заметками о миграции, как ты просил."
+  },
+  "reply": "Публикуй доку. Auth посмотрю после тестов.",
+  "t": {
+    "eyesClose": 2.0,
+    "worldIn": 2.7,
+    "gazeA": 3.8,
+    "lockA": 6.2,
+    "lineA": 6.85,
+    "lineAEnd": 16.35,
+    "pingB": 17.05,
+    "gazeB": 17.55,
+    "lockB": 19.95,
+    "lineB": 20.6,
+    "lineBEnd": 26.85,
+    "eyesOpen": 27.85,
+    "letterIn": 28.45,
+    "typeStart": 29.25,
+    "typeEnd": 32.25,
+    "send": 32.85
+  }
+}

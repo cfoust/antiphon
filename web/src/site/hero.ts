@@ -1,8 +1,9 @@
 // The "close your eyes" workflow demo — the site's key moment. NOT a video:
 // a DOM/canvas-rendered run of the real workflow, synchronized to a soundtrack
 // rendered OFFLINE by the actual engine (tools/gen-hero-audio.py →
-// /hero-demo.m4a + hero-timeline.json). One clock drives everything: the
-// audio element when sound is on, a monotonic clock when muted — so the
+// /hero-demo.<lang>.m4a + hero-timeline.<lang>.json, one per language — the
+// timings differ because the spoken lines do). One clock drives everything:
+// the audio element when sound is on, a monotonic clock when muted — so the
 // unmute button just re-anchors to audio.currentTime and nothing drifts.
 //
 // Scene: an imaginary desktop (with a visible head/eye-tracking card) → the
@@ -11,14 +12,28 @@
 // talk-back letter → a typed reply → Enter. Then a replay affordance.
 
 import "./hero.css";
-import timeline from "./hero-timeline.json";
+import tlEn from "./hero-timeline.en.json";
+import tlRu from "./hero-timeline.ru.json";
+import tlHans from "./hero-timeline.zh-Hans.json";
+import tlHant from "./hero-timeline.zh-Hant.json";
+import type { Lang, HeroStrings } from "./i18n";
 
 type AgentKey = "A" | "B";
-const T = timeline.t;
-const AG = timeline.agents as Record<
-  AgentKey,
-  { name: string; color: string; bearingDeg: number; distance: number }
->;
+
+interface Timeline {
+  duration: number;
+  agents: Record<AgentKey, { name: string; color: string; bearingDeg: number; distance: number }>;
+  captions: { summary_A: string; summary_B: string };
+  reply: string;
+  t: Record<string, number>;
+}
+
+const TIMELINES: Record<Lang, Timeline> = {
+  en: tlEn as unknown as Timeline,
+  ru: tlRu as unknown as Timeline,
+  "zh-Hans": tlHans as unknown as Timeline,
+  "zh-Hant": tlHant as unknown as Timeline,
+};
 
 // app radar palette (mirrors native RadarView)
 const BG = "#0a0c10";
@@ -28,41 +43,45 @@ const GOLD = "#ffce6b";
 const rad = (d: number) => (d * Math.PI) / 180;
 const TAU = Math.PI * 2;
 
-// the gaze keyframes — same shape the audio generator rendered with
-const POSE: [number, number][] = [
-  [0, 0],
-  [T.gazeA, 0],
-  [T.gazeA + 0.9, AG.A.bearingDeg],
-  [T.gazeB, AG.A.bearingDeg],
-  [T.gazeB + 0.9, AG.B.bearingDeg],
-  [T.eyesOpen, AG.B.bearingDeg],
-  [T.eyesOpen + 1, 0],
-];
-function yawAt(t: number): number {
-  if (t <= POSE[0][0]) return rad(POSE[0][1]);
-  for (let i = 0; i < POSE.length - 1; i++) {
-    const [t0, y0] = POSE[i];
-    const [t1, y1] = POSE[i + 1];
-    if (t >= t0 && t <= t1) {
-      const u = t1 > t0 ? (t - t0) / (t1 - t0) : 1;
-      const s = u * u * (3 - 2 * u);
-      return rad(y0 + (y1 - y0) * s);
-    }
-  }
-  return rad(POSE[POSE.length - 1][1]);
-}
-
-// ping moments (match gen-hero-audio.py)
-const PINGS: { agent: AgentKey; t: number }[] = [
-  { agent: "A", t: T.worldIn + 0.2 },
-  { agent: "A", t: T.worldIn + 2.8 },
-  { agent: "B", t: T.pingB },
-];
-
 const html = String.raw;
 
-export function mountHero(el: HTMLElement | null): void {
+export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): void {
   if (!el) return;
+  const timeline = TIMELINES[lang];
+  const T = timeline.t;
+  const AG = timeline.agents;
+
+  // the gaze keyframes — same shape the audio generator rendered with
+  const POSE: [number, number][] = [
+    [0, 0],
+    [T.gazeA, 0],
+    [T.gazeA + 0.9, AG.A.bearingDeg],
+    [T.gazeB, AG.A.bearingDeg],
+    [T.gazeB + 0.9, AG.B.bearingDeg],
+    [T.eyesOpen, AG.B.bearingDeg],
+    [T.eyesOpen + 1, 0],
+  ];
+  function yawAt(t: number): number {
+    if (t <= POSE[0][0]) return rad(POSE[0][1]);
+    for (let i = 0; i < POSE.length - 1; i++) {
+      const [t0, y0] = POSE[i];
+      const [t1, y1] = POSE[i + 1];
+      if (t >= t0 && t <= t1) {
+        const u = t1 > t0 ? (t - t0) / (t1 - t0) : 1;
+        const s = u * u * (3 - 2 * u);
+        return rad(y0 + (y1 - y0) * s);
+      }
+    }
+    return rad(POSE[POSE.length - 1][1]);
+  }
+
+  // ping moments (match gen-hero-audio.py)
+  const PINGS: { agent: AgentKey; t: number }[] = [
+    { agent: "A", t: T.worldIn + 0.2 },
+    { agent: "A", t: T.worldIn + 2.8 },
+    { agent: "B", t: T.pingB },
+  ];
+
   el.innerHTML = html`
     <div class="hx-layer hx-desk" data-hx="desk">
       <div class="hx-desk-bar"><i></i><i></i><i></i></div>
@@ -92,17 +111,17 @@ export function mountHero(el: HTMLElement | null): void {
           </g>
         </svg>
         <div class="hx-cam-label">
-          <b><span class="hx-cam-dot"></span><span data-hx="camState">watching</span></b>
-          head &amp; eyes tracked
+          <b><span class="hx-cam-dot"></span><span data-hx="camState">${S.watching}</span></b>
+          ${S.tracked}
         </div>
       </div>
     </div>
 
     <div class="hx-layer hx-world" data-hx="world" style="opacity:0">
       <canvas data-hx="canvas"></canvas>
-      <div class="hx-hint">the room, from above — voices stay put as you turn</div>
-      <div class="hx-cap" data-hx="capA">“${timeline.captions.summary_A}”</div>
-      <div class="hx-cap" data-hx="capB">“${timeline.captions.summary_B}”</div>
+      <div class="hx-hint">${S.hint}</div>
+      <div class="hx-cap" data-hx="capA">${timeline.captions.summary_A}</div>
+      <div class="hx-cap" data-hx="capB">${timeline.captions.summary_B}</div>
     </div>
 
     <div class="hx-layer hx-idle" data-hx="idle">
@@ -111,9 +130,9 @@ export function mountHero(el: HTMLElement | null): void {
         <circle cx="32" cy="20" r="9" fill="#2743B8" />
         <circle cx="29" cy="17" r="2.5" fill="#F4EDE2" />
       </svg>
-      <div class="hx-idle-title">Put on headphones.</div>
-      <button class="hx-idle-btn" data-hx="begin">Close your eyes&nbsp;↵</button>
-      <div class="hx-idle-note">The real workflow, in half a minute · rendered by the real engine · sound on</div>
+      <div class="hx-idle-title">${S.idleTitle}</div>
+      <button class="hx-idle-btn" data-hx="begin">${S.begin}</button>
+      <div class="hx-idle-note">${S.idleNote}</div>
     </div>
 
     <div class="hx-lid top" data-hx="lidT"></div>
@@ -126,12 +145,12 @@ export function mountHero(el: HTMLElement | null): void {
         <span class="hx-letter-name">${AG.B.name}</span>
         <span class="hx-letter-kind">Claude Code</span>
       </div>
-      <div class="hx-letter-line"><b>DONE</b><span>${timeline.captions.summary_B}</span></div>
+      <div class="hx-letter-line"><b>${S.done}</b><span>${timeline.captions.summary_B}</span></div>
       <div class="hx-letter-input" data-hx="input"><span data-hx="typed"></span><span class="hx-caret"></span></div>
     </div>
 
-    <button class="hx-sound" data-hx="sound" hidden>🔇 unmute</button>
-    <button class="hx-replay" data-hx="replay">replay ⟳</button>
+    <button class="hx-sound" data-hx="sound" hidden>${S.unmute}</button>
+    <button class="hx-replay" data-hx="replay">${S.replay}</button>
   `;
 
   const $ = <E extends HTMLElement = HTMLElement>(k: string) =>
@@ -151,7 +170,12 @@ export function mountHero(el: HTMLElement | null): void {
   const eyesOpenG = el.querySelector('[data-hx="eyesOpen"]') as SVGGElement;
   const eyesShutG = el.querySelector('[data-hx="eyesShut"]') as SVGGElement;
 
-  const audio = new Audio("/hero-demo.m4a");
+  // quotes around the captions, per script
+  const q = lang === "zh-Hant" ? ["「", "」"] : lang === "ru" ? ["«", "»"] : ["“", "”"];
+  capEls.A.textContent = q[0] + timeline.captions.summary_A + q[1];
+  capEls.B.textContent = q[0] + timeline.captions.summary_B + q[1];
+
+  const audio = new Audio(`/hero-demo.${lang}.m4a`);
   audio.preload = "auto";
 
   let running = false;
@@ -170,7 +194,7 @@ export function mountHero(el: HTMLElement | null): void {
     running = true;
     replayBtn.classList.remove("on");
     soundBtn.hidden = false;
-    soundBtn.textContent = muted ? "🔇 unmute" : "🔊 sound on";
+    soundBtn.textContent = muted ? S.unmute : S.soundOn;
     letter.classList.remove("on");
     input.classList.remove("sent");
     typed.textContent = "";
@@ -182,7 +206,7 @@ export function mountHero(el: HTMLElement | null): void {
         // autoplay refused → run on the muted clock; the button recovers sound
         muted = true;
         clock0 = performance.now();
-        soundBtn.textContent = "🔇 unmute";
+        soundBtn.textContent = S.unmute;
       });
     } else {
       clock0 = performance.now();
@@ -207,12 +231,12 @@ export function mountHero(el: HTMLElement | null): void {
       audio.currentTime = Math.min(now(), timeline.duration - 0.05);
       void audio.play();
       muted = false;
-      soundBtn.textContent = "🔊 sound on";
+      soundBtn.textContent = S.soundOn;
     } else {
       clock0 = performance.now() - now() * 1000;
       audio.pause();
       muted = true;
-      soundBtn.textContent = "🔇 unmute";
+      soundBtn.textContent = S.unmute;
     }
   });
   $("begin").addEventListener("click", () => begin(true));
@@ -342,7 +366,7 @@ export function mountHero(el: HTMLElement | null): void {
     const shut = t >= T.eyesClose && t < T.eyesOpen;
     eyesOpenG.setAttribute("opacity", shut ? "0" : "1");
     eyesShutG.setAttribute("opacity", shut ? "1" : "0");
-    camState.textContent = shut ? "eyes closed" : "watching";
+    camState.textContent = shut ? S.eyesClosed : S.watching;
 
     if (inWorld) drawWorld(t);
 

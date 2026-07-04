@@ -1,0 +1,187 @@
+{
+  "voices": { "atlas": "onyx", "wren": "marin", "cass": "cedar", "iris": "coral" },
+  "en": {
+    "atlas": {
+      "work": [
+        "Tracing every call site of the old session middleware.",
+        "Rewriting the token refresh path now."
+      ],
+      "done": [
+        "The auth refactor is in. Sessions refresh tokens in one place now, and the old middleware is gone.",
+        "I split the login flow out of the monolith. Twelve files touched, all tests green.",
+        "Password reset goes through the same token service now. I removed about four hundred lines."
+      ]
+    },
+    "wren": {
+      "work": [
+        "Backfilling the new columns in batches.",
+        "Dry-running the migration against a staging snapshot."
+      ],
+      "done": [
+        "The migration ran clean. Both tables are on the new schema, and the backfill finished in under a minute.",
+        "I split the migration into three reversible steps. Staging is migrated; production is ready when you are.",
+        "Indexes are rebuilt and the slow query is gone. Reads are about six times faster."
+      ]
+    },
+    "cass": {
+      "work": [
+        "Running the integration suite again to reproduce it.",
+        "Bisecting the test order to find the leak."
+      ],
+      "done": [
+        "Found the flake. A shared fixture leaked a timer between tests; it's isolated now, and the suite passed ten runs in a row.",
+        "The race was in the websocket teardown. I made close idempotent and the suite is stable again.",
+        "Two flaky tests were sharing a temp directory. They each get their own now, and CI is green."
+      ]
+    },
+    "iris": {
+      "work": [
+        "Reading the changelog for breaking changes.",
+        "Bumping the lockfile and rebuilding."
+      ],
+      "done": [
+        "The dependency upgrade is done. Two breaking changes patched, and the bundle came out smaller.",
+        "Everything is on the latest major now. I pinned the one package that broke and left a note about it.",
+        "Docs are updated to match the new API. Every example compiles again."
+      ]
+    }
+  },
+  "ru": {
+    "atlas": {
+      "work": [
+        "Прослеживаю все вызовы старого session-middleware.",
+        "Переписываю путь обновления токенов."
+      ],
+      "done": [
+        "Рефакторинг авторизации готов. Сессии обновляют токены в одном месте, старый middleware удалён.",
+        "Вынес логин из монолита. Затронуто двенадцать файлов, все тесты зелёные.",
+        "Сброс пароля теперь идёт через тот же сервис токенов. Убрал около четырёхсот строк."
+      ]
+    },
+    "wren": {
+      "work": [
+        "Заполняю новые колонки пачками.",
+        "Прогоняю миграцию вхолостую на снимке стейджинга."
+      ],
+      "done": [
+        "Миграция прошла чисто. Обе таблицы на новой схеме, бэкфил занял меньше минуты.",
+        "Разбил миграцию на три обратимых шага. Стейджинг мигрирован; продакшен готов, когда скажешь.",
+        "Индексы перестроены, медленный запрос исчез. Чтение примерно в шесть раз быстрее."
+      ]
+    },
+    "cass": {
+      "work": [
+        "Снова гоняю интеграционные тесты, чтобы воспроизвести.",
+        "Бисекчу порядок тестов в поисках утечки."
+      ],
+      "done": [
+        "Нашёл флак. Общая фикстура протекала таймером между тестами; изолировал, набор прошёл десять раз подряд.",
+        "Гонка была в закрытии вебсокета. Сделал close идемпотентным — набор снова стабилен.",
+        "Два нестабильных теста делили временную папку. Теперь у каждого своя, CI зелёный."
+      ]
+    },
+    "iris": {
+      "work": [
+        "Читаю чейнджлог в поисках ломающих изменений.",
+        "Обновляю lockfile и пересобираю."
+      ],
+      "done": [
+        "Обновление зависимостей готово. Два ломающих изменения запатчены, бандл стал меньше.",
+        "Всё на последних мажорных версиях. Один сломавшийся пакет запинил и оставил о нём заметку.",
+        "Документация приведена к новому API. Все примеры снова компилируются."
+      ]
+    }
+  },
+  "zh-Hans": {
+    "atlas": {
+      "work": [
+        "正在排查旧会话中间件的每个调用点。",
+        "正在重写令牌刷新路径。"
+      ],
+      "done": [
+        "鉴权重构完成。会话现在在同一处刷新令牌，旧中间件已删除。",
+        "登录流程从单体里拆出来了。改了十二个文件，测试全绿。",
+        "重置密码现在走同一个令牌服务。删掉了大约四百行。"
+      ]
+    },
+    "wren": {
+      "work": [
+        "正在分批回填新列。",
+        "正在用预发快照试跑迁移。"
+      ],
+      "done": [
+        "迁移跑得很干净。两张表都在新模式上，回填不到一分钟就完成了。",
+        "迁移拆成了三个可回滚的步骤。预发已迁移，生产随时可以上。",
+        "索引重建完成，慢查询没有了。读取快了大约六倍。"
+      ]
+    },
+    "cass": {
+      "work": [
+        "再跑一遍集成测试来复现问题。",
+        "正在二分测试顺序找泄漏。"
+      ],
+      "done": [
+        "找到那个不稳定的测试了。一个共享夹具在测试间泄漏了定时器；现在隔离了，连续十次全部通过。",
+        "竞态在 websocket 的收尾逻辑里。我把 close 改成幂等的，测试又稳定了。",
+        "两个不稳定的测试共用一个临时目录。现在各用各的，CI 绿了。"
+      ]
+    },
+    "iris": {
+      "work": [
+        "正在读更新日志，找破坏性变更。",
+        "正在更新 lockfile 并重新构建。"
+      ],
+      "done": [
+        "依赖升级完成。修补了两个破坏性变更，包体积还小了。",
+        "全部升到最新主版本了。有一个包坏了，我先固定住版本并留了说明。",
+        "文档已对齐新 API。所有示例都能重新编译了。"
+      ]
+    }
+  },
+  "zh-Hant": {
+    "atlas": {
+      "work": [
+        "正在排查舊工作階段中介層的每個呼叫點。",
+        "正在重寫權杖更新路徑。"
+      ],
+      "done": [
+        "驗證重構完成。工作階段現在在同一處更新權杖，舊中介層已刪除。",
+        "登入流程從單體裡拆出來了。改了十二個檔案，測試全綠。",
+        "重設密碼現在走同一個權杖服務。刪掉了大約四百行。"
+      ]
+    },
+    "wren": {
+      "work": [
+        "正在分批回填新欄位。",
+        "正在用預備環境快照試跑遷移。"
+      ],
+      "done": [
+        "遷移跑得很乾淨。兩張表都在新結構上，回填不到一分鐘就完成了。",
+        "遷移拆成了三個可回復的步驟。預備環境已遷移，正式環境隨時可以上。",
+        "索引重建完成，慢查詢沒有了。讀取快了大約六倍。"
+      ]
+    },
+    "cass": {
+      "work": [
+        "再跑一遍整合測試來重現問題。",
+        "正在二分測試順序找洩漏。"
+      ],
+      "done": [
+        "找到那個不穩定的測試了。一個共用夾具在測試之間洩漏了計時器；現在隔離了，連續十次全部通過。",
+        "競態在 websocket 的收尾邏輯裡。我把 close 改成冪等的，測試又穩定了。",
+        "兩個不穩定的測試共用一個暫存目錄。現在各用各的，CI 綠了。"
+      ]
+    },
+    "iris": {
+      "work": [
+        "正在讀更新紀錄，找破壞性變更。",
+        "正在更新 lockfile 並重新建置。"
+      ],
+      "done": [
+        "相依套件升級完成。修補了兩個破壞性變更，套件體積還小了。",
+        "全部升到最新主版本了。有一個套件壞了，我先固定住版本並留了說明。",
+        "文件已對齊新 API。所有範例都能重新編譯了。"
+      ]
+    }
+  }
+}

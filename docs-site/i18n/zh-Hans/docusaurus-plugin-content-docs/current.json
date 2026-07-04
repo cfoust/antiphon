@@ -1,0 +1,10 @@
+{
+  "version.label": {
+    "message": "下一版",
+    "description": "The label for version current"
+  },
+  "sidebar.docs.category.Connecting agents": {
+    "message": "接入智能体",
+    "description": "The label for category 'Connecting agents' in sidebar 'docs'"
+  }
+}

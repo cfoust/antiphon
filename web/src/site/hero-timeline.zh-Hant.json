@@ -1,0 +1,40 @@
+{
+  "duration": 32.26,
+  "agents": {
+    "A": {
+      "name": "wren",
+      "color": "#C4694A",
+      "bearingDeg": -35.0,
+      "distance": 1.25
+    },
+    "B": {
+      "name": "sol",
+      "color": "#7D93E8",
+      "bearingDeg": 30.0,
+      "distance": 1.8
+    }
+  },
+  "captions": {
+    "summary_A": "驗證流程重建完成——四十二個測試全部通過。更新權杖現在能乾淨地輪換了。",
+    "summary_B": "文件草稿好了——兩頁，附上你要的遷移說明。"
+  },
+  "reply": "文件先出。驗證等測試跑完我再看。",
+  "t": {
+    "eyesClose": 2.0,
+    "worldIn": 2.7,
+    "gazeA": 3.8,
+    "lockA": 6.2,
+    "lineA": 6.85,
+    "lineAEnd": 15.35,
+    "pingB": 16.05,
+    "gazeB": 16.55,
+    "lockB": 18.95,
+    "lineB": 19.6,
+    "lineBEnd": 24.75,
+    "eyesOpen": 25.75,
+    "letterIn": 26.35,
+    "typeStart": 27.15,
+    "typeEnd": 30.06,
+    "send": 30.66
+  }
+}

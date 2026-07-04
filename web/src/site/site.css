@@ -14,9 +14,9 @@
   --anph-gold: #d8a03d;
   --anph-dark-text: #f6efe2;
   --anph-hairline: rgba(42, 35, 27, 0.08);
-  --anph-serif: "GFS Didot", Georgia, serif;
-  --anph-serif-italic: "Cormorant Garamond", Georgia, serif;
-  --anph-sans: "Instrument Sans", -apple-system, "Helvetica Neue", sans-serif;
+  --anph-serif: "GFS Didot", Georgia, "Songti SC", "Songti TC", "Noto Serif SC", "Noto Serif TC", serif;
+  --anph-serif-italic: "Cormorant Garamond", Georgia, "Kaiti SC", "Kaiti TC", "Noto Serif SC", serif;
+  --anph-sans: "Instrument Sans", -apple-system, "PingFang SC", "PingFang TC", "Noto Sans SC", "Noto Sans TC", "Helvetica Neue", sans-serif;
 }
 
 html {
@@ -602,6 +602,35 @@ body {
   .anph-hero-pupil {
     transition: none;
   }
+}
+
+/* language switcher (nav) */
+.anph-lang {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.anph-lang-btn {
+  background: none;
+  border: 1px solid rgba(42, 35, 27, 0.18);
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  line-height: 1;
+  font-family: var(--anph-sans);
+  color: var(--anph-secondary);
+  cursor: pointer;
+}
+
+.anph-lang-btn:hover {
+  border-color: rgba(42, 35, 27, 0.45);
+}
+
+.anph-lang-btn.on {
+  background: var(--anph-ink);
+  border-color: var(--anph-ink);
+  color: var(--anph-cream);
 }
 
 /* ===================== responsive ===================== */

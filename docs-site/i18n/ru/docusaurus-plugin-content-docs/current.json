@@ -1,0 +1,10 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.docs.category.Connecting agents": {
+    "message": "Подключение агентов",
+    "description": "The label for category 'Connecting agents' in sidebar 'docs'"
+  }
+}

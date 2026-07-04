@@ -8,6 +8,7 @@ import { HeadTracker, type Calibration } from "./tracking/headTracking";
 import { initAgentList } from "./ui/agentList";
 import { initRadar } from "./ui/radar";
 import "./ui/styles.css";
+import { D, lang, setDemoLang, saveLang, LANGS, LANG_LABELS } from "./demoI18n";
 
 // The Antiphon web demo: the native app's experience in a browser tab.
 // Onboarding mirrors Onboarding.swift's three beats — a full-bleed dark
@@ -74,6 +75,45 @@ const controls = $("controls");
 const fitSlider = $<HTMLInputElement>("fit");
 const fitVal = $("fitVal");
 
+// ---- language: applied to every static string; switchable on the welcome ---
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = D.title;
+  $("obTag").textContent = D.tag;
+  $("obBody").textContent = D.body;
+  $("obNote").textContent = D.headphonesNote;
+  enableBtn.textContent = D.enable;
+  $("camNote").textContent = D.camNote;
+  recalBtn.textContent = D.recal;
+  $("obFoot").textContent = D.foot;
+  calText.textContent = D.calLeft;
+  $("fitTitle").textContent = D.fitTitle;
+  $("fitSub").textContent = D.fitSub;
+  fitDoneBtn.textContent = D.continueLabel;
+  $("fitLabel").textContent = D.fitTitle;
+  const say = document.getElementById("sayText") as HTMLInputElement | null;
+  if (say) say.placeholder = D.sayPlaceholder;
+  document.querySelectorAll<HTMLButtonElement>(".ob-lang-btn").forEach((b) => {
+    b.classList.toggle("on", b.dataset.lang === lang);
+  });
+}
+{
+  const row = $("obLangs");
+  for (const l of LANGS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ob-lang-btn";
+    b.dataset.lang = l;
+    b.textContent = LANG_LABELS[l];
+    b.onclick = () => {
+      setDemoLang(l);
+      saveLang(l);
+      applyLang();
+    };
+    row.appendChild(b);
+  }
+}
+
 // ---- the eye watches the cursor (hero behavior, mirrors WelcomeView) -------
 const eye = $("eye");
 const eyePupil = $("eyePupil");
@@ -91,6 +131,8 @@ onboard.addEventListener("pointermove", (e) => {
 onboard.addEventListener("pointerleave", () => {
   eyePupil.style.transform = "";
 });
+
+applyLang();
 
 // ---- HRTF "fit" (shared by the onboarding beat and the in-room pill) -------
 function showFit(v: number) {
@@ -135,19 +177,20 @@ recalBtn.onclick = () => {
   localStorage.removeItem(CAL_KEY);
   localStorage.removeItem(ONBOARD_KEY); // redo Fit too — the full setup
   recalBtn.hidden = true;
-  setStatus("Will set up again on start", "ok");
+  setStatus(D.willSetupAgain, "ok");
 };
 
 // Beat 1 — one gesture: spin up audio, request camera, load model + clips.
 enableBtn.onclick = async () => {
   enableBtn.disabled = true;
+  $("obLangs").style.display = "none"; // cues load now — the choice is made
   enableBtn.classList.add("busy");
   try {
-    setStatus("Starting audio…");
+    setStatus(D.startingAudio);
     await engine.start(LIVE ? "live" : "demo"); // builds the graph; stays silent until Start
   } catch (err) {
     const e = err as Error;
-    setStatus("Couldn't start audio: " + (e.message || e.name), "err");
+    setStatus(D.cantStartAudio + (e.message || e.name), "err");
     enableBtn.disabled = false;
     enableBtn.classList.remove("busy");
     return;
@@ -155,42 +198,35 @@ enableBtn.onclick = async () => {
   // the spoken onboarding cues (best effort — the flow works silent too)
   const clip = (url: string) => engine.loadClip(url).catch(() => null);
   const clipsP = Promise.all([
-    clip("audio/cal_left.mp3"),
-    clip("audio/cal_right.mp3"),
-    clip("audio/cal_done.mp3"),
-    clip("audio/fit.mp3"),
+    clip(`audio/cal_left.${lang}.mp3`),
+    clip(`audio/cal_right.${lang}.mp3`),
+    clip(`audio/cal_done.${lang}.mp3`),
+    clip(`audio/fit.${lang}.mp3`),
   ]).then(([left, right, done, fit]) => {
     clips = { left, right, done, fit };
   });
   try {
-    setStatus("Requesting camera…");
+    setStatus(D.requestingCamera);
     await tracker.startCamera();
 
-    setStatus("Loading head-tracking model…");
+    setStatus(D.loadingModel);
     await tracker.loadModel();
     await clipsP;
     tracking = true;
 
-    setStatus("Looking for your face…");
+    setStatus(D.lookingFace);
     tracker.startLoop(() => {
-      setStatus(
-        loadCal() ? "Calibration restored" : "Head tracking ready",
-        "ok",
-      );
-      revealStart(loadCal() ? "Start" : "Continue");
+      setStatus(loadCal() ? D.calRestored : D.trackingReady, "ok");
+      revealStart(loadCal() ? D.start : D.continueLabel);
     });
-    setTimeout(() => revealStart("Start anyway"), 5000);
+    setTimeout(() => revealStart(D.startAnyway), 5000);
   } catch (err) {
     // No camera (denied, or a phone without tracking) — the room still works:
     // radar, dragging and the agent list, just without head-driven pose.
     const e = err as Error;
     await clipsP;
-    setStatus(
-      e.name === "NotAllowedError"
-        ? "Camera denied — starting without head tracking."
-        : "No head tracking — the room still works.",
-    );
-    revealStart("Start without head tracking");
+    setStatus(e.name === "NotAllowedError" ? D.cameraDenied : D.noTracking);
+    revealStart(D.startWithout);
   }
   enableBtn.hidden = true;
 };
@@ -218,7 +254,7 @@ startBtn.onclick = async () => {
   } else {
     // the scripted scenario: agents work audibly and complete tasks over time
     const { startScenario } = await import("./demo/scenario");
-    await startScenario(engine);
+    await startScenario(engine, lang);
   }
 };
 
@@ -287,17 +323,17 @@ async function runCalibration() {
   };
 
   const yaw0 = tracker.yaw; // where the head is when the step begins
-  cue("←", "Turn your head all the way to the left… and hold still.", clips?.left ?? null);
+  cue("←", D.calLeft, clips?.left ?? null);
   const L = await holdLock(yaw0, null);
 
-  cue("→", "Now all the way to the right… and hold still.", clips?.right ?? null);
+  cue("→", D.calRight, clips?.right ?? null);
   const R = await holdLock(yaw0, L.yaw);
 
   tracker.calibrate(L.yaw, R.yaw, (L.pitch + R.pitch) / 2);
   saveCal(tracker.calibration);
 
   calArrow.textContent = "✓";
-  calText.textContent = "Done. You're calibrated.";
+  calText.textContent = D.calDone;
   setHold(0);
   if (clips?.done) await engine.playClip(clips.done);
   await wait(400);

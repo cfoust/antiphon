@@ -1,4 +1,5 @@
 import type { Antiphon } from "../audio/engine";
+import { D } from "../demoI18n";
 import type { AgentRow } from "../types";
 
 // The agent list: everyone in the room, at a glance (mirrors Sidebar.swift).
@@ -92,7 +93,7 @@ export function initAgentList(engine: Antiphon, root: HTMLElement): void {
     const word = document.createElement("span");
     word.className = "a-word";
     word.style.color = statusColor(vm.status);
-    word.textContent = vm.status;
+    word.textContent = D.status[vm.status] ?? vm.status;
     st.appendChild(word);
     if (vm.lastLine) {
       const line = document.createElement("span");
@@ -107,8 +108,8 @@ export function initAgentList(engine: Antiphon, root: HTMLElement): void {
     snooze.className = "a-snooze";
     snooze.innerHTML = MOON_SVG;
     snooze.title = vm.snoozed
-      ? "Wake — back into the room"
-      : "Snooze — out of the room, keeps updating";
+      ? D.wakeTip
+      : D.snoozeTip;
     snooze.addEventListener("click", (e) => {
       e.stopPropagation();
       engine.setSnoozed(vm.seat, !vm.snoozed);
@@ -151,8 +152,8 @@ export function initAgentList(engine: Antiphon, root: HTMLElement): void {
       empty.className = "agents-empty";
       empty.textContent =
         engine.mode === "live"
-          ? "No agents yet — sessions appear here as they join."
-          : "Waiting for agents…";
+          ? D.noAgents
+          : D.waitingAgents;
       body.appendChild(empty);
       return;
     }

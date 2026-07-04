@@ -20,7 +20,13 @@ const config: Config = {
 
   i18n: {
     defaultLocale: "en",
-    locales: ["en"],
+    locales: ["en", "ru", "zh-Hans", "zh-Hant"],
+    localeConfigs: {
+      en: { label: "English" },
+      ru: { label: "Русский" },
+      "zh-Hans": { label: "简体中文" },
+      "zh-Hant": { label: "繁體中文" },
+    },
   },
 
   presets: [
@@ -68,6 +74,7 @@ const config: Config = {
         { type: "docSidebar", sidebarId: "docs", position: "left", label: "Docs" },
         { to: "/blog/", label: "Notes", position: "left" },
         { href: "https://antiphon.dev/demo.html", label: "Web demo", position: "right" },
+        { type: "localeDropdown", position: "right" },
         { href: "https://github.com/cfoust/antiphon", label: "GitHub", position: "right" },
       ],
     },
