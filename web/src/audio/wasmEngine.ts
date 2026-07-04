@@ -5,6 +5,10 @@
 export interface Vec3 { x: number; y: number; z: number; }
 export interface Quat { w: number; x: number; y: number; z: number; }
 
+/** Room geometry as placed by the engine: x/z-centred on the origin (the listener's
+ *  nominal ear position), floor at `y = -earHeight`, ceiling at `y = h - earHeight`. */
+export interface RoomDims { w: number; h: number; d: number; earHeight: number; }
+
 export interface SourceOpts {
   samples?: Float32Array; // mono signal (48 kHz assumed by the asset)
   gain?: number;
@@ -26,6 +30,8 @@ export class WasmEngine {
   private ctx: AudioContext;
   private ready: Promise<void>;
   private resolveReady!: () => void;
+  // pending roomDims queries, FIFO per room index
+  private dimsWaiters = new Map<number, ((d: RoomDims | null) => void)[]>();
 
   private constructor(ctx: AudioContext) {
     this.ctx = ctx;
@@ -53,6 +59,10 @@ export class WasmEngine {
       if (ev.data?.type === "ready") {
         e.numRooms = ev.data.numRooms;
         e.resolveReady();
+      } else if (ev.data?.type === "roomDims") {
+        const waiter = e.dimsWaiters.get(ev.data.index)?.shift();
+        const d = ev.data.dims as number[] | null;
+        waiter?.(d ? { w: d[0], h: d[1], d: d[2], earHeight: d[3] } : null);
       }
     };
     e.node.port.postMessage({ type: "init", wasm, asset }, [wasm, asset]);
@@ -130,6 +140,15 @@ export class WasmEngine {
    *  silent & cue audible). Applied per-source in-engine; the scene↔cue crossfade is automatic. */
   setImmersionEngine(target: number): void { this.node.port.postMessage({ type: "immersion", value: target }); }
   setRoom(index: number): void { this.node.port.postMessage({ type: "room", index }); }
+  /** Geometry of room preset `index` (dims + ear height), or null if out of range. */
+  roomDims(index: number): Promise<RoomDims | null> {
+    return new Promise((resolve) => {
+      const list = this.dimsWaiters.get(index) ?? [];
+      list.push(resolve);
+      this.dimsWaiters.set(index, list);
+      this.node.port.postMessage({ type: "roomDims", index });
+    });
+  }
   /** Late-tail blend for BRIR rooms: 0 = pure parametric FDN, 1 = pure measured BRIR. */
   setReverbBlend(value: number): void { this.node.port.postMessage({ type: "reverbBlend", value }); }
   setReflections(on: boolean): void { this.node.port.postMessage({ type: "reflections", on }); }

@@ -48,6 +48,10 @@ void chamber_renderer_set_immersion(ChamberRenderer *h, float target);
 /* Current smoothed immersion value (for host UI/debug). */
 float chamber_renderer_immersion(ChamberRenderer *h);
 uint32_t chamber_renderer_num_rooms(ChamberRenderer *h);
+/* Geometry of room preset `room`: writes [width, height, depth, ear_height] (metres) to
+ * out[4]. Room is x/z-centred on the origin (the listener's nominal ear position); floor at
+ * y = -ear_height, ceiling at y = height - ear_height. Returns 1 on success, 0 on failure. */
+int32_t chamber_renderer_room_dims(ChamberRenderer *h, uint32_t room, float *out);
 
 /* Render `frames` samples. `inputs` is `n` pointers to `frames` mono floats each. */
 void chamber_renderer_process(ChamberRenderer *h, const ChamberPose *pose,

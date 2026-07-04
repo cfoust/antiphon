@@ -5,10 +5,10 @@
 // inflate them (extent), loop them, shape the room, and optionally let your eyes drive the
 // immersion fade (off by default so experiments aren't gated on the webcam).
 
-import { WasmEngine, ENGINE_URLS, type Vec3 } from "../audio/wasmEngine";
+import { WasmEngine, ENGINE_URLS, type Vec3, type RoomDims } from "../audio/wasmEngine";
 import { SFX } from "../audio/sfx";
 import { HeadTracker } from "../tracking/headTracking";
-import { SceneView } from "./scene3d";
+import { SceneView, type DoorSpec } from "./scene3d";
 import { ARP_DEFAULTS, SCALES, buildArpCycle, arpEff, rootHz, noteName, type ArpParams, type ArpDirection } from "./arp";
 
 const ROOMS = ["dry", "room", "hall", "cathedral", "room (BRIR)", "hall (BRIR)"];
@@ -32,6 +32,12 @@ interface SandboxSource {
   arp?: ArpParams;
 }
 
+/** Doorway experiment: a rectangular aperture on one wall of the room. */
+interface DoorConfig extends DoorSpec {
+  enabled: boolean;
+}
+const DOOR_DEFAULTS: DoorConfig = { enabled: false, wall: "-z", along: 0, width: 2.5, height: 3.0 };
+
 interface SceneFile {
   sources: Omit<SandboxSource, "id">[];
   room: number;
@@ -44,6 +50,7 @@ interface SceneFile {
   immersion: number;
   orientDeg: number;
   listenerY: number;
+  door?: DoorConfig;
 }
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -63,6 +70,8 @@ let trackedPos: Vec3 = { x: 0, y: 0, z: 0 };
 let headPos: Vec3 = { x: 0, y: 0, z: 0 };
 
 let roomIdx = 4; // room (BRIR) — the default that sounded best
+let roomDims: RoomDims | null = null; // fetched from the engine (chamber_room_dims)
+let door: DoorConfig = { ...DOOR_DEFAULTS };
 let reflections = true;
 let reverbBlend = 1;
 let master = 0.9;
@@ -96,6 +105,7 @@ async function ensureStarted(): Promise<boolean> {
     engine.setAttentionBuildMinutes(attnBuildMin);
     engine.setImmersionEngine(immersion);
     applyPose();
+    await syncRoomGeom();
     for (const s of sources) await pushSource(s, true); // restore a loaded scene
     setStatus(`running @ ${ctx.sampleRate} Hz · ${engine.numRooms} rooms`);
     return true;
@@ -104,6 +114,38 @@ async function ensureStarted(): Promise<boolean> {
     console.error(e);
     return false;
   }
+}
+
+/** Pull the current room's true geometry from the engine and redraw the room + door. */
+async function syncRoomGeom(): Promise<void> {
+  roomDims = engine ? await engine.roomDims(roomIdx) : null;
+  view.setRoom(roomDims);
+  view.setDoor(door.enabled ? door : null);
+  const hint = document.getElementById("roomDimsHint");
+  if (hint) hint.textContent = roomDimsText();
+}
+
+function roomDimsText(): string {
+  return roomDims
+    ? `${roomDims.w.toFixed(1)} × ${roomDims.h.toFixed(1)} × ${roomDims.d.toFixed(1)} m · ears ${roomDims.earHeight.toFixed(1)} m above the floor`
+    : "room dims shown once the engine starts";
+}
+
+/** Where a source snapped "to the doorway" goes: 0.5 m inside the aperture, vertically
+ *  centred in it, facing into the room (yaw in degrees, engine convention: 0 = −z). */
+function doorwayPose(): { pos: Vec3; yaw: number } | null {
+  if (!roomDims) return null;
+  const b = roomDims;
+  const yc = -b.earHeight + Math.min(door.height, b.h) / 2;
+  let pos: Vec3;
+  let n: { x: number; z: number }; // inward wall normal
+  switch (door.wall) {
+    case "-z": pos = { x: door.along, y: yc, z: -b.d / 2 + 0.5 }; n = { x: 0, z: 1 }; break;
+    case "+z": pos = { x: door.along, y: yc, z: b.d / 2 - 0.5 }; n = { x: 0, z: -1 }; break;
+    case "-x": pos = { x: -b.w / 2 + 0.5, y: yc, z: door.along }; n = { x: 1, z: 0 }; break;
+    case "+x": pos = { x: b.w / 2 - 0.5, y: yc, z: door.along }; n = { x: -1, z: 0 }; break;
+  }
+  return { pos, yaw: (Math.atan2(n.x, -n.z) * 180) / Math.PI };
 }
 
 function facingVec(s: SandboxSource): Vec3 {
@@ -254,6 +296,7 @@ function sceneToJson(): SceneFile {
     sources: sources.map(({ id: _id, ...rest }) => rest),
     room: roomIdx, reflections, reverbBlend, master, fit,
     attnAgents, attnBuildMin, immersion, orientDeg, listenerY,
+    door,
   };
 }
 function loadScene(j: SceneFile): void {
@@ -273,6 +316,8 @@ function loadScene(j: SceneFile): void {
   immersion = j.immersion ?? 1;
   orientDeg = j.orientDeg ?? 0;
   listenerY = j.listenerY ?? 0;
+  door = { ...DOOR_DEFAULTS, ...(j.door ?? {}) };
+  void syncRoomGeom();
   if (engine) {
     engine.setRoom(roomIdx);
     engine.setReflections(reflections);
@@ -427,7 +472,8 @@ function renderInspector(): void {
   };
   host.append(soundSel);
 
-  const heightRow = slider({ label: "Height (y)", min: -2, max: 2.5, step: 0.01, value: s.pos.y, fmt: (v) => v.toFixed(2) + " m", onInput: (v) => { s.pos = { ...s.pos, y: v }; void pushSource(s); syncView(); saveSoon(); } });
+  // range covers the hall's 10.4 m ceiling and dips below the floor (outside-the-room experiments)
+  const heightRow = slider({ label: "Height (y)", min: -4, max: 12, step: 0.01, value: s.pos.y, fmt: (v) => v.toFixed(2) + " m", onInput: (v) => { s.pos = { ...s.pos, y: v }; void pushSource(s); syncView(); saveSoon(); } });
   (heightRow.querySelector("input") as HTMLInputElement).id = "heightSlider";
   host.append(
     slider({ label: "Volume", min: 0, max: 1.5, step: 0.01, value: s.gain, onInput: (v) => { s.gain = v; void pushSource(s); saveSoon(); } }),
@@ -477,7 +523,33 @@ function renderInspector(): void {
     refreshUI();
     saveSoon();
   };
-  host.append(aim);
+  // doorway snap: 0.5 m inside the aperture, centred in it, radiating into the room,
+  // wide extent + hot reverb send — the "voice coming through a doorway" preset.
+  const toDoor = document.createElement("button");
+  toDoor.textContent = "🚪 → doorway";
+  toDoor.title = "snap into the door aperture, facing into the room (needs the engine running)";
+  toDoor.onclick = () => {
+    const dp = doorwayPose();
+    if (!dp) return;
+    if (!door.enabled) {
+      door.enabled = true;
+      view.setDoor(door);
+      refreshGlobals();
+    }
+    s.pos = dp.pos;
+    s.facingYaw = dp.yaw;
+    s.facingPitch = 0;
+    if (s.directivity === 0) s.directivity = 0.7;
+    s.extent = 1.2;
+    s.send = 0.8;
+    void pushSource(s);
+    refreshUI();
+    saveSoon();
+  };
+  const aimRow = document.createElement("div");
+  aimRow.className = "btnrow";
+  aimRow.append(aim, toDoor);
+  host.append(aimRow);
 
   // extent block
   const eHead = document.createElement("div");
@@ -671,8 +743,13 @@ function buildRoomPanel(): void {
   const roomSel = document.createElement("select");
   ROOMS.forEach((r, i) => roomSel.add(new Option(r, String(i))));
   roomSel.value = String(roomIdx);
-  roomSel.onchange = () => { roomIdx = +roomSel.value; engine?.setRoom(roomIdx); saveSoon(); };
+  roomSel.onchange = () => { roomIdx = +roomSel.value; engine?.setRoom(roomIdx); void syncRoomGeom(); saveSoon(); };
   host.append(roomSel);
+  const dimsHint = document.createElement("div");
+  dimsHint.className = "hint";
+  dimsHint.id = "roomDimsHint";
+  dimsHint.textContent = roomDimsText();
+  host.append(dimsHint);
 
   const refl = document.createElement("label");
   refl.className = "toggle";
@@ -692,6 +769,36 @@ function buildRoomPanel(): void {
   hint.className = "hint";
   hint.textContent = "FDN↔BRIR blend only affects the (BRIR) rooms.";
   host.append(hint);
+
+  // --- doorway experiment: a rectangular aperture marker on one wall -----------
+  const dHead = document.createElement("div");
+  dHead.className = "subhead";
+  dHead.textContent = "Doorway";
+  host.append(dHead);
+
+  const applyDoor = () => {
+    view.setDoor(door.enabled ? door : null);
+    saveSoon();
+  };
+  const doorToggle = document.createElement("label");
+  doorToggle.className = "toggle";
+  const dcb = document.createElement("input");
+  dcb.type = "checkbox";
+  dcb.checked = door.enabled;
+  dcb.onchange = () => { door.enabled = dcb.checked; applyDoor(); };
+  doorToggle.append(dcb, document.createTextNode(" show doorway on wall"));
+  host.append(doorToggle);
+
+  host.append(segButtons<DoorConfig["wall"]>(["-x", "+x", "-z", "+z"], door.wall, (v) => { door.wall = v; applyDoor(); }));
+  host.append(
+    slider({ label: "Position along wall", min: -15, max: 15, step: 0.1, value: door.along, fmt: (v) => v.toFixed(1) + " m", onInput: (v) => { door.along = v; applyDoor(); } }),
+    slider({ label: "Width", min: 0.5, max: 8, step: 0.1, value: door.width, fmt: (v) => v.toFixed(1) + " m", onInput: (v) => { door.width = v; applyDoor(); } }),
+    slider({ label: "Height", min: 0.5, max: 8, step: 0.1, value: door.height, fmt: (v) => v.toFixed(1) + " m", onInput: (v) => { door.height = v; applyDoor(); } }),
+  );
+  const doorHint = document.createElement("div");
+  doorHint.className = "hint";
+  doorHint.textContent = "−z is in front of the listener. Use a source's “→ doorway” button to place it in the aperture; drag sources beyond the wall to try “outside the door”.";
+  host.append(doorHint);
 }
 
 function buildAttnPanel(): void {

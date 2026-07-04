@@ -235,6 +235,34 @@ pub unsafe extern "C" fn chamber_renderer_num_rooms(h: *mut c_void) -> u32 {
     }
 }
 
+/// Geometry of room preset `room`: writes `[width, height, depth, ear_height]` (metres) to
+/// `out`. The room is x/z-centred on the world origin (the listener's nominal ear position);
+/// the floor sits at `y = -ear_height`, the ceiling at `y = height - ear_height`. Returns 1
+/// on success, 0 for a null handle/pointer or an out-of-range room index.
+///
+/// # Safety: `h` is a valid handle; `out` must point to 4 writable floats.
+#[no_mangle]
+pub unsafe extern "C" fn chamber_renderer_room_dims(h: *mut c_void, room: u32, out: *mut f32) -> i32 {
+    let h = match (h as *mut Handle).as_mut() {
+        Some(h) => h,
+        None => return 0,
+    };
+    if out.is_null() {
+        return 0;
+    }
+    match h.r.room_dims(room as usize) {
+        Some(d) => {
+            let o = std::slice::from_raw_parts_mut(out, 4);
+            o[0] = d[0];
+            o[1] = d[1];
+            o[2] = d[2];
+            o[3] = chamber_dsp::EAR_HEIGHT_M;
+            1
+        }
+        None => 0,
+    }
+}
+
 /// Render `frames` samples.
 ///
 /// `inputs` is an array of `n` pointers, each to `frames` mono floats (one per source).

@@ -8,6 +8,9 @@ its edge. Pin these so left/right never flips.
 - **+x = right**, **+y = up**, **+z = back**. **Front = −z.**
 - Positions are world metres. The listener pose is `{position, orientation quaternion}`.
 - A source's listener-relative direction is `inv(head_orientation) · (source_pos − head_pos)`.
+- **Room placement**: the world origin is the listener's nominal ear position. Rooms are
+  x/z-centred on it, but vertically the ears sit `EAR_HEIGHT_M` (1.6 m, `chamber-dsp`)
+  above the floor: floor at `y = -EAR_HEIGHT_M`, ceiling at `y = dims[1] - EAR_HEIGHT_M`.
 
 ## Spherical angles (HRTF grid)
 
@@ -33,7 +36,8 @@ its edge. Pin these so left/right never flips.
 - **Image sources mirror the facing axis**: each axis' component flips when that axis'
   bounce count is odd (parity of `bounces[2a]+bounces[2a+1]`) — the standard image-source
   treatment of a directional emitter. The energy-ranking proxy evaluates the pattern toward
-  the **room centre** so it stays listener-independent (no slot reshuffles).
+  the **origin** (the listener's nominal spot) so it stays listener-independent (no slot
+  reshuffles).
 - The **reverb send is facing-compensated**: the pattern gain is divided back out of the
   send and replaced by the pattern's diffuse-field average (`1 − 0.42·d`), so total room
   energy doesn't depend on facing — behind a directional source you hear a higher wet/dry
