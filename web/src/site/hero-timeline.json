@@ -1,0 +1,40 @@
+{
+  "duration": 29.75,
+  "agents": {
+    "A": {
+      "name": "wren",
+      "color": "#C4694A",
+      "bearingDeg": -35.0,
+      "distance": 1.25
+    },
+    "B": {
+      "name": "sol",
+      "color": "#7D93E8",
+      "bearingDeg": 30.0,
+      "distance": 1.8
+    }
+  },
+  "captions": {
+    "summary_A": "Rebuilt the auth flow \u2014 all forty-two tests pass. Refresh tokens rotate cleanly now.",
+    "summary_B": "The docs draft is ready \u2014 two pages, with the migration notes you asked for."
+  },
+  "reply": "Ship the docs. I'll look at auth after the tests.",
+  "t": {
+    "eyesClose": 2.0,
+    "worldIn": 2.7,
+    "gazeA": 3.8,
+    "lockA": 6.2,
+    "lineA": 6.85,
+    "lineAEnd": 12.6,
+    "pingB": 13.3,
+    "gazeB": 13.8,
+    "lockB": 16.2,
+    "lineB": 16.85,
+    "lineBEnd": 21.65,
+    "eyesOpen": 22.65,
+    "letterIn": 23.25,
+    "typeStart": 24.05,
+    "typeEnd": 27.55,
+    "send": 28.15
+  }
+}

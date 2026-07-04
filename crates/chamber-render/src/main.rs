@@ -43,6 +43,24 @@ fn main() {
         );
         return;
     }
+    // `scenario <file.scn> <asset> <out.wav>`: render a timed scene — WAV events
+    // placed in space with an animated gaze — e.g. the marketing site's hero
+    // soundtrack (tools/gen-hero-audio.py writes the .scn from the shared
+    // timeline JSON). One directive per line, `#` comments:
+    //   room hall_conv
+    //   duration 27.5
+    //   master 0.45
+    //   pose <t> <yaw_deg>                          keyframes, smoothstepped
+    //   event <wav> <start_s> <bearing_deg> <distance_m> <gain>
+    if std::env::args().nth(1).as_deref() == Some("scenario") {
+        let a: Vec<String> = std::env::args().collect();
+        run_scenario(
+            a.get(2).map(|s| s.as_str()).unwrap_or("out/hero.scn"),
+            a.get(3).map(|s| s.as_str()).unwrap_or("assets/baked/chamber-kemar.chamber"),
+            a.get(4).map(|s| s.as_str()).unwrap_or("out/hero.wav"),
+        );
+        return;
+    }
     if std::env::args().nth(1).as_deref() == Some("bench") {
         let asset = std::env::args()
             .nth(2)
@@ -502,6 +520,153 @@ fn load_wav_mono(path: &str) -> Vec<f32> {
     } else {
         raw.chunks(ch).map(|c| c.iter().sum::<f32>() / ch as f32).collect()
     }
+}
+
+/// Render a timed scene: WAV events at fixed bearings with an animated gaze.
+/// The app's conventions throughout — bearing θ puts a source at
+/// (d·sinθ, 0, −d·cosθ) and facing it means Pose::from_yaw(−θ) — and the
+/// app's voice send (0.05) + master (0.45), so the hero soundtrack IS what
+/// the app sounds like.
+fn run_scenario(scn_path: &str, asset_path: &str, out_path: &str) {
+    struct Ev {
+        sig: Vec<f32>,
+        start: usize, // samples
+        bearing: f32, // radians
+        dist: f32,
+        gain: f32,
+    }
+    let text = std::fs::read_to_string(scn_path).expect("scenario file");
+    let mut room_name = "hall_conv".to_string();
+    let mut duration = 20.0f32;
+    let mut master = 0.45f32;
+    let mut pose_keys: Vec<(f32, f32)> = Vec::new();
+    let mut events: Vec<Ev> = Vec::new();
+    for line in text.lines() {
+        let l = line.trim();
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
+        let mut it = l.split_whitespace();
+        let word = it.next().unwrap();
+        let mut num = || -> f32 { it.next().expect("arg").parse().expect("number") };
+        match word {
+            "room" => room_name = l.split_whitespace().nth(1).unwrap().into(),
+            "duration" => duration = num(),
+            "master" => master = num(),
+            "pose" => {
+                let t = num();
+                let yaw = num();
+                pose_keys.push((t, yaw.to_radians()));
+            }
+            "event" => {
+                let wav = l.split_whitespace().nth(1).unwrap().to_string();
+                let mut it2 = l.split_whitespace().skip(2);
+                let mut num2 = || -> f32 { it2.next().expect("arg").parse().expect("number") };
+                let start = num2();
+                let bearing = num2().to_radians();
+                let dist = num2();
+                let gain = num2();
+                events.push(Ev {
+                    sig: load_wav_mono(&wav),
+                    start: (start * SR) as usize,
+                    bearing,
+                    dist,
+                    gain,
+                });
+            }
+            other => panic!("unknown scenario directive: {}", other),
+        }
+    }
+    pose_keys.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    if pose_keys.is_empty() {
+        pose_keys.push((0.0, 0.0));
+    }
+    let yaw_at = |t: f32| -> f32 {
+        let mut prev = pose_keys[0];
+        let mut next = *pose_keys.last().unwrap();
+        for w in pose_keys.windows(2) {
+            if t >= w[0].0 && t <= w[1].0 {
+                prev = w[0];
+                next = w[1];
+                break;
+            }
+        }
+        if t <= pose_keys[0].0 {
+            return pose_keys[0].1;
+        }
+        if t >= next.0 {
+            return next.1;
+        }
+        let u = ((t - prev.0) / (next.0 - prev.0)).clamp(0.0, 1.0);
+        let s = u * u * (3.0 - 2.0 * u); // smoothstep — a head turn, not a servo
+        prev.1 + (next.1 - prev.1) * s
+    };
+
+    let bytes = std::fs::read(asset_path).expect("asset");
+    let asset = ChamberAsset::parse(&bytes).expect("parse asset");
+    let room = asset.rooms.iter().position(|r| r.name == room_name).unwrap_or(0);
+    let nsrc = events.len().max(1);
+    let mut r = Renderer::new(&asset, SR, nsrc, BLOCK);
+    r.set_room(room);
+    r.set_master_gain(master);
+
+    let mut sources: Vec<Source> = events
+        .iter()
+        .map(|e| {
+            let mut s = Source::new(
+                Vec3::new(e.dist * e.bearing.sin(), 0.0, -e.dist * e.bearing.cos()),
+                e.gain,
+            );
+            s.send = 0.05; // the app's voice send
+            s
+        })
+        .collect();
+
+    let total = (duration * SR) as usize;
+    let mut out_l = vec![0.0f32; BLOCK];
+    let mut out_r = vec![0.0f32; BLOCK];
+    let mut stereo: Vec<f32> = Vec::with_capacity(total * 2);
+    let mut pos = 0usize;
+    while pos < total {
+        let n = BLOCK.min(total - pos);
+        let mut pose = Pose::from_yaw(-yaw_at(pos as f32 / SR));
+        pose.position = Vec3::new(0.0, 0.0, 0.0);
+        let mut inbufs: Vec<Vec<f32>> = Vec::with_capacity(nsrc);
+        for e in &events {
+            let mut buf = vec![0.0f32; n];
+            for (i, b) in buf.iter_mut().enumerate() {
+                let at = pos + i;
+                if at >= e.start && at - e.start < e.sig.len() {
+                    *b = e.sig[at - e.start];
+                }
+            }
+            inbufs.push(buf);
+        }
+        if events.is_empty() {
+            inbufs.push(vec![0.0f32; n]);
+        }
+        let inrefs: Vec<&[f32]> = inbufs.iter().map(|v| v.as_slice()).collect();
+        r.process(&pose, &sources, &inrefs, &mut out_l, &mut out_r, n);
+        for i in 0..n {
+            stereo.push(out_l[i]);
+            stereo.push(out_r[i]);
+        }
+        pos += n;
+        let _ = &mut sources; // positions are fixed; sources live for the whole render
+    }
+    if let Some(dir) = std::path::Path::new(out_path).parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    write_wav(out_path, &stereo);
+    let peak = stereo.iter().fold(0.0f32, |a, &x| a.max(x.abs()));
+    println!(
+        "scenario: {} events, {:.1}s, room {} -> {} (peak {:.3})",
+        events.len(),
+        duration,
+        room_name,
+        out_path,
+        peak
+    );
 }
 
 /// Render the original-project voice lines placed in 3D space, three ways.
