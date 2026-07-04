@@ -74,7 +74,7 @@ cargo run -p chamber-render --release
 cargo test --release
 
 # Native macOS app: cargo staticlib -> swiftc link -> .app -> ad-hoc codesign (no Xcode/SwiftPM).
-bash native/ChamberApp/make.sh && open native/ChamberApp/Chamber.app
+bash native/ChamberApp/make.sh && open native/ChamberApp/Antiphon.app
 
 # Web (wasm) app. build-web.sh rebuilds wasm + stages the best HRTF asset into web/public/.
 bash tools/build-web.sh && python3 -m http.server -d web 8080

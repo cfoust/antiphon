@@ -96,7 +96,7 @@ struct SettingsView: View {
                 navItem("general", icon: "slider.horizontal.3", label: L("General"))
                 navItem("voices", icon: "waveform", label: L("Voices"))
                 Spacer()
-                Text("Chamber")
+                Text("Antiphon")
                     .font(.caption2).foregroundStyle(SD.faint)
             }
             .padding(16)

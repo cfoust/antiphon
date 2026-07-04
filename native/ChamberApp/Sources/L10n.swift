@@ -103,17 +103,16 @@ func LVoiceCount(_ n: Int) -> String {
 
 // (ru, zh-Hans, zh-Hant)
 private let TBL: [String: (String, String, String)] = [
-    // ---- intro gate ----
-    "A team of agents, working around you in space. You hear them murmur as they work, and chime when they finish — turn to face one to listen.":
-        ("Команда агентов работает вокруг вас в пространстве. Вы слышите их бормотание за работой и перезвон, когда они заканчивают, — повернитесь к агенту, чтобы послушать.",
-         "一支智能体团队在你周围的空间中工作。工作时你能听到他们的低语，完成时会响起提示音——转头面向某个智能体即可聆听。",
-         "一支智能體團隊在你周圍的空間中工作。工作時你能聽到他們的低語，完成時會響起提示音——轉頭面向某個智能體即可聆聽。"),
+    // ---- welcome (copy from the marketing-site handoff) ----
+    "Your agents, speaking. You, listening.":
+        ("Ваши агенты говорят. Вы слушаете.",
+         "你的智能体在诉说。你在聆听。",
+         "你的智能體在訴說。你在聆聽。"),
+    "Antiphon gives every coding agent a voice, placed in the room around you. Put on headphones and overhear the work.":
+        ("Antiphon даёт каждому агенту голос, размещённый в комнате вокруг вас. Наденьте наушники и слушайте, как идёт работа.",
+         "Antiphon 为每个编程智能体赋予声音，安放在你周围的房间里。戴上耳机，聆听工作的进行。",
+         "Antiphon 為每個編程智能體賦予聲音，安放在你周圍的房間裡。戴上耳機，聆聽工作的進行。"),
     "Headphones required": ("Нужны наушники", "需要耳机", "需要耳機"),
-    "The audio is positioned in 3D — it only works over headphones.":
-        ("Звук позиционируется в 3D — работает только в наушниках.",
-         "音频以 3D 方式定位——只有戴耳机才有效。",
-         "音訊以 3D 方式定位——只有戴耳機才有效。"),
-    "Camera access": ("Доступ к камере", "摄像头权限", "攝影機權限"),
     "Turn your head to face agents. Video never leaves your device.":
         ("Поворачивайте голову к агентам. Видео не покидает ваше устройство.",
          "转头面向智能体。视频不会离开你的设备。",
@@ -151,19 +150,19 @@ private let TBL: [String: (String, String, String)] = [
 
     // ---- main window ----
     "Wake": ("Разбудить", "唤醒", "喚醒"),
-    "Chamber settings": ("Настройки Chamber", "Chamber 设置", "Chamber 設定"),
+    "Settings": ("Настройки", "设置", "設定"),
 
     // ---- menu bar ----
-    "Chamber is watching — click to close its eyes (camera off, silent)":
-        ("Chamber наблюдает — нажмите, чтобы закрыть ему глаза (камера выключится, звук пропадёт)",
-         "Chamber 正在观察——点击让它闭上眼睛（关闭摄像头并静音）",
-         "Chamber 正在觀察——點擊讓它閉上眼睛（關閉攝影機並靜音）"),
-    "Chamber is asleep — click to wake it":
-        ("Chamber спит — нажмите, чтобы разбудить",
-         "Chamber 正在休眠——点击唤醒",
-         "Chamber 正在休眠——點擊喚醒"),
-    "Chamber is watching": ("Chamber наблюдает", "Chamber 正在观察", "Chamber 正在觀察"),
-    "Chamber is asleep": ("Chamber спит", "Chamber 正在休眠", "Chamber 正在休眠"),
+    "Antiphon is watching — click to close its eyes (camera off, silent)":
+        ("Antiphon наблюдает — нажмите, чтобы закрыть ему глаза (камера выключится, звук пропадёт)",
+         "Antiphon 正在观察——点击让它闭上眼睛（关闭摄像头并静音）",
+         "Antiphon 正在觀察——點擊讓它閉上眼睛（關閉攝影機並靜音）"),
+    "Antiphon is asleep — click to wake it":
+        ("Antiphon спит — нажмите, чтобы разбудить",
+         "Antiphon 正在休眠——点击唤醒",
+         "Antiphon 正在休眠——點擊喚醒"),
+    "Antiphon is watching": ("Antiphon наблюдает", "Antiphon 正在观察", "Antiphon 正在觀察"),
+    "Antiphon is asleep": ("Antiphon спит", "Antiphon 正在休眠", "Antiphon 正在休眠"),
 
     // ---- sidebar ----
     "IN THE ROOM": ("В КОМНАТЕ", "房间成员", "房間成員"),
@@ -246,10 +245,10 @@ private let TBL: [String: (String, String, String)] = [
 
     // ---- talk-back panel ----
     "tell %@…": ("скажите %@…", "对 %@ 说…", "對 %@ 說…"),
-    "%@ has no input path — it isn’t in a pane chamber can type into":
-        ("%@ недоступен для ввода — он не в панели, куда chamber может печатать",
-         "%@ 没有输入通道——它不在 chamber 能输入文字的窗格里",
-         "%@ 沒有輸入通道——它不在 chamber 能輸入文字的窗格裡"),
+    "%@ has no input path — it isn’t in a pane Antiphon can type into":
+        ("%@ недоступен для ввода — он не в панели, куда Antiphon может печатать",
+         "%@ 没有输入通道——它不在 Antiphon 能输入文字的窗格里",
+         "%@ 沒有輸入通道——它不在 Antiphon 能輸入文字的窗格裡"),
     "can’t hear you": ("вас не слышит", "听不到你", "聽不到你"),
     "send to %@": ("отправить %@", "发送给 %@", "傳送給 %@"),
     "listening only": ("только прослушивание", "只能旁听", "只能旁聽"),

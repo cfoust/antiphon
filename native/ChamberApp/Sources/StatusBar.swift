@@ -41,10 +41,10 @@ final class MenuBarController: NSObject {
     private func refresh() {
         guard let button = item?.button else { return }
         let name = watching ? "eye" : "eye.slash"
-        let desc = watching ? L("Chamber is watching") : L("Chamber is asleep")
+        let desc = watching ? L("Antiphon is watching") : L("Antiphon is asleep")
         button.image = NSImage(systemSymbolName: name, accessibilityDescription: desc)
         button.toolTip = watching
-            ? L("Chamber is watching — click to close its eyes (camera off, silent)")
-            : L("Chamber is asleep — click to wake it")
+            ? L("Antiphon is watching — click to close its eyes (camera off, silent)")
+            : L("Antiphon is asleep — click to wake it")
     }
 }

@@ -7,7 +7,7 @@ struct ChamberAppMain: App {
 
     var body: some Scene {
         // Full-bleed: the radar IS the window — traffic lights float over it.
-        WindowGroup("Chamber") { ContentView(tracker: tracker, engine: engine) }
+        WindowGroup("Antiphon") { ContentView(tracker: tracker, engine: engine) }
             .defaultSize(width: 1080, height: 780)
             .windowStyle(.hiddenTitleBar)
     }
@@ -22,10 +22,10 @@ struct ContentView: View {
     @State private var enabled = false
     @State private var live = false
     @State private var showDebug = false
-    /// Onboarding: camera choice → voice-guided calibration → fit. `.none` =
-    /// intro (pre-live) or the chamber itself (live). Recalibrate re-enters
-    /// `.calibrate` alone.
-    private enum OnboardStep { case none, camera, calibrate, fit }
+    /// Onboarding: voice-guided calibration → fit. `.none` = the welcome
+    /// screen (pre-live, camera choice included) or the chamber itself (live).
+    /// Recalibrate re-enters `.calibrate` alone.
+    private enum OnboardStep { case none, calibrate, fit }
     @State private var step: OnboardStep = .none
     @State private var menuBar = MenuBarController()
     @ObservedObject private var i18n = I18n.shared
@@ -61,8 +61,8 @@ struct ContentView: View {
                             }
                             .buttonStyle(.plain)
                             .help(engine.watching
-                                ? L("Chamber is watching — click to close its eyes (camera off, silent)")
-                                : L("Chamber is asleep — click to wake it"))
+                                ? L("Antiphon is watching — click to close its eyes (camera off, silent)")
+                                : L("Antiphon is asleep — click to wake it"))
                             Button {
                                 withAnimation(.easeOut(duration: 0.15)) { showSettings.toggle() }
                             } label: {
@@ -74,7 +74,7 @@ struct ContentView: View {
                                     .overlay(Circle().stroke(.white.opacity(0.07)))
                             }
                             .buttonStyle(.plain)
-                            .help(L("Chamber settings"))
+                            .help(L("Settings"))
                         }
                         AgentSidebar(engine: engine)
                         Spacer(minLength: 0)
@@ -115,8 +115,6 @@ struct ContentView: View {
 
             // onboarding steps (calibrate also serves recalibration over the live radar)
             switch step {
-            case .camera:
-                CameraStepView(tracker: tracker) { step = .calibrate }
             case .calibrate:
                 CalibrationStepView(tracker: tracker, engine: engine, standalone: live) {
                     step = live ? .none : .fit
@@ -135,9 +133,12 @@ struct ContentView: View {
                 TrackingDebugView(tracker: tracker, engine: engine) { showDebug = false }
             }
 
-            // intro gate
+            // the welcome: one full-bleed branded screen (identity + camera)
             if !live && step == .none && !showDebug {
-                introCard
+                WelcomeView(tracker: tracker, engine: engine, enabled: enabled,
+                            onEnable: { enable() },
+                            onStart: { engine.armImmersion(); live = true },
+                            onSetUp: { step = .calibrate })
             }
         }
         .frame(minWidth: 720, minHeight: 560)
@@ -189,55 +190,6 @@ struct ContentView: View {
         }
     }
 
-    private var introCard: some View {
-        VStack(spacing: 18) {
-            Text("Chamber").font(.system(size: 28, weight: .bold))
-            Text(L("A team of agents, working around you in space. You hear them murmur as they work, and chime when they finish — turn to face one to listen."))
-                .font(.callout).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 12) {
-                req("🎧", L("Headphones required"), L("The audio is positioned in 3D — it only works over headphones."))
-                req("📷", L("Camera access"), L("Turn your head to face agents. Video never leaves your device."))
-            }
-            if !enabled {
-                Button(L("Enable camera & continue")) { enable() }.buttonStyle(.borderedProminent)
-            } else {
-                // Only reached with a restored calibration — a fresh user went
-                // straight into onboarding when the camera came up.
-                Button(L("Start")) {
-                    engine.armImmersion()
-                    live = true
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!tracker.faceFound)
-                Text(tracker.faceFound ? L("Calibration restored") : L("Looking for your face…"))
-                    .font(.caption).foregroundStyle(tracker.faceFound ? .green : .secondary)
-                Button(L("Set up again")) { step = .camera }
-                    .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
-                Button(L("Debug tracking →")) { showDebug = true }
-                    .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
-            }
-            if !engine.hrtfName.isEmpty {
-                Text(engine.hrtfName).font(.caption2).foregroundStyle(.tertiary)
-            }
-        }
-        .padding(28).frame(width: 400)
-        .background(Color.white.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.08)))
-    }
-
-    private func req(_ icon: String, _ title: String, _ desc: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text(icon).font(.title3)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.callout.weight(.semibold))
-                Text(desc).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-    }
-
     private func enable() {
         engine.openRoom() // setup() already ran at launch; this un-mutes
         // No sign flip: the two-point calibration below resolves the camera's yaw direction
@@ -251,9 +203,7 @@ struct ContentView: View {
         // intro/calibration audio is audible even though the detector is already running.
         tracker.onEyesClosed = { [weak engine] closed in engine?.setEyesClosed(closed) }
         tracker.start()
-        enabled = true
-        // fresh users go straight into onboarding; returning ones get the fast path
-        if !tracker.hasSavedCalibration { step = .camera }
+        enabled = true // the welcome's camera section appears in place
     }
 
     private func startDebug() { showDebug = true }

@@ -380,7 +380,7 @@ private struct InputRow: View {
                 text: $model.draft,
                 placeholder: info.reachable
                     ? Lf("tell %@…", info.name)
-                    : Lf("%@ has no input path — it isn’t in a pane chamber can type into", info.name),
+                    : Lf("%@ has no input path — it isn’t in a pane Antiphon can type into", info.name),
                 enabled: info.reachable,
                 onSubmit: { controller.submit() },
                 onCancel: { controller.cancel() })

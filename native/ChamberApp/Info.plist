@@ -2,16 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key>            <string>Chamber</string>
-  <key>CFBundleDisplayName</key>     <string>Chamber</string>
-  <key>CFBundleIdentifier</key>      <string>dev.chamber.app</string>
+  <key>CFBundleName</key>            <string>Antiphon</string>
+  <key>CFBundleDisplayName</key>     <string>Antiphon</string>
+  <key>CFBundleIdentifier</key>      <string>dev.antiphon.app</string>
   <key>CFBundleVersion</key>         <string>1</string>
   <key>CFBundleShortVersionString</key> <string>0.1</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
-  <key>CFBundleExecutable</key>      <string>Chamber</string>
+  <key>CFBundleExecutable</key>      <string>Antiphon</string>
+  <key>CFBundleIconFile</key>        <string>Antiphon</string>
   <key>LSMinimumSystemVersion</key>  <string>14.0</string>
   <key>NSHighResolutionCapable</key> <true/>
   <key>NSCameraUsageDescription</key>
-  <string>Chamber uses the camera for optional head tracking to keep voices world-locked as you turn.</string>
+  <string>Antiphon uses the camera for optional head tracking to keep voices world-locked as you turn.</string>
 </dict>
 </plist>
