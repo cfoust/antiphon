@@ -188,8 +188,8 @@ export const SITE: Record<Lang, SiteStrings> = {
       hint: "the room, from above — voices stay put as you turn",
       introCap: "The camera on your screen follows your face — and notices when your eyes close.",
       done: "DONE",
-      unmute: "🔇 unmute",
-      soundOn: "🔊 sound on",
+      unmute: "unmute",
+      soundOn: "sound on",
     },
   },
 
@@ -297,8 +297,8 @@ export const SITE: Record<Lang, SiteStrings> = {
       hint: "комната сверху — голоса остаются на месте, когда вы поворачиваетесь",
       introCap: "Камера на вашем экране следит за лицом — и замечает, когда вы закрываете глаза.",
       done: "ГОТОВО",
-      unmute: "🔇 включить звук",
-      soundOn: "🔊 звук включён",
+      unmute: "включить звук",
+      soundOn: "звук включён",
     },
   },
 
@@ -405,8 +405,8 @@ export const SITE: Record<Lang, SiteStrings> = {
       hint: "俯瞰房间——转头时，声音留在原地",
       introCap: "屏幕上的摄像头跟随你的面部——并在你闭上眼睛时察觉。",
       done: "完成",
-      unmute: "🔇 开启声音",
-      soundOn: "🔊 声音已开",
+      unmute: "开启声音",
+      soundOn: "声音已开",
     },
   },
 
@@ -513,8 +513,8 @@ export const SITE: Record<Lang, SiteStrings> = {
       hint: "俯瞰房間——轉頭時，聲音留在原地",
       introCap: "螢幕上的攝影機跟隨你的面部——並在你閉上眼睛時察覺。",
       done: "完成",
-      unmute: "🔇 開啟聲音",
-      soundOn: "🔊 聲音已開",
+      unmute: "開啟聲音",
+      soundOn: "聲音已開",
     },
   },
 };

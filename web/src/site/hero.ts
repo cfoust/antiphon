@@ -58,6 +58,21 @@ const TAU = Math.PI * 2;
 
 const html = String.raw;
 
+// the industry-standard speaker: slashed when muted, waves when live
+const soundIcon = (muted: boolean) => muted
+  ? html`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M11 5 6.5 9H3v6h3.5L11 19z" fill="currentColor" stroke="none" />
+      <line x1="22" y1="9" x2="16" y2="15" />
+      <line x1="16" y1="9" x2="22" y2="15" />
+    </svg>`
+  : html`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M11 5 6.5 9H3v6h3.5L11 19z" fill="currentColor" stroke="none" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+      <path d="M18.5 5.5a9.5 9.5 0 0 1 0 13" />
+    </svg>`;
+
 // the intro illustration (web/public/hero-intro.webp, generated on-theme):
 // a person at their desk, the mati-eye camera watching their face
 
@@ -175,7 +190,7 @@ export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): v
       <div class="hx-letter-input" data-hx="input"><span data-hx="typed"></span><span class="hx-caret"></span></div>
     </div>
 
-    <button class="hx-sound" data-hx="sound">${S.unmute}</button>
+    <button class="hx-sound" data-hx="sound" aria-label="${S.unmute}" title="${S.unmute}">${soundIcon(true)}</button>
   `;
 
   const $ = <E extends HTMLElement = HTMLElement>(k: string) =>
@@ -223,22 +238,26 @@ export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): v
     audio.currentTime = 0;
   }
 
+  const paintSound = () => {
+    soundBtn.innerHTML = soundIcon(!soundOn);
+    soundBtn.ariaLabel = soundBtn.title = soundOn ? S.soundOn : S.unmute;
+    soundBtn.classList.toggle("lit", soundOn);
+  };
   soundBtn.addEventListener("click", () => {
     soundOn = !soundOn;
-    soundBtn.textContent = soundOn ? S.soundOn : S.unmute;
-    soundBtn.classList.toggle("lit", soundOn);
+    paintSound();
     const t = now();
     if (soundOn) {
       if (t >= INTRO) {
         audio.currentTime = Math.min(t - INTRO, timeline.duration - 0.05);
-        void audio.play().then(() => { audioPhase = true; }).catch(() => { soundOn = false; });
+        void audio.play().then(() => { audioPhase = true; }).catch(() => { soundOn = false; paintSound(); });
       } else {
         // unlock the element inside the gesture; the frame loop starts it at INTRO
         void audio.play().then(() => {
           if (!audioPhase) { audio.pause(); audio.currentTime = 0; }
-        }).catch(() => { soundOn = false; });
+        }).catch(() => { soundOn = false; paintSound(); });
       }
-      if (!soundOn) { soundBtn.textContent = S.unmute; soundBtn.classList.remove("lit"); }
+      if (!soundOn) paintSound();
     } else {
       anchor = performance.now() - t * 1000;
       audioPhase = false;
