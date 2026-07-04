@@ -60,10 +60,6 @@ final class MenuBarController: NSObject {
         menu.addItem(updates)
         menu.addItem(.separator())
 
-        let toggle = NSMenuItem(title: watching ? L("Close Antiphon's eyes") : L("Wake Antiphon"),
-                                action: #selector(toggleFromMenu), keyEquivalent: "")
-        toggle.target = self
-        menu.addItem(toggle)
         let settings = NSMenuItem(title: L("Settings…"), action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -90,8 +86,6 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func checkUpdates() { onCheckUpdates?() }
-
-    @objc private func toggleFromMenu() { onToggle?() }
 
     @objc private func openSettings() {
         NSApp.activate(ignoringOtherApps: true)

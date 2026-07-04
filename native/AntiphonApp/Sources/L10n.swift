@@ -178,8 +178,6 @@ private let TBL: [String: (String, String, String)] = [
     "Report an issue": ("Сообщить о проблеме", "报告问题", "回報問題"),
     "Antiphon Documentation": ("Документация Antiphon", "Antiphon 文档", "Antiphon 文件"),
     "About Antiphon": ("Об Antiphon", "关于 Antiphon", "關於 Antiphon"),
-    "Close Antiphon's eyes": ("Закрыть глаза Antiphon", "让 Antiphon 闭上眼睛", "讓 Antiphon 閉上眼睛"),
-    "Wake Antiphon": ("Разбудить Antiphon", "唤醒 Antiphon", "喚醒 Antiphon"),
     "Settings…": ("Настройки…", "设置…", "設定…"),
     "Quit Antiphon": ("Завершить Antiphon", "退出 Antiphon", "結束 Antiphon"),
     "Check for Updates…": ("Проверить обновления…", "检查更新…", "檢查更新…"),
