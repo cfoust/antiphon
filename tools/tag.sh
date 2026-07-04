@@ -23,7 +23,7 @@ echo "tagging v$v"
 sed -i '' -E "s|(<key>CFBundleShortVersionString</key> *<string>)[^<]*(</string>)|\\1$v\\2|" native/AntiphonApp/Info.plist
 sed -i '' -E "s|(<key>CFBundleVersion</key> *<string>)[^<]*(</string>)|\\1$v\\2|" native/AntiphonApp/Info.plist
 sed -i '' "s|^var version = \".*\"|var version = \"$v\"|" antiphond/cmd/antiphond/main.go
-sed -i '' "s|^export const VERSION = \".*\"|export const VERSION = \"$v\"|" web/src/version.ts
+sed -i '' "s|^export const VERSION: string = \".*\"|export const VERSION: string = \"$v\"|" web/src/version.ts
 sed -i '' "s|\"version\": \".*\"|\"version\": \"$v\"|" plugins/claude-code/.claude-plugin/plugin.json
 
 git add -A
