@@ -17,10 +17,11 @@ struct AntiphonAppMain: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var tracker = FaceTracker()
     @StateObject private var engine = AntiphonEngine()
+    @StateObject private var updates = UpdateChecker()
 
     var body: some Scene {
         // Full-bleed: the radar IS the window — traffic lights float over it.
-        WindowGroup("Antiphon") { ContentView(tracker: tracker, engine: engine) }
+        WindowGroup("Antiphon") { ContentView(tracker: tracker, engine: engine, updates: updates) }
             .defaultSize(width: 1080, height: 780)
             .windowStyle(.hiddenTitleBar)
             .commands {
@@ -32,6 +33,12 @@ struct AntiphonAppMain: App {
                         if let u = URL(string: "https://github.com/cfoust/antiphon/issues") {
                             NSWorkspace.shared.open(u)
                         }
+                    }
+                    Divider()
+                    Button(L("Check for Updates…")) {
+                        updates.check()
+                        // the result lands in Settings ▸ About — bring it up
+                        NotificationCenter.default.post(name: .init("antiphon.showSettings"), object: nil)
                     }
                 }
             }
@@ -52,6 +59,7 @@ struct ContentView: View {
     /// Recalibrate re-enters `.calibrate` alone.
     private enum OnboardStep { case none, calibrate, fit }
     @State private var step: OnboardStep = .none
+    @ObservedObject var updates: UpdateChecker
     @State private var menuBar = MenuBarController()
     @ObservedObject private var i18n = I18n.shared
 
@@ -97,6 +105,14 @@ struct ContentView: View {
                                     .padding(7)
                                     .background(.black.opacity(0.42), in: Circle())
                                     .overlay(Circle().stroke(.white.opacity(0.07)))
+                                    .overlay(alignment: .topTrailing) {
+                                        if updates.available != nil {
+                                            Circle()
+                                                .fill(Color(red: 0.49, green: 0.58, blue: 0.91))
+                                                .frame(width: 7, height: 7)
+                                                .offset(x: -1, y: 1)
+                                        }
+                                    }
                             }
                             .buttonStyle(.plain)
                             .help(L("Settings"))
@@ -112,7 +128,7 @@ struct ContentView: View {
                     Color.black.opacity(0.45)
                         .ignoresSafeArea()
                         .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { showSettings = false } }
-                    SettingsView(engine: engine) {
+                    SettingsView(engine: engine, updates: updates) {
                         withAnimation(.easeOut(duration: 0.15)) { showSettings = false }
                     }
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -178,6 +194,7 @@ struct ContentView: View {
             // launched as a login item → start asleep; waking is one click,
             // being ambushed by a listening room at boot is not
             if AppDelegate.launchedAtLogin { setWatching(false) }
+            updates.checkIfDue()
             // dev harness: ANTIPHON_DEV=talkback locks onto a fake agent at launch so
             // the panel's focus-steal mechanics are testable with no daemon or camera
             if ProcessInfo.processInfo.environment["ANTIPHON_DEV"]?.hasPrefix("talkback") == true {
@@ -215,6 +232,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .init("antiphon.showDebug"))) { _ in
             if enabled { showDebug = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("antiphon.showSettings"))) { _ in
+            withAnimation(.easeOut(duration: 0.15)) { showSettings = true }
         }
     }
 

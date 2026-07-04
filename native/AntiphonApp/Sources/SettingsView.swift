@@ -82,6 +82,7 @@ enum SettingsClient {
 
 struct SettingsView: View {
     @ObservedObject var engine: AntiphonEngine
+    @ObservedObject var updates: UpdateChecker
     var onClose: () -> Void = {}
     @ObservedObject private var i18n = I18n.shared
     @State private var pane = "general"
@@ -110,7 +111,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if pane == "general" {
-                        GeneralPane(engine: engine)
+                        GeneralPane(engine: engine, updates: updates)
                     } else {
                         VoicesPane()
                     }
@@ -162,6 +163,7 @@ struct SettingsView: View {
 
 private struct GeneralPane: View {
     @ObservedObject var engine: AntiphonEngine
+    @ObservedObject var updates: UpdateChecker
     @ObservedObject private var i18n = I18n.shared
     @State private var loginItem = SMAppService.mainApp.status == .enabled
 
@@ -231,6 +233,18 @@ private struct GeneralPane: View {
         card(L("About")) {
             labeledRow(L("Version"), "Antiphon") {
                 Text(appVersion).font(.callout.monospacedDigit()).foregroundStyle(SD.sub)
+            }
+            divider()
+            labeledRow(L("Updates"),
+                       updates.available.map { Lf("New version: %@", $0.version) }
+                           ?? (updates.checkedOnce ? L("Up to date") : L("Checked once a day"))) {
+                if updates.checking {
+                    ProgressView().controlSize(.small)
+                } else if let up = updates.available {
+                    Button(L("Download")) { NSWorkspace.shared.open(up.url) }
+                } else {
+                    Button(L("Check now")) { updates.check() }
+                }
             }
             divider()
             labeledRow(L("Support"), L("Guides, the protocol, and a place to report problems")) {

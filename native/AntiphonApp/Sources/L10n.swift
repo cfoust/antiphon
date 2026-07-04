@@ -177,6 +177,13 @@ private let TBL: [String: (String, String, String)] = [
     "Documentation": ("Документация", "文档", "文件"),
     "Report an issue": ("Сообщить о проблеме", "报告问题", "回報問題"),
     "Antiphon Documentation": ("Документация Antiphon", "Antiphon 文档", "Antiphon 文件"),
+    "Check for Updates…": ("Проверить обновления…", "检查更新…", "檢查更新…"),
+    "Updates": ("Обновления", "更新", "更新"),
+    "Up to date": ("У вас последняя версия", "已是最新版本", "已是最新版本"),
+    "Checked once a day": ("Проверяется раз в день", "每天检查一次", "每天檢查一次"),
+    "New version: %@": ("Новая версия: %@", "新版本：%@", "新版本：%@"),
+    "Download": ("Скачать", "下载", "下載"),
+    "Check now": ("Проверить сейчас", "立即检查", "立即檢查"),
 
     // ---- menu bar ----
     "Antiphon is watching — click to close its eyes (camera off, silent)":
