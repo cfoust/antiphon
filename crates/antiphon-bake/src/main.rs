@@ -13,7 +13,6 @@
 
 use antiphon_assets::{AssetBuilder, ReverbBackend, RoomPreset};
 use rustfft::{num_complex::Complex, FftPlanner};
-use std::f32::consts::PI;
 
 const SR: f32 = 48_000.0;
 const HRIR_LEN: usize = 128;
