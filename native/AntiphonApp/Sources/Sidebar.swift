@@ -105,59 +105,62 @@ private struct AgentRowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
+            // the identity dot carries status: glow = working, gold ring =
+            // waiting for you, dim = idle/resting — no words needed
             Circle()
-                .fill(Color(hex: vm.hex).opacity(vm.snoozed ? 0.35 : 1))
+                .fill(Color(hex: vm.hex).opacity(dotOpacity))
                 .frame(width: 9, height: 9)
-                .shadow(color: vm.snoozed ? .clear : Color(hex: vm.hex).opacity(0.7), radius: 4)
+                .shadow(color: dotGlow, radius: 4.5)
+                .overlay {
+                    if vm.waiting {
+                        Circle().stroke(Color(hex: "#ffce6b"), lineWidth: 1.8)
+                            .frame(width: 15, height: 15)
+                    }
+                }
                 .padding(.top, 4)
 
-            // conversations-style: the title owns the full width (two lines),
-            // then the preview (status · last words), then the dimmest context
-            VStack(alignment: .leading, spacing: 2.5) {
+            // C · title + chips: the title owns the row; one scannable chip
+            // line (status · branch · folder); the last words appear only when
+            // the agent is waiting/reporting — that's when they matter
+            VStack(alignment: .leading, spacing: 3.5) {
                 Text(vm.title.isEmpty ? (vm.name.isEmpty ? "—" : vm.name) : vm.title)
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.white.opacity(vm.snoozed ? 0.45 : 0.92))
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 5) {
-                    Text(LStatus(vm.status))
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(statusColor.opacity(vm.snoozed ? 0.5 : 1))
-                    if !vm.lastLine.isEmpty {
-                        Text("· \(vm.lastLine)")
+                if !vm.snoozed {
+                    if showPreview {
+                        Text(vm.lastLine)
                             .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.42))
+                            .foregroundStyle(.white.opacity(0.45))
                             .lineLimit(1)
                     }
-                }
-                if !contextLine.isEmpty {
-                    Text(contextLine)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.38))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    HStack(spacing: 5) {
+                        chip(LStatus(vm.status), fg: statusColor,
+                             bg: statusColor.opacity(vm.status == "idle" || vm.status == "resting" ? 0.07 : 0.16))
+                        if !vm.branch.isEmpty {
+                            chip("⎇ \(vm.branch)", fg: Color(hex: "#93a7ee"),
+                                 bg: Color(hex: "#7d93e8").opacity(0.13))
+                        }
+                        if !vm.cwd.isEmpty {
+                            chip(shortDir, fg: .white.opacity(0.5), bg: .white.opacity(0.07))
+                        }
+                    }
+                    .clipped()
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            // trailing rail: the unread badge, and the moon (always for snoozed)
-            VStack(alignment: .trailing, spacing: 6) {
-                if vm.waiting {
-                    // an unheard summary is waiting — the whole point of the room
-                    Circle().fill(Color(hex: "#ffce6b")).frame(width: 7, height: 7)
-                        .shadow(color: Color(hex: "#ffce6b").opacity(0.8), radius: 3)
-                        .padding(.top, 4)
+            if hovering || vm.snoozed {
+                Button(action: onSnooze) {
+                    Image(systemName: vm.snoozed ? "moon.zzz.fill" : "moon.zzz")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.6))
                 }
-                if hovering || vm.snoozed {
-                    Button(action: onSnooze) {
-                        Image(systemName: vm.snoozed ? "moon.zzz.fill" : "moon.zzz")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-                    .buttonStyle(.plain)
-                    .help(vm.snoozed ? L("Wake — back into the room") : L("Snooze — out of the room, keeps updating"))
-                }
-                Spacer(minLength: 0)
+                .buttonStyle(.plain)
+                .help(vm.snoozed ? L("Wake — back into the room") : L("Snooze — out of the room, keeps updating"))
+                .padding(.top, 3)
             }
         }
         .padding(.horizontal, 8)
@@ -165,6 +168,7 @@ private struct AgentRowView: View {
         .background(hovering ? Color.white.opacity(0.06) : .clear,
                     in: RoundedRectangle(cornerRadius: 10))
         .contentShape(RoundedRectangle(cornerRadius: 10))
+        .help(fullContext) // the whole story on hover: kind · repo ⎇ branch · full path
         .onTapGesture {
             if vm.snoozed { onSnooze() } // the whole snoozed row is a wake button
         }
@@ -175,7 +179,37 @@ private struct AgentRowView: View {
         .animation(.easeOut(duration: 0.12), value: hovering)
     }
 
-    private var contextLine: String {
+    private func chip(_ text: String, fg: Color, bg: Color) -> some View {
+        Text(text)
+            .font(.system(size: 9.5, weight: .semibold))
+            .foregroundStyle(fg)
+            .padding(.horizontal, 6.5).padding(.vertical, 2)
+            .background(bg, in: Capsule())
+            .lineLimit(1)
+    }
+
+    /// The last words matter when the agent wants you (waiting) or is mid-report.
+    private var showPreview: Bool {
+        !vm.lastLine.isEmpty && (vm.waiting || vm.status == "reporting" || vm.status.hasPrefix("waiting"))
+    }
+
+    /// "~/chamber" — just the folder, the full path lives in the tooltip.
+    private var shortDir: String {
+        let name = (vm.cwd as NSString).lastPathComponent
+        return name.isEmpty ? tildePath(vm.cwd) : "~/" + name
+    }
+
+    private var dotOpacity: Double {
+        if vm.snoozed { return 0.35 }
+        return vm.status == "idle" || vm.status == "resting" ? 0.4 : 1
+    }
+
+    private var dotGlow: Color {
+        if vm.snoozed { return .clear }
+        return vm.status == "working" ? Color(hex: vm.hex).opacity(0.85) : .clear
+    }
+
+    private var fullContext: String {
         var parts: [String] = []
         if !vm.kind.isEmpty { parts.append(prettyAgentKind(vm.kind)) }
         if !vm.repo.isEmpty { parts.append(vm.branch.isEmpty ? vm.repo : "\(vm.repo) ⎇ \(vm.branch)") }
