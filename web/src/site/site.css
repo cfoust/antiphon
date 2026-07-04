@@ -676,6 +676,16 @@ body {
     display: none;
   }
 
+  /* The hero's own Download button is one scroll-height away — the nav CTA
+     only crowds the wordmark + language pills at phone widths. */
+  .anph-nav-cta {
+    display: none;
+  }
+
+  .anph-nav-links {
+    gap: 12px;
+  }
+
   .anph-nav-inner {
     padding: 14px 20px;
   }
