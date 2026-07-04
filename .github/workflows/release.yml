@@ -56,27 +56,44 @@ jobs:
 
       - name: Package
         run: |
-          ditto -c -k --keepParent native/AntiphonApp/Antiphon.app Antiphon-macOS.zip
+          # versioned zip is the artifact of record; the unversioned name is a
+          # stable alias so /releases/latest/download/Antiphon-macOS.zip keeps working
+          V="${GITHUB_REF_NAME#v}"
+          ditto -c -k --keepParent native/AntiphonApp/Antiphon.app "Antiphon-$V-macOS.zip"
+          cp "Antiphon-$V-macOS.zip" Antiphon-macOS.zip
           (cd antiphond && GOOS=darwin  GOARCH=arm64 go build -o ../antiphond-darwin-arm64 ./cmd/antiphond)
           (cd antiphond && GOOS=darwin  GOARCH=amd64 go build -o ../antiphond-darwin-amd64 ./cmd/antiphond)
           (cd antiphond && GOOS=linux   GOARCH=amd64 go build -o ../antiphond-linux-amd64  ./cmd/antiphond)
-          shasum -a 256 Antiphon-macOS.zip antiphond-* > SHA256SUMS
+          shasum -a 256 Antiphon-*.zip antiphond-* > SHA256SUMS
+
+      - name: Release notes
+        run: |
+          if [ "${{ vars.SIGN_RELEASES }}" = "true" ]; then
+            cat > release-body.md <<'EOF'
+          **Install:** unzip, drag `Antiphon.app` to /Applications. Signed and notarized.
+
+          Docs: https://antiphon.dev/docs/
+          EOF
+          else
+            cat > release-body.md <<'EOF'
+          **Install:** unzip, drag `Antiphon.app` to /Applications, then clear
+          quarantine on first launch (release builds are not yet notarized):
+
+          ```
+          xattr -d com.apple.quarantine /Applications/Antiphon.app
+          ```
+
+          Docs: https://antiphon.dev/docs/
+          EOF
+          fi
 
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            Antiphon-macOS.zip
+            Antiphon-*.zip
             antiphond-darwin-arm64
             antiphond-darwin-amd64
             antiphond-linux-amd64
             SHA256SUMS
-          body: |
-            **Install:** unzip, drag `Antiphon.app` to /Applications, then clear
-            quarantine on first launch (release builds are not yet notarized):
-
-            ```
-            xattr -d com.apple.quarantine /Applications/Antiphon.app
-            ```
-
-            Docs: https://antiphon.dev/docs/
+          body_path: release-body.md
