@@ -317,7 +317,7 @@ private struct GeneralPane: View {
                 .onAppear { engine.checkSystemAudioPermission() }
                 if sysMode != "off" {
                     divider()
-                    labeledRow(L("Volume"), L("How loud the rest of the Mac plays")) {
+                    labeledRow(L("Volume"), L("How loud the rest of the Mac plays in the room — the eyes-open pass-through is untouched")) {
                         HStack(spacing: 8) {
                             Slider(value: Binding(get: { sysVol },
                                                   set: { sysVol = $0; engine.setSystemAudioVolume($0) }),
