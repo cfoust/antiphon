@@ -164,8 +164,9 @@ export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): v
 
     <div class="hx-pip" data-hx="pip">
       ${pipSvg}
+      <!-- a bare pulsing dot: camera-live, no words -->
       <div class="hx-pip-tag">
-        <span class="hx-pip-dot"></span><span>${S.watching}</span>
+        <span class="hx-pip-dot"></span>
       </div>
     </div>
 
@@ -225,6 +226,15 @@ export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): v
     if (!audio.paused) audio.pause();
     audio.currentTime = 0;
   }
+
+  // With sound on the clock is the audio — and a finished audio's currentTime
+  // pins at the duration, LOOP_GAP short of the restart threshold, freezing t
+  // forever. Hand the clock back to the monotonic anchor at the exact same
+  // instant; sound stays on, so the next pass re-plays from INTRO.
+  audio.addEventListener("ended", () => {
+    anchor = performance.now() - (INTRO + timeline.duration) * 1000;
+    audioPhase = false;
+  });
 
   const paintSound = () => {
     soundBtn.innerHTML = soundIcon(!soundOn);

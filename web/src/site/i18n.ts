@@ -50,7 +50,6 @@ interface EngCard {
 }
 
 export interface HeroStrings {
-  watching: string;
   tracked: string;
   done: string;
   unmute: string;
@@ -179,7 +178,6 @@ export const SITE: Record<Lang, SiteStrings> = {
       privacy: "Privacy",
     },
     hx: {
-      watching: "watching",
       tracked: "head &amp; eyes tracked",
       done: "DONE",
       unmute: "unmute",
@@ -285,7 +283,6 @@ export const SITE: Record<Lang, SiteStrings> = {
       privacy: "Конфиденциальность",
     },
     hx: {
-      watching: "слежу",
       tracked: "голова и глаза отслеживаются",
       done: "ГОТОВО",
       unmute: "включить звук",
@@ -390,7 +387,6 @@ export const SITE: Record<Lang, SiteStrings> = {
       privacy: "隐私",
     },
     hx: {
-      watching: "注视中",
       tracked: "追踪头部与眼睛",
       done: "完成",
       unmute: "开启声音",
@@ -495,7 +491,6 @@ export const SITE: Record<Lang, SiteStrings> = {
       privacy: "隱私",
     },
     hx: {
-      watching: "注視中",
       tracked: "追蹤頭部與眼睛",
       done: "完成",
       unmute: "開啟聲音",
