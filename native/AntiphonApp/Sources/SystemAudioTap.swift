@@ -88,11 +88,9 @@ final class SystemAudioTap {
         installRouteListener()
     }
 
-    /// Builds tap → aggregate → IOProc. `rebuildQ` (or init). Returns false on
-    /// permission denial or OS refusal.
-    private func build() -> Bool {
-        // 1. Our own process object — excluded so we never capture our binaural
-        //    output back into itself (feedback loop).
+    /// Our own process object — excluded from taps so we never capture our
+    /// binaural output back into itself (feedback loop).
+    private static func ownProcessObject() -> AudioObjectID? {
         var me = AudioObjectID(kAudioObjectUnknown)
         var pid = pid_t(ProcessInfo.processInfo.processIdentifier)
         var addr = AudioObjectPropertyAddress(
@@ -103,9 +101,34 @@ final class SystemAudioTap {
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr,
                                          UInt32(MemoryLayout<pid_t>.size), &pid,
                                          &size, &me) == noErr,
-              me != kAudioObjectUnknown else { return false }
+              me != kAudioObjectUnknown else { return nil }
+        return me
+    }
 
-        // 2. The tap: stereo mixdown of everything else, muting the originals
+    /// The permission ask, isolated: a bare unmuted tap with no aggregate and
+    /// no IO, created and destroyed on the spot. In the not-determined TCC
+    /// state this fires the "System Audio Recording" prompt; once decided it
+    /// returns the verdict silently. Never audible — nothing reads the tap and
+    /// nothing gets muted.
+    static func probePermission() -> Bool {
+        guard let me = ownProcessObject() else { return false }
+        let desc = CATapDescription(stereoGlobalTapButExcludeProcesses: [me])
+        desc.muteBehavior = CATapMuteBehavior.unmuted
+        desc.isPrivate = true
+        desc.name = "Antiphon permission probe"
+        var tap = AudioObjectID(kAudioObjectUnknown)
+        guard AudioHardwareCreateProcessTap(desc, &tap) == noErr,
+              tap != kAudioObjectUnknown else { return false }
+        AudioHardwareDestroyProcessTap(tap)
+        return true
+    }
+
+    /// Builds tap → aggregate → IOProc. `rebuildQ` (or init). Returns false on
+    /// permission denial or OS refusal.
+    private func build() -> Bool {
+        guard let me = Self.ownProcessObject() else { return false }
+
+        // 1. The tap: stereo mixdown of everything else, muting the originals
         //    at the device. First creation fires the one-time TCC prompt.
         let desc = CATapDescription(stereoGlobalTapButExcludeProcesses: [me])
         desc.muteBehavior = CATapMuteBehavior.mutedWhenTapped
@@ -114,7 +137,7 @@ final class SystemAudioTap {
         guard AudioHardwareCreateProcessTap(desc, &tapID) == noErr,
               tapID != kAudioObjectUnknown else { return false }
 
-        // 3. A private aggregate containing the default output (for the clock)
+        // 2. A private aggregate containing the default output (for the clock)
         //    plus the tap; its IOProc's input buffers are the tapped audio.
         let outUID = Self.defaultOutputUID() ?? ""
         let aggDesc: [String: Any] = [
@@ -135,10 +158,10 @@ final class SystemAudioTap {
         }
         aggID = agg
 
-        // 4. Taps deliver at the output device's rate; note it for resampling.
+        // 3. Taps deliver at the output device's rate; note it for resampling.
         if let fmt = Self.tapFormat(tapID) { srcRate = fmt.mSampleRate }
 
-        // 5. IOProc: deinterleave → resample to 48 k → ring. Never blocks.
+        // 4. IOProc: deinterleave → resample to 48 k → ring. Never blocks.
         let err = AudioDeviceCreateIOProcIDWithBlock(&ioProc, aggID, nil) {
             [weak self] _, inData, _, _, _ in
             self?.capture(inData)

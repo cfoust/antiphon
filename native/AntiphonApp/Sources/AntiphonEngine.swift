@@ -352,11 +352,13 @@ final class AntiphonEngine: ObservableObject {
     private let sysDeadenLevel: Float = 0.22 // in-scene dry gain ≈ −13 dB
     private let sysGainSpatial: Float = 0.8  // placed-pair source gain
     /// The user-facing mode ("off" / "deaden" / "spatial"), persisted. Default
-    /// OFF — enabling is the in-context moment for the one-time TCC prompt.
+    /// OFF; the modes only unlock after the explicit permission ask below.
     @Published var sysMode = "off"
-    /// macOS refused the tap (System Audio Recording denied) — the settings
-    /// card shows the same recovery affordance as a denied camera.
-    @Published var sysTapDenied = false
+    /// The System Audio Recording TCC verdict as far as we can know it:
+    /// "unknown" (never asked), "granted", or "denied". Recording the user's
+    /// Mac is intrusive, so the prompt is an explicit button in Settings —
+    /// never a side effect of picking a mode.
+    @Published var sysPermission = "unknown"
     /// The tap is live (we are muting + re-emitting the Mac) — the menu-bar
     /// icon must show this state.
     @Published var sysLive = false
@@ -665,6 +667,8 @@ final class AntiphonEngine: ObservableObject {
 
     /// Mode: "off", "deaden" (default — the Mac steps back when the scene is in),
     /// or "spatial" (prototype — a head-tracked virtual pair in the room).
+    /// The settings card only offers the non-off modes once permission is
+    /// granted, so picking one never doubles as the TCC ask.
     func setSystemAudio(mode: String) {
         UserDefaults.standard.set(mode, forKey: "sysaudio.mode")
         DispatchQueue.main.async { self.sysMode = mode }
@@ -673,9 +677,40 @@ final class AntiphonEngine: ObservableObject {
             if mode == "off" {
                 self.stopSysTap()
             } else {
-                // right away, not at the next scene entry — choosing the mode
-                // IS the in-context moment for the TCC prompt
                 self.startSysTap()
+            }
+        }
+    }
+
+    /// The explicit ask (the settings button): fires the one-time TCC prompt
+    /// if macOS hasn't decided yet, then publishes the verdict.
+    func requestSystemAudioPermission() {
+        UserDefaults.standard.set(true, forKey: "sysaudio.asked")
+        probeSysPermission()
+    }
+
+    /// Silent health check for the settings card. Only probes once the prompt
+    /// has been shown some other way (the button, or a mode picked in an older
+    /// build) — a probe in the not-determined state would BE the prompt, and
+    /// unsolicited is exactly what we're avoiding.
+    func checkSystemAudioPermission() {
+        guard UserDefaults.standard.bool(forKey: "sysaudio.asked") || sysMode != "off" else { return }
+        probeSysPermission()
+    }
+
+    private func probeSysPermission() {
+        // dev harness instances must never touch the global tap machinery
+        if ProcessInfo.processInfo.environment["ANTIPHON_DEV"]?.contains("notap") == true { return }
+        q.async {
+            if #available(macOS 14.4, *) {
+                // a live tap is its own proof; otherwise a bare inaudible
+                // probe tap asks (or re-reads) TCC
+                let ok = self.sysTapBox != nil || SystemAudioTap.probePermission()
+                if ok { UserDefaults.standard.set(true, forKey: "sysaudio.asked") }
+                DispatchQueue.main.async { self.sysPermission = ok ? "granted" : "denied" }
+                // a mode was picked but the tap is down (fresh grant, or a
+                // revoke-then-regrant) — bring it up now
+                if ok, self.sysMode != "off", self.sysTapBox == nil { self.startSysTap() }
             }
         }
     }
@@ -692,8 +727,8 @@ final class AntiphonEngine: ObservableObject {
         }
     }
 
-    /// Creates the tap (first time fires the TCC "System Audio Recording"
-    /// prompt). Called when the room opens and on mode changes; `q` only.
+    /// Creates the tap. Called when the room opens and on mode changes — after
+    /// the explicit permission ask, so this should never prompt; `q` only.
     private func startSysTap() {
         guard sysTapBox == nil, sysMode != "off", started else { return }
         // dev harness instances must never grab the global tap — it would mute
@@ -708,14 +743,14 @@ final class AntiphonEngine: ObservableObject {
                 sysSpatial = false
                 DispatchQueue.main.async {
                     self.sysMode = "off"
-                    self.sysTapDenied = true
+                    self.sysPermission = "denied"
                 }
                 return
             }
             sysTapBox = tap
             sysPull = { [weak tap] l, r, n in tap?.pull(l, r, n) }
             sysOn = true
-            DispatchQueue.main.async { self.sysTapDenied = false; self.sysLive = true }
+            DispatchQueue.main.async { self.sysPermission = "granted"; self.sysLive = true }
         }
     }
 

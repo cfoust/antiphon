@@ -211,10 +211,23 @@ private let TBL: [String: (String, String, String)] = [
     "In the room": ("В комнате", "放进房间", "放進房間"),
     "Distance": ("Расстояние", "距离", "距離"),
     "How far away the virtual pair sits": ("Как далеко стоит виртуальная пара", "虚拟音箱离你多远", "虛擬音箱離你多遠"),
-    "macOS blocked system-audio recording — allow Antiphon and pick a mode again":
-        ("macOS заблокировала запись системного звука — разрешите Antiphon и выберите режим снова",
-         "macOS 拦截了系统音频录制——请允许 Antiphon 后重新选择模式",
-         "macOS 攔截了系統音訊錄製——請允許 Antiphon 後重新選擇模式"),
+    "Recording permission": ("Разрешение на запись", "录制权限", "錄製權限"),
+    "Granted": ("Есть", "已授予", "已授予"),
+    "macOS lets Antiphon record system audio — passthrough is ready":
+        ("macOS разрешает Antiphon записывать системный звук — транзит готов к работе",
+         "macOS 已允许 Antiphon 录制系统音频——直通已就绪",
+         "macOS 已允許 Antiphon 錄製系統音訊——直通已就緒"),
+    "Antiphon needs to record system audio to pass it through — macOS will ask once":
+        ("Чтобы транзитировать системный звук, Antiphon должен его записывать — macOS спросит один раз",
+         "Antiphon 需要录制系统音频才能直通——macOS 只会询问一次",
+         "Antiphon 需要錄製系統音訊才能直通——macOS 只會詢問一次"),
+    "Request permission…": ("Запросить разрешение…", "请求权限…", "要求權限…"),
+    "macOS blocked system-audio recording — allow Antiphon under Privacy & Security, then check again":
+        ("macOS заблокировала запись системного звука — разрешите Antiphon в «Конфиденциальности и безопасности» и проверьте снова",
+         "macOS 拦截了系统音频录制——请在「隐私与安全性」中允许 Antiphon，然后重新检查",
+         "macOS 攔截了系統音訊錄製——請在「隱私權與安全性」中允許 Antiphon，然後重新檢查"),
+    "Check again": ("Проверить снова", "重新检查", "重新檢查"),
+    "Allow recording in Settings…": ("Разрешить запись в настройках…", "在设置中允许录制…", "在設定中允許錄製…"),
     "System audio is in the room": ("Системный звук — в комнате", "系统音频在房间里", "系統音訊在房間裡"),
     "System audio is quiet in the scene": ("Системный звук затихает в сцене", "进入场景时系统音频会变安静", "進入場景時系統音訊會變安靜"),
     "Requires macOS 14.4 or later.": ("Требуется macOS 14.4 или новее.", "需要 macOS 14.4 或更高版本。", "需要 macOS 14.4 或更新版本。"),

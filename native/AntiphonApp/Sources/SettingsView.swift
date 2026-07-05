@@ -208,7 +208,7 @@ private struct GeneralPane: View {
     @State private var waitingCue = true
     @State private var sysMode = "off"
     @State private var sysDist = 2.2
-    @State private var sysDenied = false
+    @State private var sysPerm = "unknown"
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -265,6 +265,39 @@ private struct GeneralPane: View {
 
         card(L("System audio passthrough")) {
             if #available(macOS 14.4, *) {
+                // recording the Mac is intrusive, so the TCC ask is THIS
+                // button — never a side effect of picking a mode below
+                switch sysPerm {
+                case "granted":
+                    labeledRow(L("Recording permission"),
+                               L("macOS lets Antiphon record system audio — passthrough is ready")) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(Color(red: 0.49, green: 0.62, blue: 0.47))
+                            Text(L("Granted")).font(.callout).foregroundStyle(SD.sub)
+                        }
+                    }
+                case "denied":
+                    labeledRow(L("Recording permission"),
+                               L("macOS blocked system-audio recording — allow Antiphon under Privacy & Security, then check again")) {
+                        HStack(spacing: 8) {
+                            Button(L("Open System Settings")) {
+                                if let u = URL(string:
+                                    "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture") {
+                                    NSWorkspace.shared.open(u)
+                                }
+                            }
+                            Button(L("Check again")) { engine.checkSystemAudioPermission() }
+                        }
+                    }
+                    .foregroundStyle(SD.clay)
+                default:
+                    labeledRow(L("Recording permission"),
+                               L("Antiphon needs to record system audio to pass it through — macOS will ask once")) {
+                        Button(L("Request permission…")) { engine.requestSystemAudioPermission() }
+                    }
+                }
+                divider()
                 labeledRow(L("When the scene is in"),
                            L("Everything else your Mac plays steps back — or joins the room as a virtual speaker pair")) {
                     Picker("", selection: Binding(
@@ -275,23 +308,14 @@ private struct GeneralPane: View {
                         Text(L("In the room")).tag("spatial")
                     }
                     .labelsHidden().pickerStyle(.segmented).frame(width: 260)
+                    .disabled(sysPerm != "granted")
+                    .opacity(sysPerm == "granted" ? 1 : 0.45)
                 }
                 // engine falls back to "off" when macOS refuses the tap — the
-                // picker follows, and the camera-style recovery appears
+                // picker follows, and the recovery row above appears
                 .onReceive(engine.$sysMode) { sysMode = $0 }
-                .onReceive(engine.$sysTapDenied) { sysDenied = $0 }
-                if sysDenied {
-                    divider()
-                    labeledRow(L("macOS blocked system-audio recording — allow Antiphon and pick a mode again"), "") {
-                        Button(L("Open System Settings")) {
-                            if let u = URL(string:
-                                "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture") {
-                                NSWorkspace.shared.open(u)
-                            }
-                        }
-                    }
-                    .foregroundStyle(SD.clay)
-                }
+                .onReceive(engine.$sysPermission) { sysPerm = $0 }
+                .onAppear { engine.checkSystemAudioPermission() }
                 if sysMode == "spatial" {
                     divider()
                     labeledRow(L("Distance"), L("How far away the virtual pair sits")) {
