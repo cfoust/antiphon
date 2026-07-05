@@ -19,6 +19,10 @@ final class MenuBarController: NSObject {
     var onToggle: (() -> Void)?
     var onCheckUpdates: (() -> Void)?
     var onSysMode: ((String) -> Void)?
+    /// Whether system-audio recording permission is granted — the mode picker
+    /// in the right-click menu must never be the thing that fires the TCC
+    /// prompt (Settings owns the explicit ask).
+    var sysPermitted: (() -> Bool)?
     private var langSub: AnyCancellable?
 
     func install() {
@@ -26,8 +30,10 @@ final class MenuBarController: NSObject {
         let it = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         it.button?.target = self
         it.button?.action = #selector(clicked)
-        // left click toggles the eye; right click gets the standard app menu
-        it.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        // left click (up) toggles the eye; right click opens the menu on mouse
+        // DOWN, like every menu bar item — .rightMouseUp alone has grown
+        // unreliable for status items on recent macOS
+        it.button?.sendAction(on: [.leftMouseUp, .rightMouseDown])
         item = it
         refresh()
         langSub = I18n.shared.$lang.sink { [weak self] _ in
@@ -52,7 +58,10 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func clicked() {
-        if NSApp.currentEvent?.type == .rightMouseUp {
+        let e = NSApp.currentEvent
+        // right click OR control-click (the trackpad's right) opens the menu
+        if e?.type == .rightMouseDown || e?.type == .rightMouseUp
+            || e?.modifierFlags.contains(.control) == true {
             showMenu()
         } else {
             onToggle?()
@@ -77,18 +86,28 @@ final class MenuBarController: NSObject {
         menu.addItem(settings)
         menu.addItem(.separator())
 
-        // the rest of the Mac: mode picker, mirrored from Settings
+        // the rest of the Mac: mode picker, mirrored from Settings — but only
+        // once the recording permission has been granted there; before that,
+        // one item that leads to the explicit ask instead
         if #available(macOS 14.4, *) {
             let head = NSMenuItem(title: L("System audio passthrough"), action: nil, keyEquivalent: "")
             head.isEnabled = false
             menu.addItem(head)
-            for (tag, label) in [("off", L("Default")), ("deaden", L("Quiet")), ("spatial", L("In the room"))] {
-                let mi = NSMenuItem(title: label, action: #selector(pickSysMode(_:)), keyEquivalent: "")
-                mi.target = self
-                mi.representedObject = tag
-                mi.state = sysMode == tag ? .on : .off
-                mi.indentationLevel = 1
-                menu.addItem(mi)
+            if sysPermitted?() == true {
+                for (tag, label) in [("off", L("Default")), ("deaden", L("Quiet")), ("spatial", L("In the room"))] {
+                    let mi = NSMenuItem(title: label, action: #selector(pickSysMode(_:)), keyEquivalent: "")
+                    mi.target = self
+                    mi.representedObject = tag
+                    mi.state = sysMode == tag ? .on : .off
+                    mi.indentationLevel = 1
+                    menu.addItem(mi)
+                }
+            } else {
+                let ask = NSMenuItem(title: L("Allow recording in Settings…"),
+                                     action: #selector(openSettings), keyEquivalent: "")
+                ask.target = self
+                ask.indentationLevel = 1
+                menu.addItem(ask)
             }
             menu.addItem(.separator())
         }
@@ -102,10 +121,13 @@ final class MenuBarController: NSObject {
         quit.target = self
         menu.addItem(quit)
 
-        // transient assignment: a permanent .menu would eat left clicks too
-        item?.menu = menu
-        item?.button?.performClick(nil)
-        item?.menu = nil
+        // popUp, not the transient item.menu + performClick(nil) dance: that
+        // trick stopped opening the menu on recent macOS (the button is
+        // already mid-click when the action runs), and a permanent .menu
+        // would eat left clicks too
+        guard let button = item?.button else { return }
+        menu.popUp(positioning: nil,
+                   at: NSPoint(x: 0, y: button.bounds.maxY + 5), in: button)
     }
 
     @objc private func showAbout() {
@@ -132,6 +154,9 @@ final class MenuBarController: NSObject {
 
     private func refresh() {
         guard let button = item?.button else { return }
+        // the sysLive composite is 26 pt wide — squareLength (~22 pt) would
+        // clip the wave arcs right back off the image
+        item?.length = sysLive ? 30 : NSStatusItem.squareLength
         let name = watching ? "eye" : "eye.slash"
         let desc = watching ? L("Antiphon is watching") : L("Antiphon is asleep")
         button.image = statusImage(symbol: name, description: desc)

@@ -196,6 +196,8 @@ struct ContentView: View {
             // menu-bar eye mirrors the in-window one; both flip watching
             menuBar.onToggle = { setWatching(!engine.watching) }
             menuBar.onSysMode = { engine.setSystemAudio(mode: $0) }
+            menuBar.sysPermitted = { engine.sysPermission == "granted" }
+            engine.checkSystemAudioPermission() // silent — only re-reads a decided TCC state
             menuBar.onCheckUpdates = {
                 updates.check()
                 NotificationCenter.default.post(name: .init("antiphon.showSettings"), object: nil)
