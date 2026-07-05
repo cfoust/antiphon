@@ -9,12 +9,17 @@ import SwiftUI
 // with your eyes still closed) while your editor stays the active app, and dismissing
 // it puts the caret back exactly where it was. One face: the letter — header,
 // mini-transcript, focused field, keycap footer — summoned while the eyes are still
-// closed so it's already the input when they open. (There is deliberately no separate
-// eyes-closed visual: the user can't see it.)
+// closed so it's already the input when they open.
+//
+// While the eyes are closed the letter rests under a dark veil — the room's own
+// dark, the antiphon eye breathing at its centre, the paper blurred beneath — so
+// summoning it never flashes a white rectangle at someone whose eyes are shut.
+// The moment the eyes start to open, the veil lifts and the letter is in full color.
 //
 // Leaving: Enter sends via the hub's say flow; Escape or clicking anywhere else lets
 // go; and a check-in costs nothing — with an empty field, the panel dismisses itself
-// a few seconds after the eyes open. Text in the field holds it indefinitely.
+// a few seconds after the eyes open. Text in the field (or the pointer resting on
+// the panel) holds it indefinitely.
 
 // MARK: - data
 
@@ -102,9 +107,11 @@ final class TalkbackController: NSObject, NSWindowDelegate {
     private var hosting: NSHostingController<TalkbackRoot>?
     private var dismissing = false
     /// Check-ins are free: with an empty field, the panel lets itself go this long
-    /// after the eyes open. Any text in the field (typed or dictated) holds it.
+    /// after the eyes open. Any text in the field (typed or dictated) holds it,
+    /// and so does the pointer resting on the panel — interacting IS interest.
     private let graceSecs = 4.0
     private var graceTimer: DispatchWorkItem?
+    private var hovering = false
     private var draftSub: AnyCancellable?
 
     func present(info: TalkbackAgentInfo, eyesClosed: Bool) {
@@ -149,13 +156,22 @@ final class TalkbackController: NSObject, NSWindowDelegate {
         updateGrace()
     }
 
+    /// The pointer is on (or off) the panel — mousing around it counts as
+    /// interacting, so the grace countdown pauses while it's there.
+    func setHovering(_ over: Bool) {
+        guard hovering != over else { return }
+        hovering = over
+        updateGrace()
+    }
+
     /// (Re)arm or cancel the auto-dismiss: runs only while the panel is up, the eyes
-    /// are open, and the field is empty. `draft` carries the in-flight value from the
-    /// Combine willSet hook (model.draft still holds the previous keystroke there).
+    /// are open, the pointer is elsewhere, and the field is empty. `draft` carries
+    /// the in-flight value from the Combine willSet hook (model.draft still holds
+    /// the previous keystroke there).
     private func updateGrace(draft: String? = nil) {
         graceTimer?.cancel()
         graceTimer = nil
-        guard panel?.isVisible == true, !model.eyesClosed,
+        guard panel?.isVisible == true, !model.eyesClosed, !hovering,
               (draft ?? model.draft).isEmpty else { return }
         let w = DispatchWorkItem { [weak self] in
             NSLog("[talkback] grace expired — letting go")
@@ -182,6 +198,7 @@ final class TalkbackController: NSObject, NSWindowDelegate {
         NSLog("[talkback] dismiss notify=%d", notify ? 1 : 0)
         graceTimer?.cancel()
         graceTimer = nil
+        hovering = false // a stale hover must not pin the next summons open
         model.draft = ""
         p.orderOut(nil)
         dismissing = false
@@ -363,6 +380,7 @@ struct TalkbackRoot: View {
                 LetterView(info: info, model: model, controller: controller)
             }
         }
+        .onHover { controller.setHovering($0) } // the pointer here = keep the panel
         .preferredColorScheme(.light) // warm paper, whatever the system theme
     }
 }
@@ -419,6 +437,34 @@ private struct InputRow: View {
     }
 }
 
+/// The dark the letter rests under while the user's eyes are closed: the
+/// room's own near-black, the antiphon eye breathing slowly at the centre.
+/// Purely visual — keystrokes and dictation land in the field beneath it —
+/// and it never flashes: summoned eyes-closed the panel is BORN dark, then
+/// the veil lifts as the eyes open.
+private struct EyesClosedVeil: View {
+    let on: Bool
+    @State private var breathe = false
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(AN.darkRoom.opacity(0.96)) // a hint of blurred paper survives
+            AntiphonEye(size: 84)
+                .scaleEffect(breathe ? 1.05 : 0.96)
+                .opacity(breathe ? 1.0 : 0.82)
+                .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true),
+                           value: breathe)
+                // the logo leads the reveal: gone before the veil finishes lifting
+                .opacity(on ? 1 : 0)
+                .animation(.easeOut(duration: 0.3), value: on)
+        }
+        .opacity(on ? 1 : 0)
+        .animation(.easeInOut(duration: 0.55), value: on)
+        .allowsHitTesting(false)
+        .onAppear { breathe = true }
+    }
+}
+
 /// Eyes open: header + mini-transcript + focused field + keycap footer.
 private struct LetterView: View {
     let info: TalkbackAgentInfo
@@ -434,7 +480,13 @@ private struct LetterView: View {
             footer
         }
         .frame(width: 640)
+        // eyes closed: the paper softens under the veil (its ghost shows
+        // through), and sharpens back the moment the eyes start to open
+        .blur(radius: model.eyesClosed ? 6 : 0)
+        .animation(.easeOut(duration: 0.5), value: model.eyesClosed)
         .modifier(Paper(radius: 20))
+        .overlay(EyesClosedVeil(on: model.eyesClosed))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var header: some View {
