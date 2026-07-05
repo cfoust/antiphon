@@ -1106,6 +1106,14 @@ final class AntiphonEngine: ObservableObject {
     /// Narration text (task/progress/blocked/done) — the panel's mini-transcript.
     func bridgeLine(seat: Int, kind: String, text: String) {
         q.async {
+            // a task headline is also the session's title (the hub does the same
+            // with SetTitle) — without this, seats bound before their first task
+            // wear the persona name forever
+            if kind == "task" {
+                var m = self.seatMeta[seat] ?? TalkbackSeatMeta()
+                m.title = text
+                self.seatMeta[seat] = m
+            }
             var lines = self.seatLines[seat] ?? []
             lines.append(TalkbackLine(kind: kind, text: text, at: Date().timeIntervalSince1970))
             if lines.count > 24 { lines.removeFirst(lines.count - 24) } // a conversation, not a marquee
