@@ -389,8 +389,11 @@ export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): v
     if (disposed) return;
     let t = FREEZE ?? now();
 
-    // the intro→main boundary: hand the clock to the audio when sound is on
-    if (FREEZE == null && t >= INTRO && !audioPhase && soundOn) {
+    // the intro→main boundary: hand the clock to the audio when sound is on —
+    // but never during the post-audio LOOP_GAP, where re-playing the last
+    // sliver would pin the clock again and stutter forever
+    if (FREEZE == null && t >= INTRO && t < INTRO + timeline.duration - 0.1
+        && !audioPhase && soundOn) {
       audio.currentTime = Math.min(t - INTRO, timeline.duration - 0.05);
       void audio.play().then(() => { audioPhase = true; });
     }
