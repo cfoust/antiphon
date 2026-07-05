@@ -240,21 +240,30 @@ private struct HoverBubble: View {
     let hex: String
 
     var body: some View {
-        (Text(text)
-            + Text(age.isEmpty ? "" : "  \(age)")
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.45)))
-            .font(.system(size: 11.5))
-            .fontDesign(.rounded)
-            .foregroundStyle(.white.opacity(0.92))
-            .lineLimit(3)
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: 250, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: hex).opacity(0.35)))
-            .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
+        // the age is its own view, NOT appended to the text: appended, a long
+        // message's tail-truncation ate it first (the "…" replaced exactly the
+        // timestamp). As a sibling with layout priority it always survives,
+        // sitting on the last line's baseline while the message truncates.
+        HStack(alignment: .lastTextBaseline, spacing: 6) {
+            Text(text)
+                .font(.system(size: 11.5))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+            if !age.isEmpty {
+                Text(age)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.45))
+                    .layoutPriority(1)
+            }
+        }
+        .fontDesign(.rounded)
+        .frame(maxWidth: 250, alignment: .leading)
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: hex).opacity(0.35)))
+        .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
     }
 }
 
