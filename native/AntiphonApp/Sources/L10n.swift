@@ -311,7 +311,7 @@ private let TBL: [String: (String, String, String)] = [
     "Applying…": ("Применяем…", "正在应用…", "正在套用…"),
 
     // ---- talk-back panel ----
-    "tell %@…": ("скажите %@…", "对 %@ 说…", "對 %@ 說…"),
+    "Enter a message…": ("Введите сообщение…", "输入消息…", "輸入訊息…"),
     "%@ has no input path — it isn’t in a pane Antiphon can type into":
         ("%@ недоступен для ввода — он не в панели, куда Antiphon может печатать",
          "%@ 没有输入通道——它不在 Antiphon 能输入文字的窗格里",
@@ -319,7 +319,7 @@ private let TBL: [String: (String, String, String)] = [
     "can’t hear you": ("вас не слышит", "听不到你", "聽不到你"),
     "send to %@": ("отправить %@", "发送给 %@", "傳送給 %@"),
     "listening only": ("только прослушивание", "只能旁听", "只能旁聽"),
-    "let go": ("отпустить", "放开", "放開"),
+    "close": ("закрыть", "关闭", "關閉"),
     "tag.task": ("ЗАДАЧА", "任务", "任務"),
     "tag.progress": ("ХОД", "进展", "進展"),
     "tag.done": ("ГОТОВО", "完成", "完成"),

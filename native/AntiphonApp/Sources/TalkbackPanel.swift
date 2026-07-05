@@ -421,7 +421,7 @@ private struct InputRow: View {
             PanelField(
                 text: $model.draft,
                 placeholder: info.reachable
-                    ? Lf("tell %@…", info.displayName)
+                    ? L("Enter a message…")
                     : Lf("%@ has no input path — it isn’t in a pane Antiphon can type into", info.displayName),
                 enabled: info.reachable,
                 onSubmit: { controller.submit() },
@@ -597,7 +597,7 @@ private struct LetterView: View {
                 Text(L("listening only")).foregroundColor(TB.clay)
             }
             Spacer()
-            HStack(spacing: 6) { KeyCap(label: "esc"); Text(L("let go")) }
+            HStack(spacing: 6) { KeyCap(label: "esc"); Text(L("close")) }
         }
         .font(.system(size: 12, design: .rounded))
         .foregroundColor(TB.sub)
