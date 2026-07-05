@@ -351,8 +351,12 @@ final class AntiphonEngine: ObservableObject {
     private var sysSlotL = 0, sysSlotR = 0
     private let sysDeadenLevel: Float = 0.22 // in-scene dry gain ≈ −13 dB
     private let sysGainSpatial: Float = 0.8  // placed-pair source gain
-    /// The user-facing mode ("off" / "deaden" / "spatial"), persisted.
-    @Published var sysMode = "deaden"
+    /// The user-facing mode ("off" / "deaden" / "spatial"), persisted. Default
+    /// OFF — enabling is the in-context moment for the one-time TCC prompt.
+    @Published var sysMode = "off"
+    /// macOS refused the tap (System Audio Recording denied) — the settings
+    /// card shows the same recovery affordance as a denied camera.
+    @Published var sysTapDenied = false
 
     private func now() -> Double { CFAbsoluteTimeGetCurrent() }
 
@@ -665,7 +669,9 @@ final class AntiphonEngine: ObservableObject {
             self.sysSpatial = mode == "spatial"
             if mode == "off" {
                 self.stopSysTap()
-            } else if self.roomOpened {
+            } else {
+                // right away, not at the next scene entry — choosing the mode
+                // IS the in-context moment for the TCC prompt
                 self.startSysTap()
             }
         }
@@ -692,12 +698,21 @@ final class AntiphonEngine: ObservableObject {
         if ProcessInfo.processInfo.environment["ANTIPHON_DEV"]?.contains("notap") == true { return }
         if #available(macOS 14.4, *) {
             guard let tap = SystemAudioTap() else {
+                // denied (or the OS refused) — fall back to "off" so the picker
+                // tells the truth, and surface the camera-style recovery
                 print("[antiphon] system tap unavailable (permission or OS)")
+                UserDefaults.standard.set("off", forKey: "sysaudio.mode")
+                sysSpatial = false
+                DispatchQueue.main.async {
+                    self.sysMode = "off"
+                    self.sysTapDenied = true
+                }
                 return
             }
             sysTapBox = tap
             sysPull = { [weak tap] l, r, n in tap?.pull(l, r, n) }
             sysOn = true
+            DispatchQueue.main.async { self.sysTapDenied = false }
         }
     }
 

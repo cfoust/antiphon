@@ -206,8 +206,9 @@ private struct GeneralPane: View {
     @State private var fit = 2.0
     @State private var fadeDelay = 0.6
     @State private var waitingCue = true
-    @State private var sysMode = "deaden"
+    @State private var sysMode = "off"
     @State private var sysDist = 2.2
+    @State private var sysDenied = false
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -220,7 +221,7 @@ private struct GeneralPane: View {
                 fadeDelay = engine.fadeDelay
                 waitingCue = engine.attentionCue
                 let ud = UserDefaults.standard
-                sysMode = ud.string(forKey: "sysaudio.mode") ?? "deaden"
+                sysMode = ud.string(forKey: "sysaudio.mode") ?? "off"
                 sysDist = ud.object(forKey: "sysaudio.dist") != nil ? ud.double(forKey: "sysaudio.dist") : 2.2
             }
 
@@ -274,6 +275,22 @@ private struct GeneralPane: View {
                         Text(L("In the room")).tag("spatial")
                     }
                     .labelsHidden().pickerStyle(.segmented).frame(width: 260)
+                }
+                // engine falls back to "off" when macOS refuses the tap — the
+                // picker follows, and the camera-style recovery appears
+                .onReceive(engine.$sysMode) { sysMode = $0 }
+                .onReceive(engine.$sysTapDenied) { sysDenied = $0 }
+                if sysDenied {
+                    divider()
+                    labeledRow(L("macOS blocked system-audio recording — allow Antiphon and pick a mode again"), "") {
+                        Button(L("Open System Settings")) {
+                            if let u = URL(string:
+                                "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture") {
+                                NSWorkspace.shared.open(u)
+                            }
+                        }
+                    }
+                    .foregroundStyle(SD.clay)
                 }
                 if sysMode == "spatial" {
                     divider()

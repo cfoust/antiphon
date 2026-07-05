@@ -211,6 +211,10 @@ private let TBL: [String: (String, String, String)] = [
     "In the room": ("В комнате", "放进房间", "放進房間"),
     "Distance": ("Расстояние", "距离", "距離"),
     "How far away the virtual pair sits": ("Как далеко стоит виртуальная пара", "虚拟音箱离你多远", "虛擬音箱離你多遠"),
+    "macOS blocked system-audio recording — allow Antiphon and pick a mode again":
+        ("macOS заблокировала запись системного звука — разрешите Antiphon и выберите режим снова",
+         "macOS 拦截了系统音频录制——请允许 Antiphon 后重新选择模式",
+         "macOS 攔截了系統音訊錄製——請允許 Antiphon 後重新選擇模式"),
     "Requires macOS 14.4 or later.": ("Требуется macOS 14.4 или новее.", "需要 macOS 14.4 或更高版本。", "需要 macOS 14.4 或更新版本。"),
     "Save": ("Сохранить", "保存", "儲存"),
     "Use these voices": ("Использовать эти голоса", "使用这些声音", "使用這些聲音"),
