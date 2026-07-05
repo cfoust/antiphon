@@ -99,12 +99,20 @@ def make_chime() -> np.ndarray:
     return (s * 1.3).astype(np.float32)  # CHIME_GAIN
 
 
-def make_tick(freq: float) -> np.ndarray:
-    """A tool call: one short, quiet blip in the agent's key — work, not news."""
-    t = np.arange(int(SR * 0.14)) / SR
-    env = np.exp(-t * 42.0)
-    s = np.sin(2 * np.pi * freq * 2.0 * t) * 0.32 + np.sin(2 * np.pi * freq * 3.0 * t) * 0.12
-    return (s * env).astype(np.float32)
+def tool_note_freqs(ping: float) -> list[float]:
+    """The app's three descending tool-call notes — m7 → 5th → m3 over the
+    chord root (ping/2). AudioGen.toolNoteFreqs, verbatim."""
+    root = ping / 2
+    return [root * 2 ** (10 / 12), root * 2 ** (7 / 12), root * 2 ** (3 / 12)]
+
+
+def make_tool_note(freq: float) -> np.ndarray:
+    """One tool-call note: a soft, round pluck — sine + a whisper of octave.
+    AudioGen.makeToolNote, verbatim (0.9 s, 8 ms attack, e^-4.2t decay, 0.16)."""
+    t = np.arange(int(SR * 0.9)) / SR
+    env = np.minimum(t / 0.008, 1.0) * np.exp(-t * 4.2)
+    s = np.sin(2 * np.pi * freq * t) * 0.85 + np.sin(2 * np.pi * freq * 2 * t) * 0.10
+    return (s * env * 0.16).astype(np.float32)
 
 
 def make_drone_segment(ping: float, dur: float) -> np.ndarray:
@@ -199,24 +207,29 @@ def build_lang(lang: str, texts: dict) -> None:
     # 3) earcons
     ping_b_w = CACHE / "ping_b.wav"
     chime_w = CACHE / "chime.wav"
-    tick_a_w = CACHE / "tick_a.wav"
     drone_a_w = CACHE / f"drone_a.{lang}.wav"
     drone_b_w = CACHE / f"drone_b2.{lang}.wav"
     write_wav(ping_b_w, make_ping(AGENTS["B"]["ping"]))
     write_wav(chime_w, make_chime())
-    write_wav(tick_a_w, make_tick(AGENTS["A"]["ping"]))
+    # the app cycles the three descending notes per tool call — so does the demo
+    tick_ws = []
+    for i, f in enumerate(tool_note_freqs(AGENTS["A"]["ping"])):
+        w = CACHE / f"tool_a{i}.wav"
+        write_wav(w, make_tool_note(f))
+        tick_ws.append(w)
     write_wav(drone_a_w, make_drone_segment(AGENTS["A"]["ping"], eyes_open - WORLD_IN))
     write_wav(drone_b_w, make_drone_segment(AGENTS["B"]["ping"], ping_b - WORLD_IN))
 
     # 4) the .scn — the app's gains: ping faced 0.9 / side 0.4, summary 0.95;
-    # A's mutter stays side-gained (you never face it), its ticks stay quiet
+    # A's mutter stays side-gained (you never face it). Ticks ride the same
+    # source at the same gain as the mutter, exactly like the app mixes them.
     A, B = AGENTS["A"], AGENTS["B"]
     ev = []
     ev.append((drone_a_w, WORLD_IN, A, 1.0))
     ev.append((drone_b_w, WORLD_IN, B, 1.0))
     ev.append((line_paths["working_A"], line_a, A, 0.62))
-    for tk in ticks_a:
-        ev.append((tick_a_w, tk, A, 0.55))
+    for i, tk in enumerate(ticks_a):
+        ev.append((tick_ws[i % len(tick_ws)], tk, A, 0.62))
     ev.append((ping_b_w, ping_b, B, 0.4))            # not yet faced
     ev.append((chime_w, lock_b, B, 1.0))
     ev.append((line_paths["summary_B"], line_b, B, 0.95))
