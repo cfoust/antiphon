@@ -7,42 +7,6 @@
   transition: opacity 0.8s ease;
 }
 
-/* ---- the illustrated opening beat ------------------------------------------ */
-.hx-intro {
-  /* matched to the illustration's own paper so its edges disappear */
-  background: #fdedd2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  /* caption ABOVE the art, and the whole beat lifted clear of the copy scrim */
-  flex-direction: column-reverse;
-  gap: 14px;
-  padding-bottom: 30svh;
-  transform-origin: 66% 38%; /* the zoom carries us INTO the drawn monitor */
-  transition: opacity 0.7s ease, transform 0.9s cubic-bezier(0.5, 0, 0.2, 1);
-}
-.hx-intro img {
-  width: min(86%, 760px);
-  max-height: 44svh;
-  object-fit: contain;
-  height: auto;
-  user-select: none;
-  pointer-events: none;
-}
-.hx-intro-cap {
-  font-size: 13.5px;
-  color: #a08b6d;
-  text-align: center;
-  padding: 0 30px;
-  max-width: 440px;
-}
-.hx-zoomed .hx-intro {
-  opacity: 0;
-  transform: scale(1.7);
-  pointer-events: none;
-}
-
 /* ---- the FaceTime-style PiP: the camera's view of you, always on ------------- */
 .hx-pip {
   position: absolute;
@@ -211,17 +175,6 @@
   opacity: 0;
   transition: opacity 0.6s ease;
 }
-.hx-hint {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 10.5px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(246, 239, 226, 0.35);
-}
-
 /* ---- the talk-back letter (the app's paper, at panel scale) ----------------- */
 .hx-letter {
   pointer-events: none; /* display-only — must never swallow panel clicks */
@@ -345,12 +298,7 @@
 
 @media (max-width: 700px) {
   .hx-cap { font-size: 16px; max-width: 180px; }
-  /* the copy overlay owns the panel's foot — keep the illustration clear of it */
-  .hx-intro { padding-bottom: 38svh; }
-  .hx-intro-cap { font-size: 12px; max-width: 320px; }
-  .hx-intro img { width: 92%; }
   .hx-pip { width: 88px; }
-  .hx-hint { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

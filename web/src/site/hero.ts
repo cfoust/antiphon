@@ -5,16 +5,15 @@
 // the spoken lines do).
 //
 // It AUTOPLAYS muted and loops; the only control is the sound pill. One
-// virtual clock drives everything: t < INTRO is the illustrated opening beat
-// (a person at their desk, the camera finding their face) which has no audio;
-// audio-time zero is at t = INTRO. Muted, the clock is monotonic; with sound
-// on it re-anchors to audio.currentTime + INTRO so nothing drifts.
+// virtual clock drives everything: t < INTRO is a short silent beat on the
+// desktop before the narration starts; audio-time zero is at t = INTRO.
+// Muted, the clock is monotonic; with sound on it re-anchors to
+// audio.currentTime + INTRO so nothing drifts.
 //
-// Scene: the intro illustration → zoom into the drawn monitor → the imaginary
-// desktop, with a FaceTime-style PiP of the user's face (landmark mesh, eye
-// state) that persists from here on → the eyes close (lids) → the app's radar
-// world, the PiP head turning as the gaze sweeps to agent A then B → eyes
-// open → the talk-back letter → a typed reply → Enter → loop.
+// Scene: the imaginary desktop, with a FaceTime-style PiP of the user's face
+// (landmark mesh, eye state) that persists throughout → the eyes close (lids)
+// → the app's radar world, the PiP head turning as the gaze sweeps to agent A
+// then B → eyes open → the talk-back letter → a typed reply → Enter → loop.
 
 import "./hero.css";
 import tlEn from "./hero-timeline.en.json";
@@ -48,9 +47,9 @@ const GOLD = "#ffce6b";
 const TERRA = "#C4694A";
 const PERI = "#7D93E8";
 
-// the illustrated opening beat, in seconds of virtual time before audio zero
-const INTRO = 3.4;
-const PIP_IN = INTRO + 0.5;
+// the silent opening beat on the desktop, in seconds before audio zero
+const INTRO = 1.2;
+const PIP_IN = 0.45;
 const LOOP_GAP = 1.6; // silent tail after the audio before the loop restarts
 
 const rad = (d: number) => (d * Math.PI) / 180;
@@ -72,9 +71,6 @@ const soundIcon = (muted: boolean) => muted
       <path d="M15.5 8.5a5 5 0 0 1 0 7" />
       <path d="M18.5 5.5a9.5 9.5 0 0 1 0 13" />
     </svg>`;
-
-// the intro illustration (web/public/hero-intro.webp, generated on-theme):
-// a person at their desk, the mati-eye camera watching their face
 
 // the FaceTime-style PiP face tile
 const pipSvg = html`
@@ -144,7 +140,7 @@ export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): v
   const TICKS = timeline.ticksA.map((t) => INTRO + t);
 
   el.innerHTML = html`
-    <div class="hx-layer hx-desk" data-hx="desk" style="opacity:0">
+    <div class="hx-layer hx-desk" data-hx="desk">
       <div class="hx-desk-bar"><i></i><i></i><i></i></div>
       <div class="hx-win" style="left:6%;top:16%;width:44%;height:64%">
         <div class="hx-codeline"></div><div class="hx-codeline c2"></div>
@@ -159,14 +155,8 @@ export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): v
 
     <div class="hx-layer hx-world" data-hx="world" style="opacity:0">
       <canvas data-hx="canvas"></canvas>
-      <div class="hx-hint">${S.hint}</div>
       <div class="hx-cap" data-hx="capA">${timeline.captions.working_A}</div>
       <div class="hx-cap" data-hx="capB">${timeline.captions.summary_B}</div>
-    </div>
-
-    <div class="hx-layer hx-intro" data-hx="intro">
-      <img src="/hero-intro.webp" alt="" draggable="false" />
-      <div class="hx-intro-cap">${S.introCap}</div>
     </div>
 
     <div class="hx-lid top" data-hx="lidT"></div>
@@ -175,7 +165,7 @@ export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): v
     <div class="hx-pip" data-hx="pip">
       ${pipSvg}
       <div class="hx-pip-tag">
-        <span class="hx-pip-dot"></span><span data-hx="pipState">${S.watching}</span>
+        <span class="hx-pip-dot"></span><span>${S.watching}</span>
       </div>
     </div>
 
@@ -196,10 +186,8 @@ export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): v
   const $ = <E extends HTMLElement = HTMLElement>(k: string) =>
     el.querySelector(`[data-hx="${k}"]`) as E;
   const desk = $("desk");
-  const intro = $("intro");
   const world = $("world");
   const pip = $("pip");
-  const pipState = $("pipState");
   const canvas = $<HTMLCanvasElement>("canvas");
   const g = canvas.getContext("2d")!;
   const capEls = { A: $("capA"), B: $("capB") };
@@ -403,9 +391,6 @@ export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): v
       t = 0;
     }
 
-    // intro ↔ desk (the zoom carries us into the drawn monitor)
-    const pastIntro = t >= INTRO - 0.4 && t < LOOP - 0.7;
-    el!.classList.toggle("hx-zoomed", pastIntro);
     pip.classList.toggle("on", FREEZE == null ? t >= PIP_IN : t >= PIP_IN - 0.5);
 
     // desktop ↔ world layering
@@ -413,14 +398,13 @@ export function mountHero(el: HTMLElement | null, lang: Lang, S: HeroStrings): v
     el!.classList.toggle("hx-lids-closed", lidsClosed);
     const inWorld = t >= INTRO + T.worldIn && t < INTRO + T.eyesOpen + 0.4;
     world.style.opacity = inWorld ? "1" : "0";
-    desk.style.opacity = t >= INTRO - 0.4 && !inWorld ? "1" : "0";
-    intro.style.opacity = pastIntro ? "0" : "1";
+    desk.style.opacity = inWorld ? "0" : "1";
 
-    // the PiP mirrors the imaginary user
+    // the PiP mirrors the imaginary user (the lids in the tile say it all —
+    // no state label)
     const shut = t >= INTRO + T.eyesClose && t < INTRO + T.eyesOpen;
     eyesOpenG.setAttribute("opacity", shut ? "0" : "1");
     eyesShutG.setAttribute("opacity", shut ? "1" : "0");
-    pipState.textContent = shut ? S.eyesClosed : S.watching;
     const yd = yawDegAt(t);
     if (Math.abs(yd) > 0.5) {
       pipFace.classList.remove("idle");
