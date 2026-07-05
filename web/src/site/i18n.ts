@@ -51,22 +51,16 @@ interface EngCard {
 
 export interface HeroStrings {
   watching: string;
-  eyesClosed: string;
   tracked: string;
-  hint: string;
-  idleTitle: string;
-  begin: string;
-  idleNote: string;
   done: string;
   unmute: string;
   soundOn: string;
-  replay: string;
 }
 
 export interface SiteStrings {
   title: string;
   nav: { sounds: string; feels: string; engineering: string; download: string };
-  hero: { h1: string; sub: string; download: string; browser: string; fineprint: string };
+  hero: { h1: string; sub: string; download: string; browser: string; fineprint: string; mobileNote: string };
   listen: { eyebrow: string; h2: string; intro: string; note: string; cta: string };
   feel: { eyebrow: string; h2: string; bubbles: Bubble[]; tenets: Tenet[] };
   choir: {
@@ -100,6 +94,7 @@ export const SITE: Record<Lang, SiteStrings> = {
       sub: "Antiphon gives every coding agent a voice, placed in the room around you. Put on headphones and overhear the work.",
       download: "Download for macOS",
       browser: "Try it in the browser",
+      mobileNote: "A native macOS app — and the demo runs right here in your browser.",
       fineprint: "Free &amp; open source · Headphones recommended",
     },
     listen: {
@@ -185,16 +180,10 @@ export const SITE: Record<Lang, SiteStrings> = {
     },
     hx: {
       watching: "watching",
-      eyesClosed: "eyes closed",
       tracked: "head &amp; eyes tracked",
-      hint: "the room, from above — voices stay put as you turn",
-      idleTitle: "Put on headphones.",
-      begin: "Close your eyes ↵",
-      idleNote: "The real workflow, in half a minute · rendered by the real engine · sound on",
       done: "DONE",
-      unmute: "🔇 unmute",
-      soundOn: "🔊 sound on",
-      replay: "replay ⟳",
+      unmute: "unmute",
+      soundOn: "sound on",
     },
   },
 
@@ -211,6 +200,7 @@ export const SITE: Record<Lang, SiteStrings> = {
       sub: "Antiphon даёт каждому кодинг-агенту голос и место в комнате вокруг вас. Наденьте наушники — и просто слушайте, как идёт работа.",
       download: "Скачать для macOS",
       browser: "Попробовать в браузере",
+      mobileNote: "Нативное приложение для macOS — а демо работает прямо в браузере.",
       fineprint: "Бесплатно и открыто · Рекомендуются наушники",
     },
     listen: {
@@ -296,16 +286,10 @@ export const SITE: Record<Lang, SiteStrings> = {
     },
     hx: {
       watching: "слежу",
-      eyesClosed: "глаза закрыты",
       tracked: "голова и глаза отслеживаются",
-      hint: "комната сверху — голоса остаются на месте, когда вы поворачиваетесь",
-      idleTitle: "Наденьте наушники.",
-      begin: "Закройте глаза ↵",
-      idleNote: "Настоящий рабочий процесс за полминуты · отрендерено настоящим движком · со звуком",
       done: "ГОТОВО",
-      unmute: "🔇 включить звук",
-      soundOn: "🔊 звук включён",
-      replay: "ещё раз ⟳",
+      unmute: "включить звук",
+      soundOn: "звук включён",
     },
   },
 
@@ -322,6 +306,7 @@ export const SITE: Record<Lang, SiteStrings> = {
       sub: "Antiphon 给每个编程智能体一个声音，安放在你周围的房间里。戴上耳机，听工作自己发生。",
       download: "下载 macOS 版",
       browser: "在浏览器里试试",
+      mobileNote: "原生 macOS 应用——演示可以直接在浏览器里体验。",
       fineprint: "免费开源 · 建议佩戴耳机",
     },
     listen: {
@@ -406,16 +391,10 @@ export const SITE: Record<Lang, SiteStrings> = {
     },
     hx: {
       watching: "注视中",
-      eyesClosed: "眼睛已闭",
       tracked: "追踪头部与眼睛",
-      hint: "俯瞰房间——转头时，声音留在原地",
-      idleTitle: "戴上耳机。",
-      begin: "闭上眼睛 ↵",
-      idleNote: "真实工作流，半分钟 · 由真实引擎渲染 · 建议开声音",
       done: "完成",
-      unmute: "🔇 开启声音",
-      soundOn: "🔊 声音已开",
-      replay: "重播 ⟳",
+      unmute: "开启声音",
+      soundOn: "声音已开",
     },
   },
 
@@ -432,6 +411,7 @@ export const SITE: Record<Lang, SiteStrings> = {
       sub: "Antiphon 給每個程式代理一個聲音，安放在你周圍的房間裡。戴上耳機，聽工作自己發生。",
       download: "下載 macOS 版",
       browser: "在瀏覽器裡試試",
+      mobileNote: "原生 macOS 應用程式——示範可以直接在瀏覽器裡體驗。",
       fineprint: "免費開源 · 建議佩戴耳機",
     },
     listen: {
@@ -516,16 +496,10 @@ export const SITE: Record<Lang, SiteStrings> = {
     },
     hx: {
       watching: "注視中",
-      eyesClosed: "眼睛已閉",
       tracked: "追蹤頭部與眼睛",
-      hint: "俯瞰房間——轉頭時，聲音留在原地",
-      idleTitle: "戴上耳機。",
-      begin: "閉上眼睛 ↵",
-      idleNote: "真實工作流程，半分鐘 · 由真實引擎渲染 · 建議開聲音",
       done: "完成",
-      unmute: "🔇 開啟聲音",
-      soundOn: "🔊 聲音已開",
-      replay: "重播 ⟳",
+      unmute: "開啟聲音",
+      soundOn: "聲音已開",
     },
   },
 };

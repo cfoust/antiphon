@@ -44,7 +44,9 @@ const (
 const instructions = `You are connected to Antiphon, a spatial-audio monitor where the user
 HEARS you as a voice in a room. Narrate your work through it, always in first person,
 always short enough to speak aloud:
-- antiphon_task when you begin something new (one headline).
+- antiphon_task when you begin something new (one headline). Your latest headline is
+  also this session's TITLE in the room — call it at the start of your FIRST reply so
+  the user's seat for you is never left unnamed, and again whenever the task changes.
 - antiphon_progress every few tool calls (a few words, present tense).
 - antiphon_done when you finish (1-2 spoken sentences: what changed, where).
 - antiphon_blocked when you need the user (one clear question).
@@ -56,7 +58,7 @@ type tool struct {
 }
 
 var tools = []tool{
-	{"antiphon_task", "Announce the task you are starting.", "headline", "One short headline, spoken aloud.", "task"},
+	{"antiphon_task", "Announce the task you are starting; the headline also becomes this session's title in the room.", "headline", "One short headline, spoken aloud.", "task"},
 	{"antiphon_progress", "Report what you are doing right now.", "note", "A few words, present tense.", "progress"},
 	{"antiphon_done", "Report that you finished.", "summary", "1-2 spoken sentences summarizing the outcome.", "done"},
 	{"antiphon_blocked", "Ask the user a question you are blocked on.", "question", "One clear question.", "blocked"},

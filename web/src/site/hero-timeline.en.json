@@ -1,5 +1,5 @@
 {
-  "duration": 29.75,
+  "duration": 24.36,
   "agents": {
     "A": {
       "name": "wren",
@@ -15,26 +15,30 @@
     }
   },
   "captions": {
-    "summary_A": "Rebuilt the auth flow — all forty-two tests pass. Refresh tokens rotate cleanly now.",
+    "working_A": "Auth suite again… two failures left, both in token refresh. Trying a rotation guard.",
     "summary_B": "The docs draft is ready — two pages, with the migration notes you asked for."
   },
   "reply": "Ship the docs. I'll look at auth after the tests.",
+  "ticksA": [
+    4.0,
+    5.4,
+    6.9,
+    11.3
+  ],
   "t": {
     "eyesClose": 2.0,
     "worldIn": 2.7,
-    "gazeA": 3.8,
-    "lockA": 6.2,
-    "lineA": 6.85,
-    "lineAEnd": 12.6,
-    "pingB": 13.3,
-    "gazeB": 13.8,
-    "lockB": 16.2,
-    "lineB": 16.85,
-    "lineBEnd": 21.65,
-    "eyesOpen": 22.65,
-    "letterIn": 23.25,
-    "typeStart": 24.05,
-    "typeEnd": 27.55,
-    "send": 28.15
+    "lineA": 3.5,
+    "lineAEnd": 9.7,
+    "pingB": 7.96,
+    "gazeB": 8.46,
+    "lockB": 10.86,
+    "lineB": 11.51,
+    "lineBEnd": 16.26,
+    "eyesOpen": 17.26,
+    "letterIn": 17.86,
+    "typeStart": 18.66,
+    "typeEnd": 22.16,
+    "send": 22.76
   }
 }

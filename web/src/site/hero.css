@@ -7,38 +7,60 @@
   transition: opacity 0.8s ease;
 }
 
-/* ---- idle invitation ------------------------------------------------------ */
-.hx-idle {
+/* ---- the FaceTime-style PiP: the camera's view of you, always on ------------- */
+.hx-pip {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  width: 104px;
+  z-index: 7;
+  border-radius: 16px;
+  background: #171210;
+  overflow: hidden;
+  box-shadow: 0 14px 34px rgba(16, 12, 10, 0.45), 0 0 0 1px rgba(246, 239, 226, 0.14);
+  opacity: 0;
+  transform: scale(0.6) translateY(20px);
+  transition: opacity 0.5s ease, transform 0.55s cubic-bezier(0.3, 0.9, 0.4, 1.1);
+}
+.hx-pip.on {
+  opacity: 1;
+  transform: none;
+}
+.hx-pip svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.hx-pip-face {
+  transition: transform 0.15s linear;
+  transform-origin: 52px 56px;
+}
+.hx-pip-face.idle {
+  animation: hx-psway 5.2s ease-in-out infinite;
+}
+@keyframes hx-psway {
+  0%, 100% { transform: rotate(-2.6deg) translateX(-1.5px); }
+  50% { transform: rotate(2.6deg) translateX(1.5px); }
+}
+.hx-pip-tag {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 24px;
-  text-align: center;
-  padding: 0 24px;
-}
-.hx-idle-title {
-  font-family: "GFS Didot", Georgia, "Songti SC", "Songti TC", serif;
-  font-size: 28px;
-  color: #2a231b;
-}
-.hx-idle-btn {
-  background: #2a231b;
-  color: #fbf7f0;
-  border: none;
-  padding: 16px 34px;
-  border-radius: 999px;
-  font-size: 16px;
-  font-weight: 500;
+  gap: 5px;
+  padding: 6px 9px 7px;
+  font-size: 8.2px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #7d93e8;
+  font-weight: 600;
   font-family: "Instrument Sans", -apple-system, "PingFang SC", "PingFang TC", sans-serif;
-  cursor: pointer;
 }
-.hx-idle-btn:hover {
-  background: #000;
-}
-.hx-idle-note {
-  font-size: 13px;
-  color: #a39684;
+.hx-pip-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #7d93e8;
+  animation: hx-pulse 1.6s ease-in-out infinite;
+  flex: none;
 }
 
 /* ---- the imaginary desktop ------------------------------------------------ */
@@ -95,56 +117,6 @@
   background: rgba(196, 105, 74, 0.22);
 }
 
-/* the tracking card: face wireframe + status — the proof you're being watched */
-.hx-cam {
-  position: absolute;
-  top: 40px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: #171210;
-  color: #f6efe2;
-  border-radius: 12px;
-  padding: 8px 14px 8px 8px;
-  box-shadow: 0 10px 26px rgba(23, 18, 16, 0.35);
-}
-.hx-cam svg {
-  display: block;
-  border-radius: 8px;
-  background: rgba(246, 239, 226, 0.06);
-}
-.hx-cam-face {
-  animation: hx-sway 4.8s ease-in-out infinite;
-  transform-origin: 50% 60%;
-}
-@keyframes hx-sway {
-  0%, 100% { transform: rotate(-3deg) translateX(-1px); }
-  50% { transform: rotate(3deg) translateX(1px); }
-}
-.hx-cam-label {
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(246, 239, 226, 0.55);
-  line-height: 1.7;
-}
-.hx-cam-label b {
-  display: block;
-  font-weight: 500;
-  color: #7d93e8;
-  letter-spacing: 0.16em;
-}
-.hx-cam-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #7d93e8;
-  margin-right: 5px;
-  animation: hx-pulse 1.6s ease-in-out infinite;
-}
 @keyframes hx-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
@@ -203,17 +175,6 @@
   opacity: 0;
   transition: opacity 0.6s ease;
 }
-.hx-hint {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 10.5px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(246, 239, 226, 0.35);
-}
-
 /* ---- the talk-back letter (the app's paper, at panel scale) ----------------- */
 .hx-letter {
   pointer-events: none; /* display-only — must never swallow panel clicks */
@@ -304,64 +265,42 @@
   box-shadow: 0 0 10px rgba(125, 159, 119, 0.2);
 }
 
-/* ---- controls --------------------------------------------------------------- */
-.hx-sound[hidden] {
-  display: none; /* the display:flex below would defeat [hidden] */
-}
+/* ---- the one control: sound ------------------------------------------------- */
 .hx-sound {
   position: absolute;
   right: 14px;
   top: 14px;
-  z-index: 8;
-  display: flex;
+  z-index: 9;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
   background: rgba(16, 12, 10, 0.55);
   color: #f6efe2;
-  border: 1px solid rgba(246, 239, 226, 0.25);
-  border-radius: 999px;
-  padding: 8px 14px;
-  font-size: 12.5px;
-  font-family: "Instrument Sans", -apple-system, "PingFang SC", "PingFang TC", sans-serif;
+  border: 1px solid rgba(246, 239, 226, 0.3);
+  border-radius: 50%;
+  padding: 0;
   cursor: pointer;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px);
+}
+.hx-sound svg {
+  display: block;
 }
 .hx-sound:hover {
-  border-color: rgba(246, 239, 226, 0.55);
+  border-color: rgba(246, 239, 226, 0.6);
 }
-.hx-replay {
-  position: absolute;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  z-index: 8;
-  /* shown over the restored desktop (cream) — ink it */
-  background: rgba(252, 246, 239, 0.7);
+.hx-sound.lit {
+  background: rgba(251, 247, 240, 0.85);
   color: #2a231b;
-  border: 1px solid rgba(42, 35, 27, 0.35);
-  border-radius: 999px;
-  padding: 9px 20px;
-  font-size: 13px;
-  font-family: "Instrument Sans", -apple-system, "PingFang SC", "PingFang TC", sans-serif;
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.6s ease;
-}
-.hx-replay.on {
-  opacity: 1;
-  pointer-events: auto;
-}
-.hx-replay:hover {
-  border-color: rgba(42, 35, 27, 0.7);
+  border-color: rgba(42, 35, 27, 0.35);
 }
 
 @media (max-width: 700px) {
   .hx-cap { font-size: 16px; max-width: 180px; }
-  .hx-idle-title { font-size: 22px; }
-  .hx-cam { transform: translateX(-50%) scale(0.85); }
+  .hx-pip { width: 88px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hx-cam-face, .hx-cam-dot { animation: none; }
+  .hx-pip-face.idle, .hx-pip-dot { animation: none; }
 }

@@ -1,1 +1,2 @@
 "NSCameraUsageDescription" = "Antiphon 使用摄像头进行可选的头部追踪，让声音在你转头时保持在房间原位。";
+"NSAudioCaptureUsageDescription" = "Antiphon 捕获 Mac 播放的声音只是为了把它移到智能体声音之外——一切都会在你的耳机中重放，不会录制任何内容。";

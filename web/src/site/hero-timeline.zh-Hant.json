@@ -1,5 +1,5 @@
 {
-  "duration": 32.26,
+  "duration": 25.78,
   "agents": {
     "A": {
       "name": "wren",
@@ -15,26 +15,30 @@
     }
   },
   "captions": {
-    "summary_A": "驗證流程重建完成——四十二個測試全部通過。更新權杖現在能乾淨地輪換了。",
+    "working_A": "又在跑驗證測試……還剩兩個失敗，都在權杖更新裡。試試加個輪換保護。",
     "summary_B": "文件草稿好了——兩頁，附上你要的遷移說明。"
   },
   "reply": "文件先出。驗證等測試跑完我再看。",
+  "ticksA": [
+    4.0,
+    5.4,
+    6.9,
+    13.05
+  ],
   "t": {
     "eyesClose": 2.0,
     "worldIn": 2.7,
-    "gazeA": 3.8,
-    "lockA": 6.2,
-    "lineA": 6.85,
-    "lineAEnd": 15.35,
-    "pingB": 16.05,
-    "gazeB": 16.55,
-    "lockB": 18.95,
-    "lineB": 19.6,
-    "lineBEnd": 24.75,
-    "eyesOpen": 25.75,
-    "letterIn": 26.35,
-    "typeStart": 27.15,
-    "typeEnd": 30.06,
-    "send": 30.66
+    "lineA": 3.5,
+    "lineAEnd": 11.45,
+    "pingB": 9.22,
+    "gazeB": 9.72,
+    "lockB": 12.12,
+    "lineB": 12.77,
+    "lineBEnd": 18.27,
+    "eyesOpen": 19.27,
+    "letterIn": 19.87,
+    "typeStart": 20.67,
+    "typeEnd": 23.58,
+    "send": 24.18
   }
 }

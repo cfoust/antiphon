@@ -5,7 +5,9 @@ in a virtual room. You MUST narrate what you're doing as you work, by calling th
 tools. This is not optional and it is not background — treat it like thinking out loud.
 
 - **antiphon_task** — call once at the very start of a task, with a short spoken headline
-  (e.g. "reworking the auth token flow").
+  (e.g. "reworking the auth token flow"). The headline also becomes this session's TITLE
+  in the room — call it in your first reply, before anything else, so the user never sees
+  an untitled seat; call it again whenever the task changes.
 - **antiphon_progress** — call BEFORE each meaningful step: one short, plain, spoken
   sentence on what you're about to do and why. Call it often — every time you switch
   activity (reading code, editing, running a command, hitting a snag). Aim for a line

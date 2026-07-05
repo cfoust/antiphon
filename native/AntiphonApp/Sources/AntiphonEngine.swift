@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Combine
 import Foundation
@@ -335,6 +336,42 @@ final class AntiphonEngine: ObservableObject {
     private var inTable: UnsafeMutablePointer<UnsafePointer<Float>?>!
     private var srcArr: UnsafeMutablePointer<AntiphonSource>!
 
+    // ---- the rest of the Mac (scratch/system-audio-tap.md) --------------------
+    // One continuum: how far away is everything else the Mac plays? The tap
+    // mutes it at the device and we re-emit — at unity while the eyes are open
+    // (pass-through), pushed back + quieter as the scene comes in (deaden,
+    // the default), or placed as a head-tracked ±30° virtual pair (spatialize,
+    // the prototype). Scene coupling rides the renderer's own smoothed
+    // immersion value, so the Mac recedes exactly as the room fades in.
+    private var sysTapBox: AnyObject? // SystemAudioTap, gated on macOS 14.4
+    private var sysPull: ((UnsafeMutablePointer<Float>, UnsafeMutablePointer<Float>, Int) -> Void)?
+    private var sysOn = false          // render-thread gate (tap live)
+    private var sysSpatial = false     // deaden (false) vs spatialize (true)
+    // q-side copy of the mode: sysMode below is @Published (main-thread), so q
+    // work reading it races the main.async that publishes it — a menu-bar mode
+    // pick used to lose that race and silently not start the tap.
+    private var sysModeQ = "off"
+    private let sysDist: Float = 3.0   // spatialize: virtual-pair distance (m), fixed
+    private var sysVol: Float = 1.0    // system-audio level, render-side (UI: sysVolume)
+    private var sysSlotL = 0, sysSlotR = 0
+    private let sysDeadenLevel: Float = 0.22 // in-scene dry gain ≈ −13 dB
+    private let sysGainSpatial: Float = 0.8  // placed-pair source gain
+    /// The user-facing mode ("off" / "deaden" / "spatial"), persisted. Default
+    /// OFF; the modes only unlock after the explicit permission ask below.
+    @Published var sysMode = "off"
+    /// System-audio level 0..1 (persisted) — IN THE ROOM only: it scales the
+    /// deadened bed and the placed pair, never the eyes-open unity
+    /// pass-through (that would make it a whole-system volume knob).
+    @Published var sysVolume = 1.0
+    /// The System Audio Recording TCC verdict as far as we can know it:
+    /// "unknown" (never asked), "granted", or "denied". Recording the user's
+    /// Mac is intrusive, so the prompt is an explicit button in Settings —
+    /// never a side effect of picking a mode.
+    @Published var sysPermission = "unknown"
+    /// The tap is live (we are muting + re-emitting the Mac) — the menu-bar
+    /// icon must show this state.
+    @Published var sysLive = false
+
     private func now() -> Double { CFAbsoluteTimeGetCurrent() }
 
     init() {
@@ -347,14 +384,20 @@ final class AntiphonEngine: ObservableObject {
         _ = b.start()
         talkback.onSend = { [weak self] text in self?.talkbackSend(text) }
         talkback.onDismiss = { [weak self] in self?.talkbackUnlock() }
+        // while the tap lives we are muting the user's Mac — restore it the
+        // instant we quit rather than waiting for the OS to notice our death
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.shutdownSystemAudio() }
     }
 
     func setup() {
         guard !started, let res = Bundle.main.resourceURL else { return }
         let assetURL = res.appendingPathComponent("antiphon.antiphon")
-        // +1: the audition source (onboarding cues, fit loop)
+        // +3: the audition source (onboarding cues, fit loop) + the system-audio
+        // virtual pair (spatialize mode; slots unused unless the tap is live)
         guard let r = AntiphonRenderer(assetURL: assetURL, sampleRate: SAMPLE_RATE,
-                                      maxSources: AGENTS.count + 1, maxBlock: maxBlock) else {
+                                      maxSources: AGENTS.count + 3, maxBlock: maxBlock) else {
             print("[antiphon] failed to load renderer/asset"); return
         }
         renderer = r
@@ -396,10 +439,10 @@ final class AntiphonEngine: ObservableObject {
             a.bearing = atan2(Double(a.posX), Double(-a.posZ))
         }
 
-        // preallocate FFI scratch (+1 = the audition source)
-        for _ in 0..<(n + 1) { inBufs.append(.allocate(capacity: maxBlock)) }
-        inTable = .allocate(capacity: n + 1)
-        srcArr = .allocate(capacity: n + 1)
+        // preallocate FFI scratch (+3 = audition + system-audio pair)
+        for _ in 0..<(n + 3) { inBufs.append(.allocate(capacity: maxBlock)) }
+        inTable = .allocate(capacity: n + 3)
+        srcArr = .allocate(capacity: n + 3)
         for (i, a) in agents.enumerated() {
             inTable[i] = UnsafePointer(inBufs[i])
             // fx/fy/fz zero = omnidirectional point source (legacy behaviour)
@@ -411,6 +454,29 @@ final class AntiphonEngine: ObservableObject {
         inTable[audSlot] = UnsafePointer(inBufs[audSlot])
         srcArr[audSlot] = AntiphonSource(x: 0, y: 0, z: -radius, gain: 1.0, send: voiceSend,
                                         fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
+        // the system-audio virtual pair: a hi-fi on a shelf at ±30°, head-tracked.
+        // Modest send — wideband music excites the reverb tail far harder than speech.
+        // Each speaker is toed in at the listening position with a speaker-like
+        // pattern (0.7 ≈ cardioid-ish, HF beams harder on-axis; image sources
+        // mirror the facing per bounce, and the reverb send is diffuse-compensated
+        // in the engine, so the room's energy stays honest).
+        sysSlotL = n + 1
+        sysSlotR = n + 2
+        for (slot, sign) in [(sysSlotL, Float(-1)), (sysSlotR, Float(1))] {
+            inTable[slot] = UnsafePointer(inBufs[slot])
+            srcArr[slot] = AntiphonSource(x: sign * sin(.pi / 6) * sysDist, y: 0,
+                                         z: -cos(.pi / 6) * sysDist, gain: 0, send: voiceSend * 0.5,
+                                         fx: -sign * sin(.pi / 6), fy: 0, fz: cos(.pi / 6),
+                                         directivity: 0.7, extent: 0)
+        }
+        let ud0 = UserDefaults.standard
+        if let m = ud0.string(forKey: "sysaudio.mode") { sysMode = m }
+        if ud0.object(forKey: "sysaudio.vol") != nil {
+            sysVolume = min(1.0, max(0.0, ud0.double(forKey: "sysaudio.vol")))
+            sysVol = Float(sysVolume)
+        }
+        sysModeQ = sysMode // pre-q, single-threaded here
+        sysSpatial = sysMode == "spatial"
         renderer.setRoom(roomIndex)
         // Muted until the user enters the room (openRoom). setup() now runs at app
         // LAUNCH so live-bridge state (binds, dones) accumulates correctly from
@@ -442,6 +508,9 @@ final class AntiphonEngine: ObservableObject {
         q.async {
             self.roomOpened = true
             if self.watchingInternal { self.renderer?.setMasterGain(0.45) }
+            // the rest of the Mac joins the room (deaden by default) — created
+            // here, not at launch, so onboarding never fires the TCC prompt
+            self.startSysTap()
         }
     }
 
@@ -566,15 +635,160 @@ final class AntiphonEngine: ObservableObject {
         for a in agents where a.state == .done && !a.snoozed { waiting += 1 } // agents wanting to summarize
         renderer.setAttentionAgents(attentionEnabled ? waiting : 0)
 
+        // ---- the rest of the Mac: drain the tap and shape the continuum -------
+        // The tap mutes the originals at the device, so whenever it's live WE are
+        // the only path to the speakers — the pass-through below must run even
+        // when the eye is off / the master is at zero, or the Mac goes silent.
+        var sysImm: Float = 0
+        if sysOn, started {
+            sysPull?(inBufs[sysSlotL], inBufs[sysSlotR], n)
+            // scene coupling: armed + watching → the renderer's own smoothed fade
+            sysImm = (immersionArmed && watchingInternal) ? renderer.immersion() : 0
+            if sysSpatial {
+                // in-scene: the placed pair (the engine multiplies by immersion
+                // itself, so gain here is the full-scene value)
+                srcArr[sysSlotL].gain = sysGainSpatial * sysVol
+                srcArr[sysSlotR].gain = sysGainSpatial * sysVol
+            }
+        }
+
         let h = 0.5 * orient
         // 6DoF is always on: feed the (filtered, neutral-relative, ±1 m-clamped) head position so
         // leaning/shifting gives true motion parallax — the strongest externalization cue.
         var pose = AntiphonPose(px: Float(headX), py: Float(headY), pz: Float(headZ),
                                qw: Float(cos(h)), qx: 0, qy: Float(-sin(h)), qz: 0)
-        renderer.process(pose: &pose, sources: UnsafePointer(srcArr), n: agents.count + 1,
+        let nSrc = agents.count + 1 + (sysOn && sysSpatial ? 2 : 0)
+        renderer.process(pose: &pose, sources: UnsafePointer(srcArr), n: nSrc,
                          inputs: UnsafePointer(inTable), outL: outL, outR: outR, frames: n)
         // Scene faded + cue crossfaded per-source inside process(); accept chime is mixed into its
         // agent's voice above (spatialized). Nothing to post-multiply.
+
+        // ---- system-audio dry re-emit (post-mix: bypasses master, by design) ---
+        if sysOn, started {
+            // deaden: unity out of scene → pushed back + quieter as the room
+            // fades in (that IS the duck — no separate dip). spatialize: dry
+            // crossfades OUT as the placed pair (already immersion-scaled) takes over.
+            // The volume knob lives IN THE ROOM only — the eyes-open pass-through
+            // stays at unity (we are the Mac's whole audio path; scaling that
+            // would make the knob a system volume). It shapes the deadened bed
+            // here and the placed pair above, nothing else.
+            let gDry: Float = sysSpatial
+                ? (1 - sysImm)
+                : (1 - sysImm) + sysImm * sysDeadenLevel * sysVol
+            if gDry > 0.0005 {
+                let Lb = inBufs[sysSlotL], Rb = inBufs[sysSlotR]
+                for k in 0..<n {
+                    outL[k] += Lb[k] * gDry
+                    outR[k] += Rb[k] * gDry
+                }
+            }
+        }
+    }
+
+    // MARK: the rest of the Mac (system-audio tap lifecycle)
+
+    /// Mode: "off", "deaden" (default — the Mac steps back when the scene is in),
+    /// or "spatial" (prototype — a head-tracked virtual pair in the room).
+    /// The settings card only offers the non-off modes once permission is
+    /// granted, so picking one never doubles as the TCC ask.
+    func setSystemAudio(mode: String) {
+        UserDefaults.standard.set(mode, forKey: "sysaudio.mode")
+        DispatchQueue.main.async { self.sysMode = mode }
+        q.async {
+            self.sysModeQ = mode
+            self.sysSpatial = mode == "spatial"
+            if mode == "off" {
+                self.stopSysTap()
+            } else {
+                self.startSysTap()
+            }
+        }
+    }
+
+    /// System-audio level 0..1 — how loud the Mac plays IN THE ROOM (the
+    /// deadened bed / the placed pair); eyes-open pass-through stays at unity.
+    func setSystemAudioVolume(_ v: Double) {
+        let clamped = min(1.0, max(0.0, v))
+        UserDefaults.standard.set(clamped, forKey: "sysaudio.vol")
+        DispatchQueue.main.async { self.sysVolume = clamped }
+        q.async { self.sysVol = Float(clamped) }
+    }
+
+    /// The explicit ask (the settings button): fires the one-time TCC prompt
+    /// if macOS hasn't decided yet, then publishes the verdict.
+    func requestSystemAudioPermission() {
+        UserDefaults.standard.set(true, forKey: "sysaudio.asked")
+        probeSysPermission()
+    }
+
+    /// Silent health check for the settings card. Only probes once the prompt
+    /// has been shown some other way (the button, or a mode picked in an older
+    /// build) — a probe in the not-determined state would BE the prompt, and
+    /// unsolicited is exactly what we're avoiding.
+    func checkSystemAudioPermission() {
+        guard UserDefaults.standard.bool(forKey: "sysaudio.asked") || sysMode != "off" else { return }
+        probeSysPermission()
+    }
+
+    private func probeSysPermission() {
+        // dev harness instances must never touch the global tap machinery
+        if ProcessInfo.processInfo.environment["ANTIPHON_DEV"]?.contains("notap") == true { return }
+        q.async {
+            if #available(macOS 14.4, *) {
+                // a live tap is its own proof; otherwise a bare inaudible
+                // probe tap asks (or re-reads) TCC
+                let ok = self.sysTapBox != nil || SystemAudioTap.probePermission()
+                if ok { UserDefaults.standard.set(true, forKey: "sysaudio.asked") }
+                DispatchQueue.main.async { self.sysPermission = ok ? "granted" : "denied" }
+                // a mode was picked but the tap is down (fresh grant, or a
+                // revoke-then-regrant) — bring it up now
+                if ok, self.sysModeQ != "off", self.sysTapBox == nil { self.startSysTap() }
+            }
+        }
+    }
+
+    /// Creates the tap. Called when the room opens and on mode changes — after
+    /// the explicit permission ask, so this should never prompt; `q` only.
+    private func startSysTap() {
+        guard sysTapBox == nil, sysModeQ != "off", started else { return }
+        // dev harness instances must never grab the global tap — it would mute
+        // the Mac (including a real Antiphon instance) out from under the user
+        if ProcessInfo.processInfo.environment["ANTIPHON_DEV"]?.contains("notap") == true { return }
+        if #available(macOS 14.4, *) {
+            guard let tap = SystemAudioTap() else {
+                // denied (or the OS refused) — fall back to "off" so the picker
+                // tells the truth, and surface the camera-style recovery
+                print("[antiphon] system tap unavailable (permission or OS)")
+                UserDefaults.standard.set("off", forKey: "sysaudio.mode")
+                sysModeQ = "off"
+                sysSpatial = false
+                DispatchQueue.main.async {
+                    self.sysMode = "off"
+                    self.sysPermission = "denied"
+                }
+                return
+            }
+            sysTapBox = tap
+            sysPull = { [weak tap] l, r, n in tap?.pull(l, r, n) }
+            sysOn = true
+            DispatchQueue.main.async { self.sysPermission = "granted"; self.sysLive = true }
+        }
+    }
+
+    private func stopSysTap() {
+        sysOn = false
+        sysPull = nil
+        if #available(macOS 14.4, *), let tap = sysTapBox as? SystemAudioTap {
+            tap.teardown()
+        }
+        sysTapBox = nil
+        DispatchQueue.main.async { self.sysLive = false }
+    }
+
+    /// Quit-path teardown — un-mutes the Mac immediately rather than waiting
+    /// for the OS to notice our death (taps fail open either way).
+    func shutdownSystemAudio() {
+        q.sync { self.stopSysTap() }
     }
 
     // MARK: inputs from the head tracker
@@ -897,6 +1111,14 @@ final class AntiphonEngine: ObservableObject {
     /// Narration text (task/progress/blocked/done) — the panel's mini-transcript.
     func bridgeLine(seat: Int, kind: String, text: String) {
         q.async {
+            // a task headline is also the session's title (the hub does the same
+            // with SetTitle) — without this, seats bound before their first task
+            // wear the persona name forever
+            if kind == "task" {
+                var m = self.seatMeta[seat] ?? TalkbackSeatMeta()
+                m.title = text
+                self.seatMeta[seat] = m
+            }
             var lines = self.seatLines[seat] ?? []
             lines.append(TalkbackLine(kind: kind, text: text, at: Date().timeIntervalSince1970))
             if lines.count > 24 { lines.removeFirst(lines.count - 24) } // a conversation, not a marquee

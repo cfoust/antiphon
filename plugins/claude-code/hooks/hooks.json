@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -f \"$HOME/.antiphon/antiphond.json\" ] && echo 'Antiphon: narrate this turn as you work — antiphon_task at the start, a short antiphon_progress line before each step, antiphon_done (two sentences) when the task is complete.'; exit 0"
+            "command": "[ -f \"$HOME/.antiphon/antiphond.json\" ] && echo 'Antiphon: narrate this turn as you work — antiphon_task at the start (its headline also titles this session in the room), a short antiphon_progress line before each step, antiphon_done (two sentences) when the task is complete.'; exit 0"
           }
         ]
       }

@@ -200,6 +200,40 @@ private let TBL: [String: (String, String, String)] = [
         ("Пока глаза открыты, закончившие агенты за несколько минут наращивают тихий аккорд",
          "睁眼时，已完成的智能体会在几分钟里慢慢积累一段安静的和声",
          "睜眼時，已完成的代理會在幾分鐘裡慢慢累積一段安靜的和聲"),
+    "System audio passthrough": ("Транзит системного звука", "系统音频直通", "系統音訊直通"),
+    "Default": ("По умолчанию", "默认", "預設"),
+    "Quiet": ("Тихо", "安静", "安靜"),
+    "When the scene is in": ("Когда сцена включена", "进入场景时", "進入場景時"),
+    "Everything else your Mac plays steps back — or joins the room as a virtual speaker pair":
+        ("Всё остальное, что играет Mac, отходит на второй план — или встаёт в комнату виртуальной парой колонок",
+         "Mac 播放的其他声音会退后——或化作一对虚拟音箱加入房间",
+         "Mac 播放的其他聲音會退後——或化作一對虛擬音箱加入房間"),
+    "In the room": ("В комнате", "放进房间", "放進房間"),
+    "Volume": ("Громкость", "音量", "音量"),
+    "How loud the rest of the Mac plays in the room — the eyes-open pass-through is untouched":
+        ("Насколько громко остальной звук Mac звучит в комнате — транзит при открытых глазах не меняется",
+         "Mac 其余声音在房间里的响度——睁眼时的直通不受影响",
+         "Mac 其餘聲音在房間裡的響度——睜眼時的直通不受影響"),
+    "Recording permission": ("Разрешение на запись", "录制权限", "錄製權限"),
+    "Granted": ("Есть", "已授予", "已授予"),
+    "macOS lets Antiphon record system audio — passthrough is ready":
+        ("macOS разрешает Antiphon записывать системный звук — транзит готов к работе",
+         "macOS 已允许 Antiphon 录制系统音频——直通已就绪",
+         "macOS 已允許 Antiphon 錄製系統音訊——直通已就緒"),
+    "Antiphon needs to record system audio to pass it through — macOS will ask once":
+        ("Чтобы транзитировать системный звук, Antiphon должен его записывать — macOS спросит один раз",
+         "Antiphon 需要录制系统音频才能直通——macOS 只会询问一次",
+         "Antiphon 需要錄製系統音訊才能直通——macOS 只會詢問一次"),
+    "Request permission…": ("Запросить разрешение…", "请求权限…", "要求權限…"),
+    "macOS blocked system-audio recording — allow Antiphon under Privacy & Security, then check again":
+        ("macOS заблокировала запись системного звука — разрешите Antiphon в «Конфиденциальности и безопасности» и проверьте снова",
+         "macOS 拦截了系统音频录制——请在「隐私与安全性」中允许 Antiphon，然后重新检查",
+         "macOS 攔截了系統音訊錄製——請在「隱私權與安全性」中允許 Antiphon，然後重新檢查"),
+    "Check again": ("Проверить снова", "重新检查", "重新檢查"),
+    "Allow recording in Settings…": ("Разрешить запись в настройках…", "在设置中允许录制…", "在設定中允許錄製…"),
+    "System audio is in the room": ("Системный звук — в комнате", "系统音频在房间里", "系統音訊在房間裡"),
+    "System audio is quiet in the scene": ("Системный звук затихает в сцене", "进入场景时系统音频会变安静", "進入場景時系統音訊會變安靜"),
+    "Requires macOS 14.4 or later.": ("Требуется macOS 14.4 или новее.", "需要 macOS 14.4 或更高版本。", "需要 macOS 14.4 或更新版本。"),
     "Save": ("Сохранить", "保存", "儲存"),
     "Use these voices": ("Использовать эти голоса", "使用这些声音", "使用這些聲音"),
     "Hear this voice": ("Послушать этот голос", "试听这个声音", "試聽這個聲音"),
@@ -311,7 +345,7 @@ private let TBL: [String: (String, String, String)] = [
     "Applying…": ("Применяем…", "正在应用…", "正在套用…"),
 
     // ---- talk-back panel ----
-    "tell %@…": ("скажите %@…", "对 %@ 说…", "對 %@ 說…"),
+    "Enter a message…": ("Введите сообщение…", "输入消息…", "輸入訊息…"),
     "%@ has no input path — it isn’t in a pane Antiphon can type into":
         ("%@ недоступен для ввода — он не в панели, куда Antiphon может печатать",
          "%@ 没有输入通道——它不在 Antiphon 能输入文字的窗格里",
@@ -319,7 +353,7 @@ private let TBL: [String: (String, String, String)] = [
     "can’t hear you": ("вас не слышит", "听不到你", "聽不到你"),
     "send to %@": ("отправить %@", "发送给 %@", "傳送給 %@"),
     "listening only": ("только прослушивание", "只能旁听", "只能旁聽"),
-    "let go": ("отпустить", "放开", "放開"),
+    "close": ("закрыть", "关闭", "關閉"),
     "tag.task": ("ЗАДАЧА", "任务", "任務"),
     "tag.progress": ("ХОД", "进展", "進展"),
     "tag.done": ("ГОТОВО", "完成", "完成"),
