@@ -359,8 +359,9 @@ final class AntiphonEngine: ObservableObject {
     /// The user-facing mode ("off" / "deaden" / "spatial"), persisted. Default
     /// OFF; the modes only unlock after the explicit permission ask below.
     @Published var sysMode = "off"
-    /// System-audio level 0..1 (persisted): one knob that scales both the dry
-    /// pass-through and the placed pair, on top of the mode's own shaping.
+    /// System-audio level 0..1 (persisted) — IN THE ROOM only: it scales the
+    /// deadened bed and the placed pair, never the eyes-open unity
+    /// pass-through (that would make it a whole-system volume knob).
     @Published var sysVolume = 1.0
     /// The System Audio Recording TCC verdict as far as we can know it:
     /// "unknown" (never asked), "granted", or "denied". Recording the user's
@@ -667,9 +668,13 @@ final class AntiphonEngine: ObservableObject {
             // deaden: unity out of scene → pushed back + quieter as the room
             // fades in (that IS the duck — no separate dip). spatialize: dry
             // crossfades OUT as the placed pair (already immersion-scaled) takes over.
-            let gDry: Float = sysVol * (sysSpatial
+            // The volume knob lives IN THE ROOM only — the eyes-open pass-through
+            // stays at unity (we are the Mac's whole audio path; scaling that
+            // would make the knob a system volume). It shapes the deadened bed
+            // here and the placed pair above, nothing else.
+            let gDry: Float = sysSpatial
                 ? (1 - sysImm)
-                : (1 - sysImm) + sysImm * sysDeadenLevel)
+                : (1 - sysImm) + sysImm * sysDeadenLevel * sysVol
             if gDry > 0.0005 {
                 let Lb = inBufs[sysSlotL], Rb = inBufs[sysSlotR]
                 for k in 0..<n {
@@ -700,8 +705,8 @@ final class AntiphonEngine: ObservableObject {
         }
     }
 
-    /// System-audio level 0..1 — scales the dry pass-through and the placed
-    /// pair alike (render-side, ramps with the block like everything else).
+    /// System-audio level 0..1 — how loud the Mac plays IN THE ROOM (the
+    /// deadened bed / the placed pair); eyes-open pass-through stays at unity.
     func setSystemAudioVolume(_ v: Double) {
         let clamped = min(1.0, max(0.0, v))
         UserDefaults.standard.set(clamped, forKey: "sysaudio.vol")
