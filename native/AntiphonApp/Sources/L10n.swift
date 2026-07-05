@@ -211,11 +211,6 @@ private let TBL: [String: (String, String, String)] = [
     "In the room": ("В комнате", "放进房间", "放進房間"),
     "Distance": ("Расстояние", "距离", "距離"),
     "How far away the virtual pair sits": ("Как далеко стоит виртуальная пара", "虚拟音箱离你多远", "虛擬音箱離你多遠"),
-    "Duck while an agent speaks": ("Приглушать, пока агент говорит", "智能体说话时压低", "代理說話時壓低"),
-    "Dip the Mac's audio a little whenever a voice is talking to you":
-        ("Слегка приглушать звук Mac, когда с вами говорит голос",
-         "有声音对你说话时，稍微压低 Mac 的音量",
-         "有聲音對你說話時，稍微壓低 Mac 的音量"),
     "Requires macOS 14.4 or later.": ("Требуется macOS 14.4 или новее.", "需要 macOS 14.4 或更高版本。", "需要 macOS 14.4 或更新版本。"),
     "Save": ("Сохранить", "保存", "儲存"),
     "Use these voices": ("Использовать эти голоса", "使用这些声音", "使用這些聲音"),

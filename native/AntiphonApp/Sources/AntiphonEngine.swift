@@ -347,8 +347,6 @@ final class AntiphonEngine: ObservableObject {
     private var sysPull: ((UnsafeMutablePointer<Float>, UnsafeMutablePointer<Float>, Int) -> Void)?
     private var sysOn = false          // render-thread gate (tap live)
     private var sysSpatial = false     // deaden (false) vs spatialize (true)
-    private var sysDuckEnabled = true  // extra dip while an agent voice is live
-    private var sysDuck: Float = 1     // smoothed on the render thread
     private var sysDist: Float = 2.2   // spatialize: virtual-pair distance (m)
     private var sysSlotL = 0, sysSlotR = 0
     private let sysDeadenLevel: Float = 0.22 // in-scene dry gain ≈ −13 dB
@@ -451,7 +449,6 @@ final class AntiphonEngine: ObservableObject {
         let ud0 = UserDefaults.standard
         if let m = ud0.string(forKey: "sysaudio.mode") { sysMode = m }
         if ud0.object(forKey: "sysaudio.dist") != nil { sysDist = Float(ud0.double(forKey: "sysaudio.dist")) }
-        if ud0.object(forKey: "sysaudio.duck") != nil { sysDuckEnabled = ud0.bool(forKey: "sysaudio.duck") }
         sysSpatial = sysMode == "spatial"
         renderer.setRoom(roomIndex)
         // Muted until the user enters the room (openRoom). setup() now runs at app
@@ -618,22 +615,13 @@ final class AntiphonEngine: ObservableObject {
         var sysImm: Float = 0
         if sysOn, started {
             sysPull?(inBufs[sysSlotL], inBufs[sysSlotR], n)
-            // duck the Mac a little while an agent voice is actually speaking
-            var voiceHot = false
-            for a in agents where a.gClear > 0.05 || a.gSummary > 0.05 || a.gNarr > 0.05 {
-                voiceHot = true
-                break
-            }
-            let duckT: Float = (sysDuckEnabled && voiceHot) ? 0.3 : 1
-            sysDuck += (duckT - sysDuck) * 0.04
             // scene coupling: armed + watching → the renderer's own smoothed fade
             sysImm = (immersionArmed && watchingInternal) ? renderer.immersion() : 0
             if sysSpatial {
                 // in-scene: the placed pair (the engine multiplies by immersion
                 // itself, so gain here is the full-scene value)
-                let g = sysGainSpatial * sysDuck
-                srcArr[sysSlotL].gain = g
-                srcArr[sysSlotR].gain = g
+                srcArr[sysSlotL].gain = sysGainSpatial
+                srcArr[sysSlotR].gain = sysGainSpatial
             }
         }
 
@@ -651,11 +639,11 @@ final class AntiphonEngine: ObservableObject {
         // ---- system-audio dry re-emit (post-mix: bypasses master, by design) ---
         if sysOn, started {
             // deaden: unity out of scene → pushed back + quieter as the room
-            // fades in. spatialize: dry crossfades OUT as the placed pair (in
-            // the renderer, already immersion-scaled) takes over.
+            // fades in (that IS the duck — no separate dip). spatialize: dry
+            // crossfades OUT as the placed pair (already immersion-scaled) takes over.
             let gDry: Float = sysSpatial
                 ? (1 - sysImm)
-                : (1 - sysImm) + sysImm * sysDeadenLevel * sysDuck
+                : (1 - sysImm) + sysImm * sysDeadenLevel
             if gDry > 0.0005 {
                 let Lb = inBufs[sysSlotL], Rb = inBufs[sysSlotR]
                 for k in 0..<n {
@@ -695,11 +683,6 @@ final class AntiphonEngine: ObservableObject {
         }
     }
 
-    func setSystemAudioDuck(_ on: Bool) {
-        UserDefaults.standard.set(on, forKey: "sysaudio.duck")
-        q.async { self.sysDuckEnabled = on }
-    }
-
     /// Creates the tap (first time fires the TCC "System Audio Recording"
     /// prompt). Called when the room opens and on mode changes; `q` only.
     private func startSysTap() {
@@ -713,7 +696,6 @@ final class AntiphonEngine: ObservableObject {
                 return
             }
             sysTapBox = tap
-            sysDuck = 1
             sysPull = { [weak tap] l, r, n in tap?.pull(l, r, n) }
             sysOn = true
         }

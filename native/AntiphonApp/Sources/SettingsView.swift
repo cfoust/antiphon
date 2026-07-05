@@ -208,7 +208,6 @@ private struct GeneralPane: View {
     @State private var waitingCue = true
     @State private var sysMode = "deaden"
     @State private var sysDist = 2.2
-    @State private var sysDuck = true
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -223,7 +222,6 @@ private struct GeneralPane: View {
                 let ud = UserDefaults.standard
                 sysMode = ud.string(forKey: "sysaudio.mode") ?? "deaden"
                 sysDist = ud.object(forKey: "sysaudio.dist") != nil ? ud.double(forKey: "sysaudio.dist") : 2.2
-                sysDuck = ud.object(forKey: "sysaudio.duck") != nil ? ud.bool(forKey: "sysaudio.duck") : true
             }
 
         card(L("Sound")) {
@@ -288,15 +286,6 @@ private struct GeneralPane: View {
                             Text(String(format: "%.1f m", sysDist))
                                 .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
                         }
-                    }
-                }
-                if sysMode != "off" {
-                    divider()
-                    labeledRow(L("Duck while an agent speaks"),
-                               L("Dip the Mac's audio a little whenever a voice is talking to you")) {
-                        Toggle("", isOn: Binding(get: { sysDuck },
-                                                 set: { sysDuck = $0; engine.setSystemAudioDuck($0) }))
-                            .labelsHidden().toggleStyle(.switch)
                     }
                 }
             } else {
