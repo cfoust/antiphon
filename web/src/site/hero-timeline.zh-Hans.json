@@ -1,5 +1,5 @@
 {
-  "duration": 31.91,
+  "duration": 26.56,
   "agents": {
     "A": {
       "name": "wren",
@@ -15,26 +15,30 @@
     }
   },
   "captions": {
-    "summary_A": "鉴权流程重建完成——四十二个测试全部通过。刷新令牌现在能干净地轮换了。",
+    "working_A": "又在跑鉴权测试……还剩两个失败，都在令牌刷新里。试试加个轮换保护。",
     "summary_B": "文档草稿好了——两页，带上你要的迁移说明。"
   },
   "reply": "文档先发。鉴权等测试跑完我再看。",
+  "ticksA": [
+    4.0,
+    5.4,
+    6.9,
+    13.85
+  ],
   "t": {
     "eyesClose": 2.0,
     "worldIn": 2.7,
-    "gazeA": 3.8,
-    "lockA": 6.2,
-    "lineA": 6.85,
-    "lineAEnd": 15.15,
-    "pingB": 15.85,
-    "gazeB": 16.35,
-    "lockB": 18.75,
-    "lineB": 19.4,
-    "lineBEnd": 24.4,
-    "eyesOpen": 25.4,
-    "letterIn": 26.0,
-    "typeStart": 26.8,
-    "typeEnd": 29.71,
-    "send": 30.31
+    "lineA": 3.5,
+    "lineAEnd": 12.25,
+    "pingB": 9.8,
+    "gazeB": 10.3,
+    "lockB": 12.7,
+    "lineB": 13.35,
+    "lineBEnd": 19.05,
+    "eyesOpen": 20.05,
+    "letterIn": 20.65,
+    "typeStart": 21.45,
+    "typeEnd": 24.36,
+    "send": 24.96
   }
 }

@@ -73,29 +73,37 @@ function page(lang: Lang): string {
   </div>
 </nav>`;
 
+  // The demo IS the hero: headline-first with the panel beneath on desktop
+  // (the tracking eye perched on its edge), the panel as the full first
+  // viewport with the copy overlaid on phones. hero.css owns the flip.
   const hero = `
-<header id="top" class="anph-hero">
-  <div class="anph-hero-eye-wrap">
-    ${heroEyeSvg}
-    <div class="anph-halo"></div>
-    <div class="anph-halo anph-halo--outer"></div>
+<header id="top" class="anph-hero anph-hero--stage">
+  <div class="anph-hero-copy">
+    <h1>${S.hero.h1}</h1>
+    <p class="anph-hero-sub">${S.hero.sub}</p>
+    <div class="anph-hero-ctas">
+      <a href="${DOWNLOAD_URL}" data-dl class="anph-btn anph-btn--primary anph-only-desktop">${S.hero.download}</a>
+      <a href="/demo.html" class="anph-btn anph-btn--secondary">${S.hero.browser}</a>
+    </div>
+    <div class="anph-fineprint anph-only-desktop">${S.hero.fineprint}</div>
+    <div class="anph-fineprint anph-only-mobile">${S.hero.mobileNote}</div>
   </div>
-  <h1>${S.hero.h1}</h1>
-  <p class="anph-hero-sub">${S.hero.sub}</p>
-  <div class="anph-hero-ctas">
-    <a href="${DOWNLOAD_URL}" data-dl class="anph-btn anph-btn--primary">${S.hero.download}</a>
-    <a href="/demo.html" class="anph-btn anph-btn--secondary">${S.hero.browser}</a>
+  <div class="anph-stage">
+    <div id="listen-panel" class="listen-panel"></div>
   </div>
-  <div class="anph-fineprint">${S.hero.fineprint}</div>
 </header>`;
 
   const listen = `
 <section id="listen" class="anph-listen">
   <div class="anph-listen-inner">
+    <div class="anph-hero-eye-wrap">
+      ${heroEyeSvg}
+      <div class="anph-halo"></div>
+      <div class="anph-halo anph-halo--outer"></div>
+    </div>
     <div class="anph-eyebrow">${S.listen.eyebrow}</div>
     <h2 class="anph-h2" style="margin-bottom:18px">${S.listen.h2}</h2>
     <p class="anph-listen-intro">${S.listen.intro}</p>
-    <div id="listen-panel" class="listen-panel"></div>
     <p class="anph-listen-note">${S.listen.note}</p>
     <div class="anph-listen-demo-cta">
       <a href="/demo.html" class="anph-btn anph-btn--primary">${S.listen.cta}</a>
@@ -196,7 +204,7 @@ function page(lang: Lang): string {
     <h2>${S.get.h2}</h2>
     <p class="anph-get-sub">${S.get.sub}</p>
     <div class="anph-get-ctas">
-      <a href="${DOWNLOAD_URL}" data-dl class="anph-btn anph-btn--primary">${S.get.download}</a>
+      <a href="${DOWNLOAD_URL}" data-dl class="anph-btn anph-btn--primary anph-only-desktop">${S.get.download}</a>
       <a href="/demo.html" class="anph-btn anph-btn--secondary">${S.get.demo}</a>
     </div>
     <div class="anph-fineprint">${S.get.fineprint}</div>
