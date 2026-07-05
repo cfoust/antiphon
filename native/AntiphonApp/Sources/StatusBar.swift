@@ -42,7 +42,7 @@ final class MenuBarController: NSObject {
         refresh()
     }
 
-    /// Reflect the system-audio tap: satellites appear beside the eye while we
+    /// Reflect the system-audio tap: wave arcs appear beside the eye while we
     /// are muting + re-emitting the Mac (that state must be visible somewhere).
     func syncSysAudio(live: Bool, mode: String) {
         guard sysLive != live || sysMode != mode else { return }
@@ -146,8 +146,8 @@ final class MenuBarController: NSObject {
         button.toolTip = tip
     }
 
-    /// The eye — with two satellite dots (the virtual pair) while the system
-    /// tap is live. Template image, so it follows the menu-bar appearance.
+    /// The eye — with sound-wave arcs at its side while the system tap is
+    /// live. Template image, so it follows the menu-bar appearance.
     private func statusImage(symbol: String, description: String) -> NSImage {
         let base = NSImage(systemSymbolName: symbol, accessibilityDescription: description)!
         guard sysLive else { return base }
@@ -155,12 +155,16 @@ final class MenuBarController: NSObject {
         let img = NSImage(size: size)
         img.lockFocus()
         let b = base.size
-        base.draw(at: NSPoint(x: (size.width - b.width) / 2, y: (size.height - b.height) / 2),
+        // eye nudged left so the waves get their own air
+        base.draw(at: NSPoint(x: (size.width - b.width) / 2 - 2, y: (size.height - b.height) / 2),
                   from: .zero, operation: .sourceOver, fraction: 1)
-        NSColor.black.set()
-        for x in [CGFloat(2.6), size.width - 2.6] {
-            NSBezierPath(ovalIn: NSRect(x: x - 1.7, y: size.height / 2 - 0.7,
-                                        width: 3.4, height: 3.4)).fill()
+        let c = NSPoint(x: size.width - 5.6, y: size.height / 2 + 0.5)
+        for (r, alpha) in [(CGFloat(2.6), CGFloat(0.95)), (CGFloat(4.6), CGFloat(0.55))] {
+            let arc = NSBezierPath()
+            arc.appendArc(withCenter: c, radius: r, startAngle: -42, endAngle: 42)
+            arc.lineWidth = 1.3
+            NSColor.black.withAlphaComponent(alpha).set()
+            arc.stroke()
         }
         img.unlockFocus()
         img.isTemplate = true
