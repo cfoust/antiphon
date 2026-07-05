@@ -263,15 +263,15 @@ private struct GeneralPane: View {
             }
         }
 
-        card(L("The rest of your Mac")) {
+        card(L("System audio passthrough")) {
             if #available(macOS 14.4, *) {
                 labeledRow(L("When the scene is in"),
                            L("Everything else your Mac plays steps back — or joins the room as a virtual speaker pair")) {
                     Picker("", selection: Binding(
                         get: { sysMode },
                         set: { sysMode = $0; engine.setSystemAudio(mode: $0) })) {
-                        Text(L("As is")).tag("off")
-                        Text(L("Quieter")).tag("deaden")
+                        Text(L("Default")).tag("off")
+                        Text(L("Quiet")).tag("deaden")
                         Text(L("In the room")).tag("spatial")
                     }
                     .labelsHidden().pickerStyle(.segmented).frame(width: 260)

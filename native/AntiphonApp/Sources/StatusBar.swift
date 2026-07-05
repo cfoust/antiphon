@@ -79,10 +79,10 @@ final class MenuBarController: NSObject {
 
         // the rest of the Mac: mode picker, mirrored from Settings
         if #available(macOS 14.4, *) {
-            let head = NSMenuItem(title: L("The rest of your Mac"), action: nil, keyEquivalent: "")
+            let head = NSMenuItem(title: L("System audio passthrough"), action: nil, keyEquivalent: "")
             head.isEnabled = false
             menu.addItem(head)
-            for (tag, label) in [("off", L("As is")), ("deaden", L("Quieter")), ("spatial", L("In the room"))] {
+            for (tag, label) in [("off", L("Default")), ("deaden", L("Quiet")), ("spatial", L("In the room"))] {
                 let mi = NSMenuItem(title: label, action: #selector(pickSysMode(_:)), keyEquivalent: "")
                 mi.target = self
                 mi.representedObject = tag
@@ -140,8 +140,8 @@ final class MenuBarController: NSObject {
             : L("Antiphon is asleep — click to wake it")
         if sysLive {
             tip += "\n" + (sysMode == "spatial"
-                ? L("The rest of your Mac is in the room")
-                : L("The rest of your Mac gets quieter in the scene"))
+                ? L("System audio is in the room")
+                : L("System audio is quiet in the scene"))
         }
         button.toolTip = tip
     }
