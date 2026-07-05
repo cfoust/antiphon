@@ -208,6 +208,7 @@ private struct GeneralPane: View {
     @State private var waitingCue = true
     @State private var sysMode = "off"
     @State private var sysPerm = "unknown"
+    @State private var sysVol = 1.0
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -220,6 +221,7 @@ private struct GeneralPane: View {
                 fadeDelay = engine.fadeDelay
                 waitingCue = engine.attentionCue
                 sysMode = UserDefaults.standard.string(forKey: "sysaudio.mode") ?? "off"
+                sysVol = engine.sysVolume
             }
 
         card(L("Sound")) {
@@ -313,6 +315,19 @@ private struct GeneralPane: View {
                 .onReceive(engine.$sysMode) { sysMode = $0 }
                 .onReceive(engine.$sysPermission) { sysPerm = $0 }
                 .onAppear { engine.checkSystemAudioPermission() }
+                if sysMode != "off" {
+                    divider()
+                    labeledRow(L("Volume"), L("How loud the rest of the Mac plays")) {
+                        HStack(spacing: 8) {
+                            Slider(value: Binding(get: { sysVol },
+                                                  set: { sysVol = $0; engine.setSystemAudioVolume($0) }),
+                                   in: 0...1)
+                                .frame(width: 170)
+                            Text("\(Int((sysVol * 100).rounded())) %")
+                                .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
+                        }
+                    }
+                }
             } else {
                 Text(L("Requires macOS 14.4 or later."))
                     .font(.callout).foregroundStyle(SD.faint)

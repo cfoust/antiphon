@@ -17,8 +17,9 @@ final class MenuBarController: NSObject {
     private var sysLive = false
     private var sysMode = "off"
     var onToggle: (() -> Void)?
-    var onCheckUpdates: (() -> Void)?
     var onSysMode: ((String) -> Void)?
+    var onSysVolume: ((Double) -> Void)?
+    var sysVolume: (() -> Double)?
     /// Whether system-audio recording permission is granted — the mode picker
     /// in the right-click menu must never be the thing that fires the TCC
     /// prompt (Settings owns the explicit ask).
@@ -68,19 +69,15 @@ final class MenuBarController: NSObject {
         }
     }
 
-    /// The right-click menu — what every menu-bar Mac app owes its user:
-    /// about, updates, settings, the state toggle, help, quit.
+    /// The right-click menu, kept SHORT — a long menu scrolls under the menu
+    /// bar. About, settings, the system-audio picker, quit; docs and updates
+    /// live in Settings.
     private func showMenu() {
         let menu = NSMenu()
 
         let about = NSMenuItem(title: L("About Antiphon"), action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
-        let updates = NSMenuItem(title: L("Check for Updates…"), action: #selector(checkUpdates), keyEquivalent: "")
-        updates.target = self
-        menu.addItem(updates)
-        menu.addItem(.separator())
-
         let settings = NSMenuItem(title: L("Settings…"), action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -102,6 +99,7 @@ final class MenuBarController: NSObject {
                     mi.indentationLevel = 1
                     menu.addItem(mi)
                 }
+                if sysMode != "off" { menu.addItem(volumeItem()) }
             } else {
                 let ask = NSMenuItem(title: L("Allow recording in Settings…"),
                                      action: #selector(openSettings), keyEquivalent: "")
@@ -111,11 +109,6 @@ final class MenuBarController: NSObject {
             }
             menu.addItem(.separator())
         }
-
-        let docs = NSMenuItem(title: L("Antiphon Documentation"), action: #selector(openDocs), keyEquivalent: "")
-        docs.target = self
-        menu.addItem(docs)
-        menu.addItem(.separator())
 
         let quit = NSMenuItem(title: L("Quit Antiphon"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -130,20 +123,45 @@ final class MenuBarController: NSObject {
                    at: NSPoint(x: 0, y: button.bounds.maxY + 5), in: button)
     }
 
+    /// The system-audio level, inline under the mode rows (speaker glyphs at
+    /// the ends, like the sound menu). Lives in an NSMenuItem view so it
+    /// tracks live without closing the menu.
+    private func volumeItem() -> NSMenuItem {
+        let width = 210.0
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 26))
+        let slider = NSSlider(value: sysVolume?() ?? 1.0, minValue: 0, maxValue: 1,
+                              target: self, action: #selector(volumeChanged(_:)))
+        slider.isContinuous = true
+        slider.controlSize = .small
+        let lo = NSImageView(image: NSImage(systemSymbolName: "speaker.fill",
+                                            accessibilityDescription: nil)!)
+        let hi = NSImageView(image: NSImage(systemSymbolName: "speaker.wave.3.fill",
+                                            accessibilityDescription: nil)!)
+        for v in [lo, hi] { v.contentTintColor = .tertiaryLabelColor }
+        // indentationLevel doesn't apply to view items — pad to match the modes
+        lo.frame = NSRect(x: 25, y: 7, width: 13, height: 12)
+        slider.frame = NSRect(x: 42, y: 3, width: width - 42 - 32, height: 20)
+        hi.frame = NSRect(x: width - 28, y: 7, width: 16, height: 12)
+        container.addSubview(lo)
+        container.addSubview(slider)
+        container.addSubview(hi)
+        let mi = NSMenuItem()
+        mi.view = container
+        return mi
+    }
+
+    @objc private func volumeChanged(_ sender: NSSlider) {
+        onSysVolume?(sender.doubleValue)
+    }
+
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(nil)
     }
 
-    @objc private func checkUpdates() { onCheckUpdates?() }
-
     @objc private func openSettings() {
         NSApp.activate(ignoringOtherApps: true)
         NotificationCenter.default.post(name: .init("antiphon.showSettings"), object: nil)
-    }
-
-    @objc private func openDocs() {
-        if let u = URL(string: "https://antiphon.dev/docs/") { NSWorkspace.shared.open(u) }
     }
 
     @objc private func pickSysMode(_ sender: NSMenuItem) {

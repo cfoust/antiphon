@@ -347,13 +347,21 @@ final class AntiphonEngine: ObservableObject {
     private var sysPull: ((UnsafeMutablePointer<Float>, UnsafeMutablePointer<Float>, Int) -> Void)?
     private var sysOn = false          // render-thread gate (tap live)
     private var sysSpatial = false     // deaden (false) vs spatialize (true)
+    // q-side copy of the mode: sysMode below is @Published (main-thread), so q
+    // work reading it races the main.async that publishes it — a menu-bar mode
+    // pick used to lose that race and silently not start the tap.
+    private var sysModeQ = "off"
     private let sysDist: Float = 3.0   // spatialize: virtual-pair distance (m), fixed
+    private var sysVol: Float = 1.0    // system-audio level, render-side (UI: sysVolume)
     private var sysSlotL = 0, sysSlotR = 0
     private let sysDeadenLevel: Float = 0.22 // in-scene dry gain ≈ −13 dB
     private let sysGainSpatial: Float = 0.8  // placed-pair source gain
     /// The user-facing mode ("off" / "deaden" / "spatial"), persisted. Default
     /// OFF; the modes only unlock after the explicit permission ask below.
     @Published var sysMode = "off"
+    /// System-audio level 0..1 (persisted): one knob that scales both the dry
+    /// pass-through and the placed pair, on top of the mode's own shaping.
+    @Published var sysVolume = 1.0
     /// The System Audio Recording TCC verdict as far as we can know it:
     /// "unknown" (never asked), "granted", or "denied". Recording the user's
     /// Mac is intrusive, so the prompt is an explicit button in Settings —
@@ -462,6 +470,11 @@ final class AntiphonEngine: ObservableObject {
         }
         let ud0 = UserDefaults.standard
         if let m = ud0.string(forKey: "sysaudio.mode") { sysMode = m }
+        if ud0.object(forKey: "sysaudio.vol") != nil {
+            sysVolume = min(1.0, max(0.0, ud0.double(forKey: "sysaudio.vol")))
+            sysVol = Float(sysVolume)
+        }
+        sysModeQ = sysMode // pre-q, single-threaded here
         sysSpatial = sysMode == "spatial"
         renderer.setRoom(roomIndex)
         // Muted until the user enters the room (openRoom). setup() now runs at app
@@ -633,8 +646,8 @@ final class AntiphonEngine: ObservableObject {
             if sysSpatial {
                 // in-scene: the placed pair (the engine multiplies by immersion
                 // itself, so gain here is the full-scene value)
-                srcArr[sysSlotL].gain = sysGainSpatial
-                srcArr[sysSlotR].gain = sysGainSpatial
+                srcArr[sysSlotL].gain = sysGainSpatial * sysVol
+                srcArr[sysSlotR].gain = sysGainSpatial * sysVol
             }
         }
 
@@ -654,9 +667,9 @@ final class AntiphonEngine: ObservableObject {
             // deaden: unity out of scene → pushed back + quieter as the room
             // fades in (that IS the duck — no separate dip). spatialize: dry
             // crossfades OUT as the placed pair (already immersion-scaled) takes over.
-            let gDry: Float = sysSpatial
+            let gDry: Float = sysVol * (sysSpatial
                 ? (1 - sysImm)
-                : (1 - sysImm) + sysImm * sysDeadenLevel
+                : (1 - sysImm) + sysImm * sysDeadenLevel)
             if gDry > 0.0005 {
                 let Lb = inBufs[sysSlotL], Rb = inBufs[sysSlotR]
                 for k in 0..<n {
@@ -677,6 +690,7 @@ final class AntiphonEngine: ObservableObject {
         UserDefaults.standard.set(mode, forKey: "sysaudio.mode")
         DispatchQueue.main.async { self.sysMode = mode }
         q.async {
+            self.sysModeQ = mode
             self.sysSpatial = mode == "spatial"
             if mode == "off" {
                 self.stopSysTap()
@@ -684,6 +698,15 @@ final class AntiphonEngine: ObservableObject {
                 self.startSysTap()
             }
         }
+    }
+
+    /// System-audio level 0..1 — scales the dry pass-through and the placed
+    /// pair alike (render-side, ramps with the block like everything else).
+    func setSystemAudioVolume(_ v: Double) {
+        let clamped = min(1.0, max(0.0, v))
+        UserDefaults.standard.set(clamped, forKey: "sysaudio.vol")
+        DispatchQueue.main.async { self.sysVolume = clamped }
+        q.async { self.sysVol = Float(clamped) }
     }
 
     /// The explicit ask (the settings button): fires the one-time TCC prompt
@@ -714,7 +737,7 @@ final class AntiphonEngine: ObservableObject {
                 DispatchQueue.main.async { self.sysPermission = ok ? "granted" : "denied" }
                 // a mode was picked but the tap is down (fresh grant, or a
                 // revoke-then-regrant) — bring it up now
-                if ok, self.sysMode != "off", self.sysTapBox == nil { self.startSysTap() }
+                if ok, self.sysModeQ != "off", self.sysTapBox == nil { self.startSysTap() }
             }
         }
     }
@@ -722,7 +745,7 @@ final class AntiphonEngine: ObservableObject {
     /// Creates the tap. Called when the room opens and on mode changes — after
     /// the explicit permission ask, so this should never prompt; `q` only.
     private func startSysTap() {
-        guard sysTapBox == nil, sysMode != "off", started else { return }
+        guard sysTapBox == nil, sysModeQ != "off", started else { return }
         // dev harness instances must never grab the global tap — it would mute
         // the Mac (including a real Antiphon instance) out from under the user
         if ProcessInfo.processInfo.environment["ANTIPHON_DEV"]?.contains("notap") == true { return }
@@ -732,6 +755,7 @@ final class AntiphonEngine: ObservableObject {
                 // tells the truth, and surface the camera-style recovery
                 print("[antiphon] system tap unavailable (permission or OS)")
                 UserDefaults.standard.set("off", forKey: "sysaudio.mode")
+                sysModeQ = "off"
                 sysSpatial = false
                 DispatchQueue.main.async {
                     self.sysMode = "off"
