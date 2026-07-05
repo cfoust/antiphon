@@ -209,6 +209,8 @@ private let TBL: [String: (String, String, String)] = [
          "Mac 播放的其他声音会退后——或化作一对虚拟音箱加入房间",
          "Mac 播放的其他聲音會退後——或化作一對虛擬音箱加入房間"),
     "In the room": ("В комнате", "放进房间", "放進房間"),
+    "Volume": ("Громкость", "音量", "音量"),
+    "How loud the rest of the Mac plays": ("Насколько громко звучит остальной звук Mac", "Mac 其余声音的响度", "Mac 其餘聲音的響度"),
     "Recording permission": ("Разрешение на запись", "录制权限", "錄製權限"),
     "Granted": ("Есть", "已授予", "已授予"),
     "macOS lets Antiphon record system audio — passthrough is ready":
