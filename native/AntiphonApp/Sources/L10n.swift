@@ -215,6 +215,8 @@ private let TBL: [String: (String, String, String)] = [
         ("macOS заблокировала запись системного звука — разрешите Antiphon и выберите режим снова",
          "macOS 拦截了系统音频录制——请允许 Antiphon 后重新选择模式",
          "macOS 攔截了系統音訊錄製——請允許 Antiphon 後重新選擇模式"),
+    "The rest of your Mac is in the room": ("Остальной Mac — в комнате", "Mac 的其他声音在房间里", "Mac 的其他聲音在房間裡"),
+    "The rest of your Mac gets quieter in the scene": ("Остальной Mac становится тише в сцене", "进入场景时 Mac 的其他声音会变安静", "進入場景時 Mac 的其他聲音會變安靜"),
     "Requires macOS 14.4 or later.": ("Требуется macOS 14.4 или новее.", "需要 macOS 14.4 或更高版本。", "需要 macOS 14.4 或更新版本。"),
     "Save": ("Сохранить", "保存", "儲存"),
     "Use these voices": ("Использовать эти голоса", "使用这些声音", "使用這些聲音"),

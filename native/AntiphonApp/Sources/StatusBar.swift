@@ -14,8 +14,11 @@ import Combine
 final class MenuBarController: NSObject {
     private var item: NSStatusItem?
     private var watching = true
+    private var sysLive = false
+    private var sysMode = "off"
     var onToggle: (() -> Void)?
     var onCheckUpdates: (() -> Void)?
+    var onSysMode: ((String) -> Void)?
     private var langSub: AnyCancellable?
 
     func install() {
@@ -36,6 +39,15 @@ final class MenuBarController: NSObject {
     func sync(_ on: Bool) {
         guard watching != on else { return }
         watching = on
+        refresh()
+    }
+
+    /// Reflect the system-audio tap: satellites appear beside the eye while we
+    /// are muting + re-emitting the Mac (that state must be visible somewhere).
+    func syncSysAudio(live: Bool, mode: String) {
+        guard sysLive != live || sysMode != mode else { return }
+        sysLive = live
+        sysMode = mode
         refresh()
     }
 
@@ -64,6 +76,22 @@ final class MenuBarController: NSObject {
         settings.target = self
         menu.addItem(settings)
         menu.addItem(.separator())
+
+        // the rest of the Mac: mode picker, mirrored from Settings
+        if #available(macOS 14.4, *) {
+            let head = NSMenuItem(title: L("The rest of your Mac"), action: nil, keyEquivalent: "")
+            head.isEnabled = false
+            menu.addItem(head)
+            for (tag, label) in [("off", L("As is")), ("deaden", L("Quieter")), ("spatial", L("In the room"))] {
+                let mi = NSMenuItem(title: label, action: #selector(pickSysMode(_:)), keyEquivalent: "")
+                mi.target = self
+                mi.representedObject = tag
+                mi.state = sysMode == tag ? .on : .off
+                mi.indentationLevel = 1
+                menu.addItem(mi)
+            }
+            menu.addItem(.separator())
+        }
 
         let docs = NSMenuItem(title: L("Antiphon Documentation"), action: #selector(openDocs), keyEquivalent: "")
         docs.target = self
@@ -96,15 +124,47 @@ final class MenuBarController: NSObject {
         if let u = URL(string: "https://antiphon.dev/docs/") { NSWorkspace.shared.open(u) }
     }
 
+    @objc private func pickSysMode(_ sender: NSMenuItem) {
+        if let mode = sender.representedObject as? String { onSysMode?(mode) }
+    }
+
     @objc private func quit() { NSApp.terminate(nil) }
 
     private func refresh() {
         guard let button = item?.button else { return }
         let name = watching ? "eye" : "eye.slash"
         let desc = watching ? L("Antiphon is watching") : L("Antiphon is asleep")
-        button.image = NSImage(systemSymbolName: name, accessibilityDescription: desc)
-        button.toolTip = watching
+        button.image = statusImage(symbol: name, description: desc)
+        var tip = watching
             ? L("Antiphon is watching — click to close its eyes (camera off, silent)")
             : L("Antiphon is asleep — click to wake it")
+        if sysLive {
+            tip += "\n" + (sysMode == "spatial"
+                ? L("The rest of your Mac is in the room")
+                : L("The rest of your Mac gets quieter in the scene"))
+        }
+        button.toolTip = tip
+    }
+
+    /// The eye — with two satellite dots (the virtual pair) while the system
+    /// tap is live. Template image, so it follows the menu-bar appearance.
+    private func statusImage(symbol: String, description: String) -> NSImage {
+        let base = NSImage(systemSymbolName: symbol, accessibilityDescription: description)!
+        guard sysLive else { return base }
+        let size = NSSize(width: 26, height: 18)
+        let img = NSImage(size: size)
+        img.lockFocus()
+        let b = base.size
+        base.draw(at: NSPoint(x: (size.width - b.width) / 2, y: (size.height - b.height) / 2),
+                  from: .zero, operation: .sourceOver, fraction: 1)
+        NSColor.black.set()
+        for x in [CGFloat(2.6), size.width - 2.6] {
+            NSBezierPath(ovalIn: NSRect(x: x - 1.7, y: size.height / 2 - 0.7,
+                                        width: 3.4, height: 3.4)).fill()
+        }
+        img.unlockFocus()
+        img.isTemplate = true
+        img.accessibilityDescription = description
+        return img
     }
 }

@@ -76,8 +76,21 @@ final class SystemAudioTap {
     private var scratchR = [Float](repeating: 0, count: 8192)
     private var rsOutL = [Float](repeating: 0, count: 9216)
     private var rsOutR = [Float](repeating: 0, count: 9216)
+    // device churn: default-output changes (AirPods, unplug, wake) invalidate
+    // the aggregate's clock and can change the tap's rate — rebuild on our own
+    // serial queue. The ring survives rebuilds, so pull() never notices.
+    private let rebuildQ = DispatchQueue(label: "dev.antiphon.systap.rebuild")
+    private var routeListener: AudioObjectPropertyListenerBlock?
+    private var dead = false
 
     init?() {
+        guard build() else { return nil }
+        installRouteListener()
+    }
+
+    /// Builds tap → aggregate → IOProc. `rebuildQ` (or init). Returns false on
+    /// permission denial or OS refusal.
+    private func build() -> Bool {
         // 1. Our own process object — excluded so we never capture our binaural
         //    output back into itself (feedback loop).
         var me = AudioObjectID(kAudioObjectUnknown)
@@ -90,7 +103,7 @@ final class SystemAudioTap {
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr,
                                          UInt32(MemoryLayout<pid_t>.size), &pid,
                                          &size, &me) == noErr,
-              me != kAudioObjectUnknown else { return nil }
+              me != kAudioObjectUnknown else { return false }
 
         // 2. The tap: stereo mixdown of everything else, muting the originals
         //    at the device. First creation fires the one-time TCC prompt.
@@ -99,7 +112,7 @@ final class SystemAudioTap {
         desc.isPrivate = true
         desc.name = "Antiphon system tap"
         guard AudioHardwareCreateProcessTap(desc, &tapID) == noErr,
-              tapID != kAudioObjectUnknown else { return nil }
+              tapID != kAudioObjectUnknown else { return false }
 
         // 3. A private aggregate containing the default output (for the clock)
         //    plus the tap; its IOProc's input buffers are the tapped audio.
@@ -118,7 +131,7 @@ final class SystemAudioTap {
         ]
         var agg = AudioObjectID(kAudioObjectUnknown)
         guard AudioHardwareCreateAggregateDevice(aggDesc as CFDictionary, &agg) == noErr else {
-            teardown(); return nil
+            teardownCore(); return false
         }
         aggID = agg
 
@@ -132,12 +145,34 @@ final class SystemAudioTap {
         }
         guard err == noErr, let proc = ioProc,
               AudioDeviceStart(aggID, proc) == noErr else {
-            teardown(); return nil
+            teardownCore(); return false
         }
         NSLog("[antiphon] system tap live (source %.0f Hz)", srcRate)
+        return true
+    }
+
+    /// Default-output route changes → rebuild the whole capture path. TCC is
+    /// already granted, so rebuilds never prompt.
+    private func installRouteListener() {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            guard let self, !self.dead else { return }
+            NSLog("[antiphon] output route changed — rebuilding system tap")
+            self.teardownCore()
+            usleep(200_000) // let the new route settle before re-tapping
+            if self.dead { return }
+            if !self.build() { NSLog("[antiphon] system tap rebuild failed") }
+        }
+        routeListener = block
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
+                                            &addr, rebuildQ, block)
     }
 
     deinit { teardown() }
+
 
     /// Render thread: fills exactly n frames of 48 kHz stereo, zero-filling on
     /// underrun (silence is the correct failure mode).
@@ -145,7 +180,23 @@ final class SystemAudioTap {
         ring.pop(L, R, n)
     }
 
+    /// Full stop: no more rebuilds, listener removed, Mac audio restored.
     func teardown() {
+        dead = true
+        if let block = routeListener {
+            var addr = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain)
+            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
+                                                   &addr, rebuildQ, block)
+            routeListener = nil
+        }
+        rebuildQ.sync { } // drain any in-flight rebuild
+        teardownCore()
+    }
+
+    private func teardownCore() {
         if let p = ioProc {
             AudioDeviceStop(aggID, p)
             AudioDeviceDestroyIOProcID(aggID, p)

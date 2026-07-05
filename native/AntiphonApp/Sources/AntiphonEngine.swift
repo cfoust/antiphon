@@ -357,6 +357,9 @@ final class AntiphonEngine: ObservableObject {
     /// macOS refused the tap (System Audio Recording denied) — the settings
     /// card shows the same recovery affordance as a denied camera.
     @Published var sysTapDenied = false
+    /// The tap is live (we are muting + re-emitting the Mac) — the menu-bar
+    /// icon must show this state.
+    @Published var sysLive = false
 
     private func now() -> Double { CFAbsoluteTimeGetCurrent() }
 
@@ -712,7 +715,7 @@ final class AntiphonEngine: ObservableObject {
             sysTapBox = tap
             sysPull = { [weak tap] l, r, n in tap?.pull(l, r, n) }
             sysOn = true
-            DispatchQueue.main.async { self.sysTapDenied = false }
+            DispatchQueue.main.async { self.sysTapDenied = false; self.sysLive = true }
         }
     }
 
@@ -723,6 +726,7 @@ final class AntiphonEngine: ObservableObject {
             tap.teardown()
         }
         sysTapBox = nil
+        DispatchQueue.main.async { self.sysLive = false }
     }
 
     /// Quit-path teardown — un-mutes the Mac immediately rather than waiting
