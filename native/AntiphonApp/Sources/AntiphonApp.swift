@@ -184,6 +184,10 @@ struct ContentView: View {
         }
         .frame(minWidth: 720, minHeight: 560)
         .preferredColorScheme(.dark)
+        // the menu-bar eye grows satellite dots while the system tap is live
+        .onReceive(engine.$sysLive.combineLatest(engine.$sysMode)) { live, mode in
+            menuBar.syncSysAudio(live: live, mode: mode)
+        }
         // the room exists (muted) from launch so live-bridge state — binds, narration,
         // done-summaries — accumulates correctly before the user clicks in
         .onAppear {
@@ -191,6 +195,7 @@ struct ContentView: View {
             menuBar.install()
             // menu-bar eye mirrors the in-window one; both flip watching
             menuBar.onToggle = { setWatching(!engine.watching) }
+            menuBar.onSysMode = { engine.setSystemAudio(mode: $0) }
             menuBar.onCheckUpdates = {
                 updates.check()
                 NotificationCenter.default.post(name: .init("antiphon.showSettings"), object: nil)
@@ -202,7 +207,7 @@ struct ContentView: View {
             // dev: straight into the room, no camera/onboarding (muted — enable() never runs)
             if dev.contains("live") { live = true }
             // dev: open settings (with "voices", onto that pane) for dump runs
-            if dev.contains("voices") {
+            if dev.contains("voices") || dev.contains("settings") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
                     NotificationCenter.default.post(name: .init("antiphon.showSettings"), object: nil)
                 }
