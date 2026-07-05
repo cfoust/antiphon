@@ -447,13 +447,18 @@ final class AntiphonEngine: ObservableObject {
                                         fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
         // the system-audio virtual pair: a hi-fi on a shelf at ±30°, head-tracked.
         // Modest send — wideband music excites the reverb tail far harder than speech.
+        // Each speaker is toed in at the listening position with a speaker-like
+        // pattern (0.7 ≈ cardioid-ish, HF beams harder on-axis; image sources
+        // mirror the facing per bounce, and the reverb send is diffuse-compensated
+        // in the engine, so the room's energy stays honest).
         sysSlotL = n + 1
         sysSlotR = n + 2
         for (slot, sign) in [(sysSlotL, Float(-1)), (sysSlotR, Float(1))] {
             inTable[slot] = UnsafePointer(inBufs[slot])
             srcArr[slot] = AntiphonSource(x: sign * sin(.pi / 6) * sysDist, y: 0,
                                          z: -cos(.pi / 6) * sysDist, gain: 0, send: voiceSend * 0.5,
-                                         fx: 0, fy: 0, fz: 0, directivity: 0, extent: 0)
+                                         fx: -sign * sin(.pi / 6), fy: 0, fz: cos(.pi / 6),
+                                         directivity: 0.7, extent: 0)
         }
         let ud0 = UserDefaults.standard
         if let m = ud0.string(forKey: "sysaudio.mode") { sysMode = m }
