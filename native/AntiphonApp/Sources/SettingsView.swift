@@ -207,7 +207,6 @@ private struct GeneralPane: View {
     @State private var fadeDelay = 0.6
     @State private var waitingCue = true
     @State private var sysMode = "off"
-    @State private var sysDist = 2.2
     @State private var sysPerm = "unknown"
 
     private var appVersion: String {
@@ -220,9 +219,7 @@ private struct GeneralPane: View {
                 fit = engine.freqScale
                 fadeDelay = engine.fadeDelay
                 waitingCue = engine.attentionCue
-                let ud = UserDefaults.standard
-                sysMode = ud.string(forKey: "sysaudio.mode") ?? "off"
-                sysDist = ud.object(forKey: "sysaudio.dist") != nil ? ud.double(forKey: "sysaudio.dist") : 2.2
+                sysMode = UserDefaults.standard.string(forKey: "sysaudio.mode") ?? "off"
             }
 
         card(L("Sound")) {
@@ -316,19 +313,6 @@ private struct GeneralPane: View {
                 .onReceive(engine.$sysMode) { sysMode = $0 }
                 .onReceive(engine.$sysPermission) { sysPerm = $0 }
                 .onAppear { engine.checkSystemAudioPermission() }
-                if sysMode == "spatial" {
-                    divider()
-                    labeledRow(L("Distance"), L("How far away the virtual pair sits")) {
-                        HStack(spacing: 8) {
-                            Slider(value: Binding(get: { sysDist },
-                                                  set: { sysDist = $0; engine.setSystemAudioDistance($0) }),
-                                   in: 1.0...3.0)
-                                .frame(width: 170)
-                            Text(String(format: "%.1f m", sysDist))
-                                .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
-                        }
-                    }
-                }
             } else {
                 Text(L("Requires macOS 14.4 or later."))
                     .font(.callout).foregroundStyle(SD.faint)

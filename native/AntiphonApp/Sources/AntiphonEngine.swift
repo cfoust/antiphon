@@ -347,7 +347,7 @@ final class AntiphonEngine: ObservableObject {
     private var sysPull: ((UnsafeMutablePointer<Float>, UnsafeMutablePointer<Float>, Int) -> Void)?
     private var sysOn = false          // render-thread gate (tap live)
     private var sysSpatial = false     // deaden (false) vs spatialize (true)
-    private var sysDist: Float = 2.2   // spatialize: virtual-pair distance (m)
+    private let sysDist: Float = 3.0   // spatialize: virtual-pair distance (m), fixed
     private var sysSlotL = 0, sysSlotR = 0
     private let sysDeadenLevel: Float = 0.22 // in-scene dry gain ≈ −13 dB
     private let sysGainSpatial: Float = 0.8  // placed-pair source gain
@@ -457,7 +457,6 @@ final class AntiphonEngine: ObservableObject {
         }
         let ud0 = UserDefaults.standard
         if let m = ud0.string(forKey: "sysaudio.mode") { sysMode = m }
-        if ud0.object(forKey: "sysaudio.dist") != nil { sysDist = Float(ud0.double(forKey: "sysaudio.dist")) }
         sysSpatial = sysMode == "spatial"
         renderer.setRoom(roomIndex)
         // Muted until the user enters the room (openRoom). setup() now runs at app
@@ -711,18 +710,6 @@ final class AntiphonEngine: ObservableObject {
                 // a mode was picked but the tap is down (fresh grant, or a
                 // revoke-then-regrant) — bring it up now
                 if ok, self.sysMode != "off", self.sysTapBox == nil { self.startSysTap() }
-            }
-        }
-    }
-
-    func setSystemAudioDistance(_ d: Double) {
-        UserDefaults.standard.set(d, forKey: "sysaudio.dist")
-        q.async {
-            self.sysDist = Float(max(1.0, min(3.0, d)))
-            guard self.started else { return }
-            for (slot, sign) in [(self.sysSlotL, Float(-1)), (self.sysSlotR, Float(1))] {
-                self.srcArr[slot].x = sign * sin(.pi / 6) * self.sysDist
-                self.srcArr[slot].z = -cos(.pi / 6) * self.sysDist
             }
         }
     }
