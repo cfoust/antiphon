@@ -22,7 +22,8 @@ const STATE = process.env.ANTIPHON_STATE ?? join(homedir(), ".antiphon")
 
 const NARRATION = `Narrate your work into the Antiphon (required): this session is monitored
 by ear — the user hears you as a voice in a virtual room. Call antiphon_task once when you
-begin something new (one short spoken headline). Call antiphon_progress BEFORE each meaningful
+begin something new (one short spoken headline; it also becomes this session's title in
+the room — call it in your first reply so your seat is never unnamed). Call antiphon_progress BEFORE each meaningful
 step — one short, plain, spoken sentence, every time you switch activity; conversational, no
 file paths or code. Call antiphon_done when the task is complete (a TWO-sentence spoken summary
 of what you did and the outcome). Call antiphon_blocked when you need the user (one clear
@@ -269,7 +270,7 @@ export default function antiphon(pi: any) {
       })
     } catch {}
   }
-  reg("antiphon_task", "task", "headline", "Announce the task you are starting.", "One short headline, spoken aloud.")
+  reg("antiphon_task", "task", "headline", "Announce the task you are starting; the headline also becomes this session's title in the room.", "One short headline, spoken aloud.")
   reg("antiphon_progress", "progress", "note", "Report what you are doing right now.", "A few words, present tense.")
   reg("antiphon_done", "done", "summary", "Report that you finished.", "1-2 spoken sentences summarizing the outcome.")
   reg("antiphon_blocked", "blocked", "question", "Ask the user a question you are blocked on.", "One clear question.")
