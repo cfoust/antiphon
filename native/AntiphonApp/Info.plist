@@ -24,5 +24,7 @@
   </array>
   <key>NSCameraUsageDescription</key>
   <string>Antiphon uses the camera for optional head tracking to keep voices world-locked as you turn.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Antiphon listens to what your Mac plays only to move it away from your agents' voices — everything is re-played through your headphones, and nothing is recorded.</string>
 </dict>
 </plist>

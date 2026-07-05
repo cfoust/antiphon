@@ -206,6 +206,9 @@ private struct GeneralPane: View {
     @State private var fit = 2.0
     @State private var fadeDelay = 0.6
     @State private var waitingCue = true
+    @State private var sysMode = "deaden"
+    @State private var sysDist = 2.2
+    @State private var sysDuck = true
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -217,6 +220,10 @@ private struct GeneralPane: View {
                 fit = engine.freqScale
                 fadeDelay = engine.fadeDelay
                 waitingCue = engine.attentionCue
+                let ud = UserDefaults.standard
+                sysMode = ud.string(forKey: "sysaudio.mode") ?? "deaden"
+                sysDist = ud.object(forKey: "sysaudio.dist") != nil ? ud.double(forKey: "sysaudio.dist") : 2.2
+                sysDuck = ud.object(forKey: "sysaudio.duck") != nil ? ud.bool(forKey: "sysaudio.duck") : true
             }
 
         card(L("Sound")) {
@@ -254,6 +261,47 @@ private struct GeneralPane: View {
                     Text(String(format: "%.1f s", fadeDelay))
                         .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
                 }
+            }
+        }
+
+        card(L("The rest of your Mac")) {
+            if #available(macOS 14.4, *) {
+                labeledRow(L("When the scene is in"),
+                           L("Everything else your Mac plays steps back — or joins the room as a virtual speaker pair")) {
+                    Picker("", selection: Binding(
+                        get: { sysMode },
+                        set: { sysMode = $0; engine.setSystemAudio(mode: $0) })) {
+                        Text(L("As is")).tag("off")
+                        Text(L("Quieter")).tag("deaden")
+                        Text(L("In the room")).tag("spatial")
+                    }
+                    .labelsHidden().pickerStyle(.segmented).frame(width: 260)
+                }
+                if sysMode == "spatial" {
+                    divider()
+                    labeledRow(L("Distance"), L("How far away the virtual pair sits")) {
+                        HStack(spacing: 8) {
+                            Slider(value: Binding(get: { sysDist },
+                                                  set: { sysDist = $0; engine.setSystemAudioDistance($0) }),
+                                   in: 1.0...3.0)
+                                .frame(width: 170)
+                            Text(String(format: "%.1f m", sysDist))
+                                .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
+                        }
+                    }
+                }
+                if sysMode != "off" {
+                    divider()
+                    labeledRow(L("Duck while an agent speaks"),
+                               L("Dip the Mac's audio a little whenever a voice is talking to you")) {
+                        Toggle("", isOn: Binding(get: { sysDuck },
+                                                 set: { sysDuck = $0; engine.setSystemAudioDuck($0) }))
+                            .labelsHidden().toggleStyle(.switch)
+                    }
+                }
+            } else {
+                Text(L("Requires macOS 14.4 or later."))
+                    .font(.callout).foregroundStyle(SD.faint)
             }
         }
 
