@@ -1,7 +1,7 @@
 {
   "name": "antiphon",
   "description": "Narrate this session into Antiphon, the spatial-audio agent monitor. Requires antiphond (protocol: plugins/README.md); silently inert when it isn't running.",
-  "version": "2026.7.4",
+  "version": "2026.7.6",
   "author": {
     "name": "Caleb Foust"
   }
