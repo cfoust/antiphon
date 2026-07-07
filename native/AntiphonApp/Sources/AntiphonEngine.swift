@@ -950,6 +950,24 @@ final class AntiphonEngine: ObservableObject {
         }
     }
 
+    /// A short, language-neutral confirmation chime through the audition slot —
+    /// the "close your eyes" onboarding beat rings it the instant the eyes are
+    /// first detected shut. Same ducking + immersion-hold as the spoken cues;
+    /// the D5→fifth gesture is the app's accept chime (see makeChime).
+    func auditionChime(bearingDeg: Double = 0) {
+        let chime = makeChime(587.33)
+        q.async {
+            guard self.started else { return }
+            let b = rad(bearingDeg)
+            self.srcArr[self.audSlot].x = Float(sin(b)) * self.radius
+            self.srcArr[self.audSlot].z = Float(-cos(b)) * self.radius
+            self.audStaged = chime
+            self.audStagedLoop = false
+            self.audTarget = 1
+            self.audTrig += 1
+        }
+    }
+
     // MARK: sidebar + radar interactions
 
     /// Snooze: the agent leaves the world (no dot, no sound) but keeps

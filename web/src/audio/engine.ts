@@ -427,6 +427,32 @@ export class Antiphon {
     });
   }
 
+  /** A short, language-neutral confirmation chime (root → its perfect fifth)
+   *  straight to the master — the "close your eyes" onboarding beat rings it the
+   *  instant the eyes shut. Mirrors the native engine's makeChime/auditionChime. */
+  chime(freq = 587.33): void {
+    const ctx = this.ctx;
+    const sr = ctx.sampleRate;
+    const n = Math.round(sr * 0.5);
+    const b = ctx.createBuffer(1, n, sr);
+    const y = b.getChannelData(0);
+    const f0 = freq;
+    const f1 = freq * Math.pow(2, 7 / 12);
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      let s = Math.sin(2 * Math.PI * f0 * t) * 0.34 * Math.exp(-t * 6);
+      if (t >= 0.1) {
+        const t2 = t - 0.1;
+        s += Math.sin(2 * Math.PI * f1 * t2) * 0.34 * Math.exp(-t2 * 6);
+      }
+      y[i] = s;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = b;
+    src.connect(this.master);
+    src.start();
+  }
+
   // ---- earcons ------------------------------------------------------------
   private schedulePing(id: string, idx: number): void {
     const N = this.nodes[id];

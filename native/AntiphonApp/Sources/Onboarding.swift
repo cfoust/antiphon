@@ -61,7 +61,7 @@ private struct PillButtonStyle: ButtonStyle {
 
 private func stepDots(_ current: Int) -> some View {
     HStack(spacing: 6) {
-        ForEach(1...2, id: \.self) { i in
+        ForEach(1...3, id: \.self) { i in
             Circle()
                 .fill(.white.opacity(i == current ? 0.85 : 0.22))
                 .frame(width: 6, height: 6)
@@ -156,11 +156,6 @@ struct WelcomeView: View {
                             Button(L("Start")) { onStart() }
                                 .buttonStyle(PillButtonStyle())
                                 .disabled(!tracker.faceFound)
-                            Button(L("Set up again")) { onSetUp() }
-                                .buttonStyle(.plain)
-                                .font(.system(size: 12.5))
-                                .foregroundStyle(AN.periwinkle)
-                                .padding(.top, 10)
                         } else {
                             Button(L("Continue")) { onSetUp() }
                                 .buttonStyle(PillButtonStyle())
@@ -365,5 +360,58 @@ struct FitStepView: View {
         // right when it sits out in front, so ahead IS the reference
         .onAppear { engine.onboardPlay("fit", loop: true, bearingDeg: 0) }
         .onDisappear { engine.onboardStop() }
+    }
+}
+
+// MARK: - step 3: close your eyes (the defining gesture — a ding confirms)
+
+/// The one thing the other beats never teach: closing your eyes IS how you
+/// listen — it fades the room in. We ask for it once, ring a confirmation chime
+/// the instant the tracker sees the eyes shut, then hand off straight into the
+/// armed, immersive room (eyes already closed → the scene fades up on cue).
+struct CloseEyesStepView: View {
+    @ObservedObject var tracker: FaceTracker
+    @ObservedObject var engine: AntiphonEngine
+    let onDone: () -> Void
+    @ObservedObject private var i18n = I18n.shared
+
+    @State private var confirmed = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            stepDots(3)
+            Image(systemName: confirmed ? "checkmark.circle" : "eye.slash")
+                .font(.system(size: 54, weight: .thin))
+                .foregroundStyle(confirmed ? Color(hex: "#5fd0c5") : .primary)
+                .animation(.easeOut(duration: 0.3), value: confirmed)
+            Text(confirmed
+                ? L("That's it. Eyes closed is how you listen.")
+                : L("Close your eyes — the room comes alive when you do."))
+                .font(.title3)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if !confirmed {
+                Button(L("Skip")) { finish() }
+                    .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .modifier(OnboardCard())
+        // spoken cue (bundled once tools/gen-onboarding-voices.py is re-run; silent until then)
+        .onAppear { engine.onboardPlay("close_eyes") }
+        .onDisappear { engine.onboardStop() }
+        // the tracker's debounced decision — auto-calibrated by now (open eyes on
+        // the prior beats). First committed close rings the ding and hands off.
+        .onReceive(tracker.$eyesClosed) { closed in
+            guard closed, !confirmed else { return }
+            confirmed = true
+            engine.onboardStop()   // release the spoken cue…
+            engine.auditionChime() // …and ring the ding
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { finish() }
+        }
+    }
+
+    private func finish() {
+        engine.onboardStop()
+        onDone()
     }
 }

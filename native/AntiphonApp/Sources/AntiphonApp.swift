@@ -57,7 +57,7 @@ struct ContentView: View {
     /// Onboarding: voice-guided calibration → fit. `.none` = the welcome
     /// screen (pre-live, camera choice included) or the antiphon itself (live).
     /// Recalibrate re-enters `.calibrate` alone.
-    private enum OnboardStep { case none, calibrate, fit }
+    private enum OnboardStep { case none, calibrate, fit, closeEyes }
     @State private var step: OnboardStep = .none
     @ObservedObject var updates: UpdateChecker
     @State private var menuBar = MenuBarController()
@@ -162,6 +162,10 @@ struct ContentView: View {
                 }
             case .fit:
                 FitStepView(engine: engine) {
+                    step = .closeEyes // the defining gesture comes last, right before the room
+                }
+            case .closeEyes:
+                CloseEyesStepView(tracker: tracker, engine: engine) {
                     engine.armImmersion() // eyes-closed presence IS the app
                     live = true
                     step = .none

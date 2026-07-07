@@ -14,7 +14,6 @@ export interface DemoStrings {
   enable: string;
   start: string;
   camNote: string;
-  recal: string;
   foot: string;
   // statuses
   startingAudio: string;
@@ -29,7 +28,6 @@ export interface DemoStrings {
   cameraDenied: string;
   noTracking: string;
   startWithout: string;
-  willSetupAgain: string;
   // calibration
   calLeft: string;
   calRight: string;
@@ -38,6 +36,10 @@ export interface DemoStrings {
   // fit
   fitTitle: string;
   fitSub: string;
+  // close your eyes
+  eyesPrompt: string;
+  eyesDone: string;
+  skip: string;
   // room UI
   sayPlaceholder: string;
   sayPlaceholderSeat: string;
@@ -57,7 +59,6 @@ export const DEMO: Record<Lang, DemoStrings> = {
     enable: "Enable camera & continue",
     start: "Start",
     camNote: "Turn your head to face agents. Video never leaves your device.",
-    recal: "Set up again",
     foot: "By Caleb Foust",
     startingAudio: "Starting audio…",
     cantStartAudio: "Couldn't start audio: ",
@@ -71,13 +72,15 @@ export const DEMO: Record<Lang, DemoStrings> = {
     cameraDenied: "Camera denied — starting without head tracking.",
     noTracking: "No head tracking — the room still works.",
     startWithout: "Start without head tracking",
-    willSetupAgain: "Will set up again on start",
     calLeft: "Turn your head all the way to the left… and hold still.",
     calRight: "Now all the way to the right… and hold still.",
     calDone: "Done. You're calibrated.",
     holdStill: "Hold still…",
     fitTitle: "Fit",
     fitSub: "Move the slider until my voice sits just ahead of you, out in the room.",
+    eyesPrompt: "Close your eyes — the room comes alive when you do.",
+    eyesDone: "That's it. Eyes closed is how you listen.",
+    skip: "Skip",
     sayPlaceholder: "Face an agent, then type to send…",
     sayPlaceholderSeat: "Type a message to this agent…",
     wakeTip: "Wake — back into the room",
@@ -102,7 +105,6 @@ export const DEMO: Record<Lang, DemoStrings> = {
     enable: "Включить камеру и продолжить",
     start: "Начать",
     camNote: "Поворачивайте голову к агентам. Видео не покидает ваше устройство.",
-    recal: "Настроить заново",
     foot: "Автор — Caleb Foust",
     startingAudio: "Запускаем звук…",
     cantStartAudio: "Не удалось запустить звук: ",
@@ -116,13 +118,15 @@ export const DEMO: Record<Lang, DemoStrings> = {
     cameraDenied: "Камера недоступна — начинаем без трекинга головы.",
     noTracking: "Трекинга головы нет — комната всё равно работает.",
     startWithout: "Начать без трекинга головы",
-    willSetupAgain: "Настройка запустится заново при старте",
     calLeft: "Поверните голову до упора влево… и замрите.",
     calRight: "Теперь до упора вправо… и замрите.",
     calDone: "Готово. Калибровка завершена.",
     holdStill: "Замрите…",
     fitTitle: "Подгонка",
     fitSub: "Двигайте ползунок, пока мой голос не окажется прямо перед вами, в глубине комнаты.",
+    eyesPrompt: "Закройте глаза — комната оживает, когда вы это делаете.",
+    eyesDone: "Вот так. С закрытыми глазами вы и слушаете.",
+    skip: "Пропустить",
     sayPlaceholder: "Повернитесь к агенту и напишите…",
     sayPlaceholderSeat: "Напишите сообщение этому агенту…",
     wakeTip: "Разбудить — вернуть в комнату",
@@ -147,7 +151,6 @@ export const DEMO: Record<Lang, DemoStrings> = {
     enable: "启用摄像头并继续",
     start: "开始",
     camNote: "转头面向智能体。视频不会离开你的设备。",
-    recal: "重新设置",
     foot: "作者：Caleb Foust",
     startingAudio: "正在启动音频……",
     cantStartAudio: "无法启动音频：",
@@ -161,13 +164,15 @@ export const DEMO: Record<Lang, DemoStrings> = {
     cameraDenied: "摄像头被拒绝——将在没有头部追踪的情况下开始。",
     noTracking: "没有头部追踪——房间照常工作。",
     startWithout: "在没有头部追踪的情况下开始",
-    willSetupAgain: "开始时将重新设置",
     calLeft: "把头一直转到最左边……保持不动。",
     calRight: "现在转到最右边……保持不动。",
     calDone: "好了，校准完成。",
     holdStill: "保持不动……",
     fitTitle: "适配",
     fitSub: "移动滑块，直到我的声音悬在你正前方的空间里。",
+    eyesPrompt: "闭上眼睛——当你闭眼时，房间便活了过来。",
+    eyesDone: "就是这样。闭着眼睛，就是你聆听的方式。",
+    skip: "跳过",
     sayPlaceholder: "面向一个智能体，然后输入发送……",
     sayPlaceholderSeat: "给这个智能体发一条消息……",
     wakeTip: "唤醒——回到房间",
@@ -192,7 +197,6 @@ export const DEMO: Record<Lang, DemoStrings> = {
     enable: "啟用攝影機並繼續",
     start: "開始",
     camNote: "轉頭面向智能體。影片不會離開你的裝置。",
-    recal: "重新設定",
     foot: "作者：Caleb Foust",
     startingAudio: "正在啟動音訊……",
     cantStartAudio: "無法啟動音訊：",
@@ -206,13 +210,15 @@ export const DEMO: Record<Lang, DemoStrings> = {
     cameraDenied: "攝影機被拒絕——將在沒有頭部追蹤的情況下開始。",
     noTracking: "沒有頭部追蹤——房間照常運作。",
     startWithout: "在沒有頭部追蹤的情況下開始",
-    willSetupAgain: "開始時將重新設定",
     calLeft: "把頭一直轉到最左邊……保持不動。",
     calRight: "現在轉到最右邊……保持不動。",
     calDone: "好了，校準完成。",
     holdStill: "保持不動……",
     fitTitle: "適配",
     fitSub: "移動滑塊，直到我的聲音懸在你正前方的空間裡。",
+    eyesPrompt: "閉上眼睛——當你閉眼時，房間便活了過來。",
+    eyesDone: "就是這樣。閉著眼睛，就是你聆聽的方式。",
+    skip: "跳過",
     sayPlaceholder: "面向一個智能體，然後輸入發送……",
     sayPlaceholderSeat: "給這個智能體發一則訊息……",
     wakeTip: "喚醒——回到房間",

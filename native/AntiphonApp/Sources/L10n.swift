@@ -123,7 +123,6 @@ private let TBL: [String: (String, String, String)] = [
     "Head tracking ready": ("Трекинг головы готов", "头部追踪已就绪", "頭部追蹤已就緒"),
     "Looking for your face…": ("Ищем ваше лицо…", "正在寻找你的面部…", "正在尋找你的臉部…"),
     "Recalibrate": ("Перекалибровать", "重新校准", "重新校準"),
-    "Set up again": ("Настроить заново", "重新设置", "重新設定"),
     "Debug tracking →": ("Отладка трекинга →", "追踪调试 →", "追蹤除錯 →"),
 
     // ---- onboarding (on-screen copy matches the spoken cues 1:1 —
@@ -147,6 +146,14 @@ private let TBL: [String: (String, String, String)] = [
         ("Настраивайте, пока мой голос не окажется прямо перед вами",
          "调节直到我的声音位于你的正前方",
          "調節直到我的聲音位於你的正前方"),
+    "Close your eyes — the room comes alive when you do.":
+        ("Закройте глаза — комната оживает, когда вы это делаете.",
+         "闭上眼睛——当你闭眼时，房间便活了过来。",
+         "閉上眼睛——當你閉眼時，房間便活了過來。"),
+    "That's it. Eyes closed is how you listen.":
+        ("Вот так. С закрытыми глазами вы и слушаете.",
+         "就是这样。闭着眼睛，就是你聆听的方式。",
+         "就是這樣。閉著眼睛，就是你聆聽的方式。"),
 
     // ---- main window ----
     "Wake": ("Разбудить", "唤醒", "喚醒"),

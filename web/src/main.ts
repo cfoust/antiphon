@@ -61,7 +61,6 @@ const welcome = $("welcome");
 const enableBtn = $<HTMLButtonElement>("enable");
 const startBtn = $<HTMLButtonElement>("start");
 const statusEl = $("status");
-const recalBtn = $<HTMLButtonElement>("recal");
 const calib = $("calib");
 const calArrow = $("calArrow");
 const calText = $("calText");
@@ -71,9 +70,10 @@ const fitStep = $("fitStep");
 const obFit = $<HTMLInputElement>("obFit");
 const obFitVal = $("obFitVal");
 const fitDoneBtn = $<HTMLButtonElement>("fitDone");
-const controls = $("controls");
-const fitSlider = $<HTMLInputElement>("fit");
-const fitVal = $("fitVal");
+const eyesStep = $("eyesStep");
+const eyesIcon = $("eyesIcon");
+const eyesText = $("eyesText");
+const eyesSkip = $<HTMLButtonElement>("eyesSkip");
 
 // ---- language: applied to every static string; switchable on the welcome ---
 function applyLang() {
@@ -84,13 +84,13 @@ function applyLang() {
   $("obNote").textContent = D.headphonesNote;
   enableBtn.textContent = D.enable;
   $("camNote").textContent = D.camNote;
-  recalBtn.textContent = D.recal;
   $("obFoot").textContent = D.foot;
   calText.textContent = D.calLeft;
   $("fitTitle").textContent = D.fitTitle;
   $("fitSub").textContent = D.fitSub;
   fitDoneBtn.textContent = D.continueLabel;
-  $("fitLabel").textContent = D.fitTitle;
+  eyesText.textContent = D.eyesPrompt;
+  eyesSkip.textContent = D.skip;
   const say = document.getElementById("sayText") as HTMLInputElement | null;
   if (say) say.placeholder = D.sayPlaceholder;
   document.querySelectorAll<HTMLButtonElement>(".ob-lang-btn").forEach((b) => {
@@ -134,11 +134,9 @@ onboard.addEventListener("pointerleave", () => {
 
 applyLang();
 
-// ---- HRTF "fit" (shared by the onboarding beat and the in-room pill) -------
+// ---- HRTF "fit" (the onboarding beat's slider) -----------------------------
 function showFit(v: number) {
   const s = v.toFixed(2);
-  fitSlider.value = String(v);
-  fitVal.textContent = s;
   obFit.value = String(v);
   obFitVal.textContent = s;
 }
@@ -148,7 +146,6 @@ function applyFit(v: number) {
   localStorage.setItem(FIT_KEY, String(v));
 }
 showFit(engine.fit);
-fitSlider.oninput = () => applyFit(parseFloat(fitSlider.value));
 obFit.oninput = () => applyFit(parseFloat(obFit.value));
 
 type Clips = {
@@ -156,6 +153,7 @@ type Clips = {
   right: AudioBuffer | null;
   done: AudioBuffer | null;
   fit: AudioBuffer | null;
+  eyes: AudioBuffer | null;
 };
 let clips: Clips | null = null;
 
@@ -170,15 +168,7 @@ function revealStart(label: string) {
   startReady = true;
   startBtn.textContent = label;
   startBtn.hidden = false;
-  recalBtn.hidden = loadCal() === null; // only offered once a calibration exists
 }
-
-recalBtn.onclick = () => {
-  localStorage.removeItem(CAL_KEY);
-  localStorage.removeItem(ONBOARD_KEY); // redo Fit too — the full setup
-  recalBtn.hidden = true;
-  setStatus(D.willSetupAgain, "ok");
-};
 
 // Beat 1 — one gesture: spin up audio, request camera, load model + clips.
 enableBtn.onclick = async () => {
@@ -202,8 +192,9 @@ enableBtn.onclick = async () => {
     clip(`audio/cal_right.${lang}.mp3`),
     clip(`audio/cal_done.${lang}.mp3`),
     clip(`audio/fit.${lang}.mp3`),
-  ]).then(([left, right, done, fit]) => {
-    clips = { left, right, done, fit };
+    clip(`audio/close_eyes.${lang}.mp3`), // best effort — silent until voices are regenerated
+  ]).then(([left, right, done, fit, eyes]) => {
+    clips = { left, right, done, fit, eyes };
   });
   try {
     setStatus(D.requestingCamera);
@@ -243,11 +234,14 @@ startBtn.onclick = async () => {
     else await runCalibration();
     tracker.attach(engine); // go live with the calibration
   }
-  if (!localStorage.getItem(ONBOARD_KEY)) await runFit();
+  if (!localStorage.getItem(ONBOARD_KEY)) {
+    await runFit();
+    if (tracking) await runCloseEyes(); // the defining gesture — needs the eye tracker
+    localStorage.setItem(ONBOARD_KEY, "1");
+  }
 
   onboard.classList.add("gone");
-  controls.hidden = false; // reveal the Fit pill once the experience is live
-  agentList.hidden = false; // …and the room list
+  agentList.hidden = false; // reveal the room list once the experience is live
   if (LIVE) {
     const { connectLive } = await import("./live/bridge");
     connectLive(engine); // agents driven by a real Claude Code session
@@ -346,11 +340,47 @@ async function runCalibration() {
 async function runFit() {
   fitStep.hidden = false;
   showFit(engine.fit);
+  // the guide voice loops from straight ahead the whole step — the fit is right
+  // when it sits out in front, so ahead IS the reference (mirrors FitStepView)
   if (clips?.fit) engine.startFitVoice(clips.fit);
   await new Promise<void>((res) => {
     fitDoneBtn.onclick = () => res();
   });
   engine.stopFitVoice();
   fitStep.hidden = true;
-  localStorage.setItem(ONBOARD_KEY, "1");
+}
+
+// ---- beat 4: close your eyes -----------------------------------------------
+// The one gesture the other beats never teach: closing your eyes IS how you
+// listen — it fades the room in. Ask once, ring a confirmation chime the instant
+// the tracker sees the eyes shut, then hand off into the room (still eyes-closed,
+// so the scene comes up on cue). A Skip guards against a tracker that never fires.
+async function runCloseEyes() {
+  eyesStep.hidden = false;
+  eyesIcon.textContent = "◡ ◡";
+  eyesText.textContent = D.eyesPrompt;
+  if (clips?.eyes) void engine.playClip(clips.eyes); // spoken cue, if bundled
+  await new Promise<void>((res) => {
+    let settled = false;
+    eyesSkip.onclick = () => {
+      if (settled) return;
+      settled = true;
+      res();
+    };
+    const step = () => {
+      if (settled) return;
+      if (tracker.eyesClosed) {
+        settled = true; // stop polling; hold the confirm beat, then resolve
+        engine.chime();
+        eyesIcon.textContent = "✓";
+        eyesText.textContent = D.eyesDone;
+        setTimeout(res, 1400);
+        return;
+      }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+  eyesSkip.onclick = null;
+  eyesStep.hidden = true;
 }

@@ -204,6 +204,7 @@ private struct GeneralPane: View {
     @ObservedObject private var i18n = I18n.shared
     @State private var loginItem = SMAppService.mainApp.status == .enabled
     @State private var fit = 2.0
+    @State private var fitting = false // true only while a real drag is moving the Fit slider
     @State private var fadeDelay = 0.6
     @State private var waitingCue = true
     @State private var sysMode = "off"
@@ -225,21 +226,30 @@ private struct GeneralPane: View {
             }
 
         card(L("Sound")) {
-            // hovering the row takes over the room: the guide voice loops from
-            // straight ahead until it sits truly out in front of you
+            // dragging the slider takes over the room: the guide voice loops from
+            // straight ahead until it sits truly out in front of you. It plays only
+            // WHILE you drag (a real value move) — never on hover — and lets go on
+            // release (macOS fires a Slider's onEditingChanged even on hover, so the
+            // start is gated on the value actually moving, not on that callback).
             labeledRow(L("Fit"), L("Adjust until my voice sits straight ahead of you")) {
                 HStack(spacing: 8) {
                     Slider(value: Binding(get: { fit },
-                                          set: { fit = $0; engine.setFreqScale($0) }), in: 0.7...2.2)
+                                          set: { v in
+                                              fit = v; engine.setFreqScale(v)
+                                              if !fitting {
+                                                  fitting = true
+                                                  engine.onboardPlay("fit", loop: true, bearingDeg: 0)
+                                              }
+                                          }), in: 0.7...2.2,
+                           onEditingChanged: { editing in
+                               if !editing { fitting = false; engine.onboardStop() }
+                           })
                         .frame(width: 170)
                     Text(String(format: "%.2f", fit))
                         .font(.caption.monospacedDigit()).foregroundStyle(SD.sub)
                 }
             }
-            .onHover { over in
-                if over { engine.onboardPlay("fit", loop: true, bearingDeg: 0) }
-                else { engine.onboardStop() }
-            }
+            .onDisappear { fitting = false; engine.onboardStop() } // never leave the loop running
         }
 
         card(L("Immersion")) {

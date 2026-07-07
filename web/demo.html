@@ -17,13 +17,6 @@
 <!-- everyone in the room, at a glance (right rail on desktop, bottom sheet on phones) -->
 <aside id="agentList" class="agents" hidden></aside>
 
-<!-- HRTF "fit": dial until a source straight ahead sits OUT in front at ear level. Hidden until the experience starts. -->
-<div id="controls" class="controls" hidden>
-  <label class="ctl" for="fit" id="fitLabel">Fit</label>
-  <input id="fit" class="ctl-range" type="range" min="0.7" max="2.2" step="0.01" value="2.0" />
-  <span id="fitVal" class="ctl-val">2.00</span>
-</div>
-
 <!-- live mode only: type to the agent you're facing. The demo never shows this — no talk-back. -->
 <form id="say" class="say" hidden>
   <input id="sayText" class="say-input" type="text" autocomplete="off"
@@ -48,14 +41,13 @@
     <button id="start" class="pill" hidden>Start</button>
     <p class="ob-note" id="camNote">Turn your head to face agents. Video never leaves your device.</p>
     <div id="status" class="ob-status"></div>
-    <button id="recal" class="ob-link" hidden>Set up again</button>
     <div class="ob-langs" id="obLangs" role="group" aria-label="Language"></div>
     <div class="ob-foot" id="obFoot">By Caleb Foust</div>
   </section>
 
   <!-- beat 2: calibration (voice-guided, hold-still locks) -->
   <section id="calib" class="ob-card" hidden>
-    <div class="ob-dots"><span class="on"></span><span></span></div>
+    <div class="ob-dots"><span class="on"></span><span></span><span></span></div>
     <div id="calArrow" class="cal-arrow">←</div>
     <div id="calText" class="cal-text">Turn your head all the way to the left… and hold still.</div>
     <div class="cal-hold"><div id="calHold"></div></div>
@@ -64,7 +56,7 @@
 
   <!-- beat 3: fit (slider + guide voice looping from straight ahead) -->
   <section id="fitStep" class="ob-card" hidden>
-    <div class="ob-dots"><span></span><span class="on"></span></div>
+    <div class="ob-dots"><span></span><span class="on"></span><span></span></div>
     <h2 class="ob-h2" id="fitTitle">Fit</h2>
     <p class="ob-sub" id="fitSub">Move the slider until my voice sits just ahead of you, out in the room.</p>
     <div class="fit-row">
@@ -72,6 +64,14 @@
       <span id="obFitVal">2.00</span>
     </div>
     <button id="fitDone" class="pill">Continue</button>
+  </section>
+
+  <!-- beat 4: close your eyes (the defining gesture — a ding confirms) -->
+  <section id="eyesStep" class="ob-card" hidden>
+    <div class="ob-dots"><span></span><span></span><span class="on"></span></div>
+    <div id="eyesIcon" class="cal-arrow">◡ ◡</div>
+    <div id="eyesText" class="cal-text">Close your eyes — the room comes alive when you do.</div>
+    <button id="eyesSkip" class="ob-link">Skip</button>
   </section>
 </div>
 
