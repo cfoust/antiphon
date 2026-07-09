@@ -389,6 +389,36 @@ final class AntiphonEngine: ObservableObject {
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.shutdownSystemAudio() }
+        // The output device can change under us — Bluetooth reconnect, unplug,
+        // wake. AVAudioEngine reacts by STOPPING itself and macOS requires a
+        // manual restart. This is critical while the system tap is live: the tap
+        // re-mutes every app at the NEW device (its own route listener rebuilds),
+        // so if our engine stayed down the passthrough'd system audio would have
+        // no path to the headphones — dead silence. We just have to come back up.
+        NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in self?.restartEngineAfterRouteChange() }
+    }
+
+    /// AVAudioEngine stops itself on an output-device change; bring it back so the
+    /// room — and the system-audio re-emit — survive a headphone reconnect. The
+    /// notification fires once the new route settles, but a first start can still
+    /// race a device that isn't quite ready, so retry once.
+    private func restartEngineAfterRouteChange(retry: Bool = true) {
+        guard started, !engine.isRunning else { return }
+        do {
+            try engine.start()
+            outputLatencyMs = engine.outputNode.presentationLatency * 1000
+            if outputLatencyMs <= 0 { outputLatencyMs = 10 }
+            NSLog("[antiphon] output route changed — engine restarted")
+        } catch {
+            NSLog("[antiphon] engine restart after route change failed: \(error)")
+            if retry {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.restartEngineAfterRouteChange(retry: false)
+                }
+            }
+        }
     }
 
     func setup() {
